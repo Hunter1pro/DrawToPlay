@@ -99,6 +99,11 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>Rebuild the mesh from the asset. Safe to call repeatedly.</summary>
+        /// <summary>Raised after every Regenerate — derived consumers (physics, skinning)
+        /// rebuild from the new geometry here. The editor tools funnel every sculpt gesture
+        /// through Regenerate, so subscribing gives live regen-on-sculpt for free.</summary>
+        public event System.Action geometryChanged;
+
         public void Regenerate()
         {
             if (!EnsureComponents())
@@ -113,6 +118,7 @@ namespace PowerOfFire.DrawToPlay
             if (m_MeshFilter.sharedMesh != mesh)
                 m_MeshFilter.sharedMesh = mesh;
             EnsureMaterials();
+            geometryChanged?.Invoke();
         }
 
         /// <summary>Replace the outline with a fitted curve and regenerate — port of

@@ -35,7 +35,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private readonly List<Vector2> m_StrokePoints = new List<Vector2>();
 
-        private DrawnShapeRenderer m_Target;
+        private DrawnShapeRenderer m_ActiveShape;
         private Matrix4x4 m_ShapeToWorld = Matrix4x4.identity;
         private Matrix4x4 m_WorldToShape = Matrix4x4.identity;
         private Vector3 m_PlaneOrigin = Vector3.zero;
@@ -142,8 +142,8 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void BeginGesture(Event currentEvent)
         {
-            m_Target = ResolveTarget();
-            CacheShapeSpace(m_Target);
+            m_ActiveShape = ResolveTarget();
+            CacheShapeSpace(m_ActiveShape);
 
             var mode = DrawToolSettings.shapeMode;
 
@@ -301,7 +301,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             // Nothing selected: the first stroke ever becomes a brand new shape (Godot always
             // has a `_target`; here an empty selection takes the same spawn path).
-            if (m_Target == null)
+            if (m_ActiveShape == null)
             {
                 if (m_Subtract)
                     return;
@@ -309,7 +309,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             }
 
-            var asset = m_Target.asset;
+            var asset = m_ActiveShape.asset;
             var existing = asset != null ? asset.curve : null;
             var bakeInterval = asset != null ? asset.bakeInterval : k_DefaultBakeInterval;
 
@@ -335,12 +335,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                     if (result.curve == null || result.curve.pointCount < 3)
                         return;
                     var group = BeginUndoGroup("Punch Hole");
-                    var holeAsset = EnsureAsset(m_Target);
+                    var holeAsset = EnsureAsset(m_ActiveShape);
                     if (holeAsset == null)
                         return;
                     Undo.RecordObject(holeAsset, "Punch Hole");
-                    Undo.RecordObject(m_Target, "Punch Hole");
-                    m_Target.AddHole(result.curve);
+                    Undo.RecordObject(m_ActiveShape, "Punch Hole");
+                    m_ActiveShape.AddHole(result.curve);
                     EditorUtility.SetDirty(holeAsset);
                     Undo.CollapseUndoOperations(group);
                     return;
@@ -351,12 +351,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 case DrawKit.StrokeOp.Cleared:
                 {
                     var group = BeginUndoGroup("Carve Terrain");
-                    var clearedAsset = EnsureAsset(m_Target);
+                    var clearedAsset = EnsureAsset(m_ActiveShape);
                     if (clearedAsset == null)
                         return;
                     Undo.RecordObject(clearedAsset, "Carve Terrain");
-                    Undo.RecordObject(m_Target, "Carve Terrain");
-                    m_Target.ClearGeometry();
+                    Undo.RecordObject(m_ActiveShape, "Carve Terrain");
+                    m_ActiveShape.ClearGeometry();
                     EditorUtility.SetDirty(clearedAsset);
                     Undo.CollapseUndoOperations(group);
                     return;
@@ -369,12 +369,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                         return;
                     var name = m_Subtract ? "Carve Terrain" : "Draw Terrain";
                     var group = BeginUndoGroup(name);
-                    var targetAsset = EnsureAsset(m_Target);
+                    var targetAsset = EnsureAsset(m_ActiveShape);
                     if (targetAsset == null)
                         return;
                     Undo.RecordObject(targetAsset, name);
-                    Undo.RecordObject(m_Target, name);
-                    m_Target.AdoptCurve(result.curve);
+                    Undo.RecordObject(m_ActiveShape, name);
+                    m_ActiveShape.AdoptCurve(result.curve);
                     EditorUtility.SetDirty(targetAsset);
                     Undo.CollapseUndoOperations(group);
                     return;
@@ -397,7 +397,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             var group = BeginUndoGroup("Draw New Shape");
 
             var centroid = DrawKit.RecenterCurve(fitted);
-            var source = m_Target != null ? m_Target.transform : null;
+            var source = m_ActiveShape != null ? m_ActiveShape.transform : null;
 
             var go = new GameObject(source != null ? source.name : "Drawn Shape");
             StageUtility.PlaceGameObjectInCurrentStage(go);
@@ -418,7 +418,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             Undo.RegisterCreatedObjectUndo(go, "Draw New Shape");
 
             var renderer = go.AddComponent<DrawnShapeRenderer>();
-            var asset = CreateShapeAsset(m_Target != null ? m_Target.asset : null);
+            var asset = CreateShapeAsset(m_ActiveShape != null ? m_ActiveShape.asset : null);
             if (asset.curve == null)
                 asset.curve = new DrawnCurve();
             asset.curve.CopyFrom(fitted);
@@ -542,7 +542,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// (world space when nothing is selected, ready for a later spawn).</summary>
         private void CacheShapeSpace(DrawnShapeRenderer renderer)
         {
-            m_Target = renderer;
+            m_ActiveShape = renderer;
             if (renderer != null)
             {
                 var transform = renderer.transform;
