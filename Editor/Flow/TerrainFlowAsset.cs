@@ -6,14 +6,17 @@ namespace PowerOfFire.DrawToPlay.Editor
 {
     /// <summary>
     /// The built-in Terrain <see cref="FlowDefinition"/> (draw-tool-port-brief.md §6.4:
-    /// Sculpt → Paint → Decorate → Collision → Gameplay). M1 ships the two tabs whose tools
-    /// exist — Sculpt and Collision; Paint/Decorate/Gameplay arrive with M2 and later and are
-    /// added by appending stages to the asset, not by touching window code.
+    /// Sculpt → Paint → Decorate → Collision → Gameplay). M1 shipped the two tabs whose tools
+    /// existed (Sculpt, Collision); M2 completes the flow by adding Paint and Decorate — whose
+    /// tools now exist — plus a toolless Gameplay stub, exactly as predicted: by appending
+    /// stages to the asset, never by touching window code.
     ///
     /// The asset is created on demand (menu item or the button in an empty
     /// <see cref="FlowWindow"/>) so merely having the code in the project never writes files.
     /// Once it exists it is a normal asset: edit the checklists in the Inspector, they are
-    /// data.
+    /// data. A flow written by an earlier milestone is upgraded in place — missing built-in
+    /// stages are inserted in canonical order and nothing already in the asset is rewritten,
+    /// so edited checklists survive.
     /// </summary>
     internal static class TerrainFlowAsset
     {
@@ -32,10 +35,19 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>The Terrain flow asset if it is already in the project, else null. Used by
-        /// the window to auto-load without ever creating files behind the user's back.</summary>
+        /// the window to auto-load without ever creating files behind the user's back. An asset
+        /// authored by an earlier milestone gains the built-in stages it is missing (additive
+        /// only — see <see cref="EnsureStages"/>).</summary>
         internal static FlowDefinition LoadIfPresent()
         {
-            return AssetDatabase.LoadAssetAtPath<FlowDefinition>(TerrainFlowPath);
+            var asset = AssetDatabase.LoadAssetAtPath<FlowDefinition>(TerrainFlowPath);
+            if (asset != null && EnsureStages(asset))
+            {
+                EditorUtility.SetDirty(asset);
+                AssetDatabase.SaveAssets();
+            }
+
+            return asset;
         }
 
         /// <summary>Load the Terrain flow, creating it (folders included) the first time.
@@ -60,7 +72,8 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         // --- content ----------------------------------------------------------------------
 
-        /// <summary>M1 scope: exactly the two stages whose tooling exists.</summary>
+        /// <summary>The full §6.4 stage order: Sculpt → Paint → Decorate → Collision → Gameplay.
+        /// Every stage but Gameplay has a tool behind it as of M2.</summary>
         private static List<FlowStage> BuildStages()
         {
             return new List<FlowStage>
@@ -82,6 +95,55 @@ namespace PowerOfFire.DrawToPlay.Editor
                         "Force New (Draw overlay) makes every stroke its own blob instead of merging.",
                         "A stroke that misses the selected blob spawns a new sibling that inherits its style.",
                         "Done when at least one blob has geometry."
+                    }
+                },
+                new FlowStage
+                {
+                    id = FlowValidators.TerrainPaintStageId,
+                    title = "Paint",
+                    toolTypeName = typeof(PaintShapeTool).FullName,
+                    description =
+                        "Three-slot texture brush with feathered blending. The mask is an RGBA " +
+                        "image stored on the blob's asset: R/G/B are the weights of texture " +
+                        "slots 1-3, A is paint coverage. Brush-over-the-edge sculpting stays on, " +
+                        "so painting past the outline can also reshape it.",
+                    checklist = new List<string>
+                    {
+                        "Add Paint (Draw-to-Play overlay) gives the selected blob a ShapePaint component.",
+                        "Assign Paint Texture 2 (and optionally 3) on the blob's DrawnShapeAsset — " +
+                        "slot 1 is the existing fill texture/colour.",
+                        "Pick a slot (1/2/3) in the Paint section, then drag with LMB to paint it in.",
+                        "Shift-drag erases: it lowers coverage only, it never repaints a slot.",
+                        "[ and ] shrink / grow the brush (Godot's ±2 px, clamped to 0.015625..4 wu).",
+                        "Softness feathers the brush edge; a soft edge is what blends two materials.",
+                        "Each stroke is one undo step — the mask and any edge sculpting revert together.",
+                        "Done when a blob carries a painted mask and at least one extra paint texture."
+                    }
+                },
+                new FlowStage
+                {
+                    id = FlowValidators.TerrainDecorateStageId,
+                    title = "Decorate",
+                    toolTypeName = typeof(StampTool).FullName,
+                    description =
+                        "Scatter stamps over the terrain. Stamps are prefab-aware (§6.4.3): a " +
+                        "stamped lantern brings its own light and body, because the stamp IS the " +
+                        "prefab. Plain textures work too and become a GameObject with a " +
+                        "SpriteRenderer.",
+                    checklist = new List<string>
+                    {
+                        "Point the Stamps overlay at a folder (default Assets/DrawToPlay/Stamps) " +
+                        "and press Rescan — textures and prefabs both show up in the grid.",
+                        "Click a thumbnail to arm it; clicking it again disarms. Only one stamp is " +
+                        "ever armed, and arming switches you to the Stamp tool.",
+                        "Drag with LMB to scatter: one copy per Spacing world units along the drag.",
+                        "Random Flip mirrors about half the copies; Scale Min/Max sets the uniform " +
+                        "random size. Placement jitter is fixed at ± Spacing * 0.2.",
+                        "Stamps parent under the SELECTED drawn shape, so moving the blob moves its " +
+                        "decoration. With nothing selected they land at the scene root.",
+                        "One drag = one undo step, named for the number of stamps it placed.",
+                        "Esc disarms the stamp.",
+                        "Done when at least one stamp has been scattered into the scene."
                     }
                 },
                 new FlowStage
@@ -112,8 +174,80 @@ namespace PowerOfFire.DrawToPlay.Editor
                         "Surface categories (ground / wall / one-way / water) are a later milestone.",
                         "Done when every blob with geometry has a TerrainBlob."
                     }
+                },
+                new FlowStage
+                {
+                    id = FlowValidators.TerrainGameplayStageId,
+                    title = "Gameplay",
+                    // No tool and no validator: the stage exists so the flow reads as the
+                    // complete §6.4 pipeline instead of stopping at Collision.
+                    toolTypeName = string.Empty,
+                    description =
+                        "Spawn markers, zones and room metadata (§6.4.5). Nothing here is built " +
+                        "yet — the tab is a placeholder so the terrain pipeline reads end to end, " +
+                        "and it carries no badge because no validator claims the stage.",
+                    checklist = new List<string>
+                    {
+                        "spawn markers / zones — future milestone.",
+                        "Planned: player start, exits, room/zone ScriptableObjects (ports of " +
+                        "room_def / zone_rules / level_node_def).",
+                        "Planned: this is where the procgen graph tooling lands."
+                    }
                 }
             };
+        }
+
+        /// <summary>Add any built-in stage the asset does not have yet, in canonical order, and
+        /// report whether anything changed. Purely additive: an existing stage object is never
+        /// replaced, so checklists the user edited (and any stage they added themselves) survive.
+        /// A new stage is inserted immediately after the nearest earlier canonical stage that IS
+        /// present, which is what keeps Paint/Decorate landing between Sculpt and Collision on an
+        /// M1-era asset.</summary>
+        private static bool EnsureStages(FlowDefinition asset)
+        {
+            if (asset == null)
+                return false;
+
+            if (asset.stages == null)
+                asset.stages = new List<FlowStage>();
+
+            var canonical = BuildStages();
+            var changed = false;
+
+            for (var i = 0; i < canonical.Count; ++i)
+            {
+                if (IndexOfStage(asset.stages, canonical[i].id) >= 0)
+                    continue;
+
+                var insertAt = asset.stages.Count;
+                for (var j = i - 1; j >= 0; --j)
+                {
+                    var anchor = IndexOfStage(asset.stages, canonical[j].id);
+                    if (anchor < 0)
+                        continue;
+                    insertAt = anchor + 1;
+                    break;
+                }
+
+                asset.stages.Insert(insertAt, canonical[i]);
+                changed = true;
+            }
+
+            return changed;
+        }
+
+        private static int IndexOfStage(List<FlowStage> stages, string id)
+        {
+            if (stages == null || string.IsNullOrEmpty(id))
+                return -1;
+
+            for (var i = 0; i < stages.Count; ++i)
+            {
+                if (stages[i] != null && string.Equals(stages[i].id, id, System.StringComparison.Ordinal))
+                    return i;
+            }
+
+            return -1;
         }
 
         // --- assets -----------------------------------------------------------------------

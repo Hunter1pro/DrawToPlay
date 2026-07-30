@@ -35,6 +35,23 @@ namespace PowerOfFire.DrawToPlay
         public float edgeNoiseWavelength = 0.4f;
         public int edgeNoiseSeed = 7;
 
+        [Header("Paint (texture-override brush)")]
+        public Texture2D paintTexture2;
+        public Texture2D paintTexture3;
+        /// <summary>Brush strokes crossing the outline also sculpt it (stroke capsule
+        /// union/carve) — curve_shape_2d.gd paint_sculpts_edges.</summary>
+        public bool paintSculptsEdges = true;
+        /// <summary>Mask pixels per world unit — Godot paint_resolution 4 px/px × 32.</summary>
+        public float maskResolution = 128f;
+        [Range(0.015625f, 4f)] public float brushRadius = 0.1f;
+        [Range(0f, 1f)] public float brushSoftness = 0.5f;
+        /// <summary>Painted weight mask as PNG bytes (RGB = texture slots 1-3 weights,
+        /// A = feathered presence) + its local-space rect. The undo snapshot unit,
+        /// exactly like Godot mask_png/mask_rect. Managed by ShapePaint — hand-editing
+        /// serialized bytes is never intended.</summary>
+        [HideInInspector] public byte[] maskPng = System.Array.Empty<byte>();
+        [HideInInspector] public Rect maskRect;
+
         [Header("Depth")]
         [Range(0f, 1f)] public float fillShade = 0f;
         public Color shadowColor = new Color(0f, 0f, 0f, 0f);

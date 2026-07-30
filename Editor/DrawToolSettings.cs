@@ -79,10 +79,85 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Rotation snap when Shift is held (_move_input line 263 snaps 15°).</summary>
         public const float RotationSnapDegrees = 15f;
 
+        // --- Paint brush constants (M2) ---------------------------------------------------
+
+        /// <summary>Texture slots the brush can target — Godot `_tex_opt` ("Tex 1/2/3"), i.e.
+        /// mask channels R/G/B.</summary>
+        public const int PaintSlotCount = 3;
+
+        /// <summary>Bracket-key step — `_set_radius(brush_radius ± 2.0)` in _brush_input.</summary>
+        public const float BrushRadiusStepPixels = 2f;
+
+        /// <summary>Radius clamp — `clampf(r, 0.5, 128.0)` in _set_radius. Matches the Range on
+        /// <see cref="DrawnShapeAsset.brushRadius"/> (0.015625 .. 4 world units).</summary>
+        public const float BrushRadiusMinPixels = 0.5f;
+        public const float BrushRadiusMaxPixels = 128f;
+
+        /// <summary>Brush ring floor — `maxf(brush_radius * zoom, 2.0)` in the cursor drawing.</summary>
+        public const float BrushCursorMinPixels = 2f;
+
+        /// <summary>Stroke-capsule fit tolerance — `cap_tol := clampf(3.0 / zoom, 0.1, 2.5)` in
+        /// _brush_input line 912. The clamp is TIGHTER than the draw tool's [0.1, 6] px so a
+        /// zoomed-out brush cannot simplify the outline it sculpts.</summary>
+        public const float CapsuleFitTolerancePixels = 3f;
+        public const float CapsuleToleranceMinPixels = 0.1f;
+        public const float CapsuleToleranceMaxPixels = 2.5f;
+
+        /// <summary>Smoothing passes for the fitted capsule — Godot `fit_curve(capsule, true,
+        /// cap_tol, 1)` (line 915).</summary>
+        public const int CapsuleSmoothPasses = 1;
+
+        /// <summary>Alpha of the live stroke footprint drawn under the brush (`Color(col, 0.22)`
+        /// in _forward_canvas_draw_over_viewport line 855).</summary>
+        public const float BrushTrailAlpha = 0.22f;
+
+        /// <summary>Erase cursor colour — `Color(1.0, 0.35, 0.3, 0.95)` (line 846).</summary>
+        public static readonly Color EraseBrushColor = new Color(1f, 0.35f, 0.3f, 0.95f);
+
+        /// <summary>Cursor colour per texture slot. Godot draws the painting brush green
+        /// unconditionally; here each slot gets a soft tint of its mask channel (R/G/B) so the
+        /// armed slot is readable straight from the cursor. Slot 1 is amber rather than red so
+        /// it never reads as "erasing".</summary>
+        private static readonly Color[] s_PaintChannelColors =
+        {
+            new Color(1f, 0.72f, 0.35f, 0.95f),
+            new Color(0.45f, 1f, 0.55f, 0.95f),
+            new Color(0.45f, 0.75f, 1f, 0.95f)
+        };
+
+        /// <summary>Bracket-key step in world units (2 Godot px).</summary>
+        public static float BrushRadiusStep => BrushRadiusStepPixels * FallbackWorldPerPixel;
+
+        /// <summary>Brush radius clamp in world units.</summary>
+        public static float BrushRadiusMin => BrushRadiusMinPixels * FallbackWorldPerPixel;
+        public static float BrushRadiusMax => BrushRadiusMaxPixels * FallbackWorldPerPixel;
+
+        public static float ClampBrushRadius(float radius) => Mathf.Clamp(radius, BrushRadiusMin, BrushRadiusMax);
+
+        /// <summary>The Godot-px readout the brush label shows (`"brush %d px"`).</summary>
+        public static float ToGodotPixels(float worldUnits) => worldUnits / FallbackWorldPerPixel;
+
+        /// <summary>Capsule fit tolerance in world units at a given zoom — the 3 px measurement
+        /// is zoom-derived, the clamp bounds are absolute Godot px like every other clamp here.</summary>
+        public static float CapsuleToleranceAt(float worldPerPixel)
+        {
+            var wpp = Mathf.Max(worldPerPixel, 1e-6f);
+            return Mathf.Clamp(CapsuleFitTolerancePixels * wpp,
+                CapsuleToleranceMinPixels * FallbackWorldPerPixel,
+                CapsuleToleranceMaxPixels * FallbackWorldPerPixel);
+        }
+
+        public static Color PaintChannelColor(int slot) =>
+            s_PaintChannelColors[Mathf.Clamp(slot, 0, PaintSlotCount - 1)];
+
+        /// <summary>Slot name as shown in Godot's brush dropdown ("Tex 1" ... "Tex 3").</summary>
+        public static string PaintSlotLabel(int slot) => $"Tex {Mathf.Clamp(slot, 0, PaintSlotCount - 1) + 1}";
+
         // --- Persisted tool state ---------------------------------------------------------
 
         private const string k_ShapeModeKey = "PowerOfFire.DrawToPlay.ShapeMode";
         private const string k_ForceNewKey = "PowerOfFire.DrawToPlay.ForceNew";
+        private const string k_PaintSlotKey = "PowerOfFire.DrawToPlay.PaintSlot";
 
         /// <summary>Draw-tool geometry mode (Godot `_shape_opt.selected`).</summary>
         public static ShapeMode shapeMode
@@ -96,6 +171,28 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             get => EditorPrefs.GetBool(k_ForceNewKey, false);
             set => EditorPrefs.SetBool(k_ForceNewKey, value);
+        }
+
+        /// <summary>Raised whenever brush state the panel mirrors changes from somewhere else —
+        /// the slot property below, or the tool's bracket-key resize writing the asset. The
+        /// Godot stand-in is `_update_label()`.</summary>
+        public static event System.Action paintStateChanged;
+
+        public static void NotifyPaintStateChanged() => paintStateChanged?.Invoke();
+
+        /// <summary>Armed brush texture slot, 0-based (Godot `_tex_opt.selected`): 0/1/2 write
+        /// mask channel R/G/B, i.e. fillTexture / paintTexture2 / paintTexture3.</summary>
+        public static int paintSlot
+        {
+            get => Mathf.Clamp(EditorPrefs.GetInt(k_PaintSlotKey, 0), 0, PaintSlotCount - 1);
+            set
+            {
+                var slot = Mathf.Clamp(value, 0, PaintSlotCount - 1);
+                if (slot == paintSlot)
+                    return;
+                EditorPrefs.SetInt(k_PaintSlotKey, slot);
+                NotifyPaintStateChanged();
+            }
         }
 
         // --- Tolerance bundle -------------------------------------------------------------

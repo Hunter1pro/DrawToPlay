@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEditor.SceneManagement;
+using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay.Editor
 {
@@ -41,13 +42,26 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Terrain flow, stage 1 — blob sculpting (§6.4).</summary>
         public const string TerrainSculptStageId = "terrain.sculpt";
 
+        /// <summary>Terrain flow, stage 2 — mask painting (§6.4).</summary>
+        public const string TerrainPaintStageId = "terrain.paint";
+
+        /// <summary>Terrain flow, stage 3 — stamp scatter (§6.4).</summary>
+        public const string TerrainDecorateStageId = "terrain.decorate";
+
         /// <summary>Terrain flow, stage 4 — collision derivation (§6.4).</summary>
         public const string TerrainCollisionStageId = "terrain.collision";
+
+        /// <summary>Terrain flow, stage 5 — spawn markers and zones (§6.4). Deliberately NOT in
+        /// the registry: nothing authors this stage yet, so it must draw the neutral badge rather
+        /// than claim to be empty (an unknown stage never claims a state).</summary>
+        public const string TerrainGameplayStageId = "terrain.gameplay";
 
         private static readonly Dictionary<string, Func<StageStatus>> s_Validators =
             new Dictionary<string, Func<StageStatus>>
             {
                 { TerrainSculptStageId, ValidateTerrainSculpt },
+                { TerrainPaintStageId, ValidateTerrainPaint },
+                { TerrainDecorateStageId, ValidateTerrainDecorate },
                 { TerrainCollisionStageId, ValidateTerrainCollision }
             };
 
@@ -103,6 +117,40 @@ namespace PowerOfFire.DrawToPlay.Editor
             return StageStatus.InProgress;
         }
 
+        /// <summary>Paint: Complete needs BOTH halves of the stage's output — a mask that has
+        /// actually been painted (non-empty maskPng on the asset) AND a second material to blend
+        /// it against (paintTexture2 or paintTexture3), because a mask with one texture behind it
+        /// paints nothing visible. A ShapePaint component with no committed mask yet is
+        /// InProgress; no ShapePaint anywhere is Empty.</summary>
+        private static StageStatus ValidateTerrainPaint()
+        {
+            var renderers = FindComponents<DrawnShapeRenderer>();
+            for (var i = 0; i < renderers.Length; ++i)
+            {
+                var asset = renderers[i] != null ? renderers[i].asset : null;
+                if (asset == null || asset.maskPng == null || asset.maskPng.Length == 0)
+                    continue;
+
+                if (asset.paintTexture2 != null || asset.paintTexture3 != null)
+                    return StageStatus.Complete;
+            }
+
+            return FindComponents<ShapePaint>().Length > 0
+                ? StageStatus.InProgress
+                : StageStatus.Empty;
+        }
+
+        /// <summary>Decorate: presence-based, because "enough decoration" is a judgement call and
+        /// no count would be honest. One scattered stamp — recognised by the
+        /// <see cref="StampMarker"/> the stamp tool leaves behind, never by name or parentage —
+        /// completes the stage.</summary>
+        private static StageStatus ValidateTerrainDecorate()
+        {
+            return FindComponents<StampMarker>().Length > 0
+                ? StageStatus.Complete
+                : StageStatus.Empty;
+        }
+
         /// <summary>Collision: measured over the shapes that actually have geometry — Complete
         /// when every one of them owns a TerrainBlob, InProgress when only some do, Empty when
         /// none do (or when there is nothing to give collision to yet).</summary>
@@ -131,16 +179,22 @@ namespace PowerOfFire.DrawToPlay.Editor
             return withBlob < shaped ? StageStatus.InProgress : StageStatus.Complete;
         }
 
-        /// <summary>Every drawn shape in the stage the user is looking at: all open scenes in
-        /// the main stage, or the prefab contents while a prefab stage is open. Documented as
-        /// "all active loaded objects", so a deactivated blob may not be counted — badges are
-        /// advisory and nothing gates on them.</summary>
+        /// <summary>Every drawn shape in the stage the user is looking at.</summary>
         private static DrawnShapeRenderer[] FindRenderers()
+        {
+            return FindComponents<DrawnShapeRenderer>();
+        }
+
+        /// <summary>Every component of a type in the stage the user is looking at: all open
+        /// scenes in the main stage, or the prefab contents while a prefab stage is open.
+        /// Documented as "all active loaded objects", so a deactivated object may not be counted —
+        /// badges are advisory and nothing gates on them.</summary>
+        private static T[] FindComponents<T>() where T : Component
         {
             var stage = StageUtility.GetCurrentStageHandle();
             return stage.IsValid()
-                ? stage.FindComponentsOfType<DrawnShapeRenderer>()
-                : Array.Empty<DrawnShapeRenderer>();
+                ? stage.FindComponentsOfType<T>()
+                : Array.Empty<T>();
         }
     }
 }
