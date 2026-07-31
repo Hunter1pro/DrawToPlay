@@ -188,20 +188,64 @@ namespace PowerOfFire.DrawToPlay
 
         // --- geometry ---------------------------------------------------------------
 
+        /// <summary>Blend factor along the form chain [base, target1, target2, ...] —
+        /// Godot CurveShape2D.morph. 0 = the drawn base; N = fully morph target N.
+        /// Animated per-frame by PoseAnimator, hence a serialized component field
+        /// (the asset holds the TARGETS, the scene holds the current blend).</summary>
+        [Range(0f, 8f)] public float morphWeight;
+
+        /// <summary>The RENDER ring — port of _points(): baked outline → form-morph blend
+        /// (_morphed_ring: rings resampled to a matched count and re-anchored via
+        /// DrawKit.AlignRing, so redrawing a form never breaks interpolation) → edge
+        /// wobble. GetBakedRing stays raw (sculpt/collision see true geometry); THIS is
+        /// the single source for every deformable render consumer (fill, skin, paint).</summary>
+        public List<Vector2> BuildRenderRing()
+        {
+            var style = asset;
+            if (style == null)
+                return null;
+            float interval = BakeInterval();
+            var raw = BuildBakedRing(style.curve, interval);
+            if (raw.Count < 3)
+                return raw;
+
+            var morphed = MorphedRing(raw, style, interval);
+            return DrawKit.Displace(morphed, style.edgeNoiseAmp, style.edgeNoiseWavelength,
+                style.edgeNoiseSeed, true);
+        }
+
+        /// <summary>Port of _morphed_ring (curve_shape_2d.gd lines 432-449), verbatim
+        /// constants: matched count clamped [16, 128], positional correspondence.</summary>
+        private List<Vector2> MorphedRing(List<Vector2> baseRing, DrawnShapeAsset style, float interval)
+        {
+            var targets = style.morphTargets;
+            if (morphWeight <= 0f || targets == null || targets.Count == 0)
+                return baseRing;
+            float m = Mathf.Clamp(morphWeight, 0f, targets.Count);
+            int seg = Mathf.Min(Mathf.FloorToInt(m), targets.Count - 1);
+            float t = m - seg;
+            var ringA = seg == 0 ? baseRing : BuildBakedRing(targets[seg - 1], interval);
+            var ringB = BuildBakedRing(targets[seg], interval);
+            if (ringA.Count < 3 || ringB.Count < 3)
+                return baseRing;
+            if (m >= targets.Count)
+                return ringB;
+            int n = Mathf.Clamp(Mathf.Max(ringA.Count, ringB.Count), 16, 128);
+            var ar = DrawKit.ResampleCount(ringA, n);
+            var br = DrawKit.AlignRing(ar, DrawKit.ResampleCount(ringB, n));
+            var blended = new List<Vector2>(n);
+            for (int k = 0; k < n; k++)
+                blended.Add(Vector2.LerpUnclamped(ar[k], br[k], t));
+            return blended;
+        }
+
         private void BuildGeometry(ShapeTessellator.MeshBuilder builder)
         {
             if (!hasShape)
                 return;
             var style = asset;
             float interval = BakeInterval();
-            var raw = BuildBakedRing(style.curve, interval);
-            if (raw.Count < 3)
-                return;
-
-            // _points(): the RENDER ring is wobbled; GetBakedRing stays raw because the
-            // sculpt booleans must see true geometry. Morph is M4, so morph factor == 0.
-            var outer = DrawKit.Displace(raw, style.edgeNoiseAmp, style.edgeNoiseWavelength,
-                style.edgeNoiseSeed, true);
+            var outer = BuildRenderRing();
             if (outer == null || outer.Count < 3)
                 return;
 

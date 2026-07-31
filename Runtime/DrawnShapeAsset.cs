@@ -52,6 +52,12 @@ namespace PowerOfFire.DrawToPlay
         [HideInInspector] public byte[] maskPng = System.Array.Empty<byte>();
         [HideInInspector] public Rect maskRect;
 
+        [Header("Form morph (shape keyframes)")]
+        /// <summary>Captured form variants (whole-curve snapshots). The renderer blends
+        /// along [base, targets...] by DrawnShapeRenderer.morphWeight — correspondence is
+        /// positional (resample + align), so redrawing any form keeps morphs working.</summary>
+        public List<DrawnCurve> morphTargets = new List<DrawnCurve>();
+
         [Header("Skeleton (skinned deform)")]
         /// <summary>Interior lattice spacing for the skin mesh — Godot skin_detail 6 px.</summary>
         public float skinDetail = 0.1875f;

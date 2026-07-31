@@ -26,6 +26,11 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// (_rig_menu_action lines 520-528): activate the Rig tool, keep bone rests following the
     /// bones while building (Setup mode), snap back to bind pose, bind a shape to the sibling
     /// rig (_bind_selected lines 403-411), and drop a bone's influence on the selected shape.
+    ///
+    /// M4 adds an Anim section — the rest of that Bones menu (_capture_form lines 564-575) plus
+    /// the way into the Pose Sheet: open the sheet, snapshot the current outline as a form
+    /// variant, and see at a glance whether AUTO-KEY is actually recording (it only is while the
+    /// sheet is open, because the sheet owns the poll and the bound animator).
     /// </summary>
     [Overlay(typeof(SceneView),
         k_OverlayId,
@@ -41,7 +46,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const string k_OverlayId = "Scene View/Draw To Play";
         private const string k_DisplayName = "Draw To Play";
         private const float k_DefaultWidth = 232f;
-        private const float k_DefaultHeight = 470f;
+        private const float k_DefaultHeight = 560f;
 
         /// <summary>Foldout open/closed state. The debug toggle itself lives in EditorPrefs
         /// under <see cref="CollisionDebugOverlay.EnabledPrefKey"/>, shared with the Flow
@@ -55,6 +60,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Rig foldout open/closed state — cosmetics only; Setup mode itself lives in
         /// <see cref="RigShapeTool.SetupModePrefKey"/>.</summary>
         private const string k_RigFoldoutKey = "PowerOfFire.DrawToPlay.RigFoldoutOpen";
+
+        /// <summary>Anim foldout open/closed state — cosmetics only; the AUTO-KEY arm itself lives
+        /// in <see cref="PoseSheetState.AutoKeyPrefKey"/>, shared with the Pose Sheet.</summary>
+        private const string k_AnimFoldoutKey = "PowerOfFire.DrawToPlay.AnimFoldoutOpen";
 
         /// <summary>Placeholder entry of the exclude-bone dropdown: the field is an action list,
         /// not a value, so it snaps back to this after every pick.</summary>
@@ -77,6 +86,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         private Button m_BindRigButton;
         private DropdownField m_ExcludeBoneField;
         private Label m_RigHintLabel;
+        private Button m_CaptureFormButton;
+        private Label m_AutoKeyLabel;
+        private Label m_AnimHintLabel;
 
         /// <summary>Bone names behind the exclude dropdown's entries, minus the placeholder — the
         /// labels are decorated, so the pick is resolved by index.</summary>
@@ -87,6 +99,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             ToolManager.activeToolChanged += RefreshStatus;
             Selection.selectionChanged += RefreshStatus;
             DrawToolSettings.paintStateChanged += RefreshStatus;
+            PoseSheetState.changed += RefreshStatus;
             Undo.undoRedoPerformed += RefreshStatus;
         }
 
@@ -95,6 +108,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             ToolManager.activeToolChanged -= RefreshStatus;
             Selection.selectionChanged -= RefreshStatus;
             DrawToolSettings.paintStateChanged -= RefreshStatus;
+            PoseSheetState.changed -= RefreshStatus;
             Undo.undoRedoPerformed -= RefreshStatus;
         }
 
@@ -144,6 +158,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             root.Add(drawToolButton);
             root.Add(BuildPaintSection());
             root.Add(BuildRigSection());
+            root.Add(BuildAnimSection());
             root.Add(BuildCollisionSection());
 
             RefreshStatus();
@@ -618,6 +633,122 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
         }
 
+        // --- Anim (M4) --------------------------------------------------------------------
+
+        /// <summary>The M4 Anim section: the way into the Pose Sheet, the Godot Bones-menu entry
+        /// that has nothing to do with bones (_capture_form lines 564-575), and an honest readout
+        /// of whether AUTO-KEY is recording — it only records while the Pose Sheet is open, since
+        /// the sheet owns the poll and the animator binding.</summary>
+        private VisualElement BuildAnimSection()
+        {
+            var foldout = new Foldout
+            {
+                text = "Anim",
+                value = EditorPrefs.GetBool(k_AnimFoldoutKey, true)
+            };
+            foldout.RegisterValueChangedCallback(changeEvent =>
+            {
+                // Child field events bubble up to the foldout, so only react to its own.
+                if (changeEvent.target == foldout)
+                    EditorPrefs.SetBool(k_AnimFoldoutKey, changeEvent.newValue);
+            });
+
+            var openButton = new Button(PoseSheetWindow.Open)
+            {
+                text = "Open Pose Sheet",
+                tooltip = "Key, retime and scrub pose columns on the selected rig's PoseAnimator. " +
+                          "AUTO-KEY and the play preview live there."
+            };
+
+            m_CaptureFormButton = new Button(CaptureFormOnSelection)
+            {
+                text = "Capture Form",
+                tooltip = "Snapshot the selected shape's CURRENT outline as a form variant, then " +
+                          "key its 'morph' channel to blend to it. Deformation keyframes without " +
+                          "a single bone - the Spine-style trick the Godot toolbar called 'Form'."
+            };
+
+            m_AutoKeyLabel = new Label { style = { paddingTop = 2f, left = 2f, whiteSpace = WhiteSpace.Normal } };
+            m_AnimHintLabel = new Label { style = { paddingTop = 2f, left = 2f, opacity = 0.7f, whiteSpace = WhiteSpace.Normal } };
+
+            foldout.Add(openButton);
+            foldout.Add(m_CaptureFormButton);
+            foldout.Add(m_AutoKeyLabel);
+            foldout.Add(m_AnimHintLabel);
+            return foldout;
+        }
+
+        /// <summary>Port of terrain_paint.gd _capture_form (lines 564-575): append the live curve
+        /// to the shape's morph targets as ONE undo step, then say which variant it became.
+        /// curve_shape_2d.gd's `capture_form()` is the two lines in the middle — it lives here
+        /// rather than on the renderer because the renderer never mutates its own asset.</summary>
+        private void CaptureFormOnSelection()
+        {
+            var renderer = SelectedRenderer();
+            var asset = renderer != null ? renderer.asset : null;
+            if (asset == null)
+            {
+                SetAnimHint("Select a drawn shape with an asset to capture its form.");
+                return;
+            }
+
+            if (asset.curve == null || asset.curve.pointCount < 3)
+            {
+                SetAnimHint("This shape has no outline yet - draw one first.");
+                return;
+            }
+
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Capture Form Variant");
+
+            Undo.RecordObject(asset, "Capture Form Variant");
+            var targets = asset.morphTargets != null
+                ? new List<DrawnCurve>(asset.morphTargets)
+                : new List<DrawnCurve>();
+            targets.Add(asset.curve.Clone());
+            asset.morphTargets = targets;
+            EditorUtility.SetDirty(asset);
+
+            // The blend range grew, so the render mesh (and through geometryChanged the skin and
+            // paint layers) is rebuilt even though morphWeight has not moved yet.
+            renderer.Regenerate();
+
+            Undo.CollapseUndoOperations(undoGroup);
+
+            SetAnimHint($"Form captured (variant {targets.Count}) - key '{renderer.name}:morph' to blend to it.");
+            RefreshStatus();
+            SceneView.RepaintAll();
+        }
+
+        private void SetAnimHint(string text)
+        {
+            if (m_AnimHintLabel != null)
+                m_AnimHintLabel.text = text ?? string.Empty;
+        }
+
+        /// <summary>The auto-key state line. "Armed" and "recording" are different things here:
+        /// the arm is an EditorPref, but nothing polls while the Pose Sheet is closed.</summary>
+        private void RefreshAnimSection()
+        {
+            var renderer = SelectedRenderer();
+
+            if (m_CaptureFormButton != null)
+                m_CaptureFormButton.SetEnabled(renderer != null && renderer.asset != null);
+
+            if (m_AutoKeyLabel == null)
+                return;
+
+            if (!PoseSheetState.autoKey)
+            {
+                m_AutoKeyLabel.text = "Auto-key: off";
+                return;
+            }
+
+            m_AutoKeyLabel.text = PoseSheetState.windowOpen
+                ? $"Auto-key: RECORDING - {PoseSheetState.status}"
+                : "Auto-key: armed, but the Pose Sheet is closed - nothing is recording.";
+        }
+
         /// <summary>The M1 Collision section: see what physics really got, and give a drawing a
         /// body without leaving the scene view.</summary>
         private VisualElement BuildCollisionSection()
@@ -746,8 +877,16 @@ namespace PowerOfFire.DrawToPlay.Editor
                     ? "-"
                     : skin == null || skin.rig == null ? "no" : skin.rig.name;
 
+                // The animator is looked up from the SELECTION (not the shape): a bone, the rig
+                // root or the actor are all valid things to have selected while animating.
+                var animator = active != null ? active.GetComponentInParent<PoseAnimator>() : null;
+                var clip = animator != null ? animator.Clip() : null;
+                var animState = animator == null
+                    ? "-"
+                    : clip == null ? "no clip" : $"{clip.name} ({clip.poseCount})";
+
                 m_StatusLabel.text = $"Tool: {mode}\nShape: {shapeName}\nBody: {blobState}\n" +
-                                     $"Paint: {paintState}\nRig: {rigState}";
+                                     $"Paint: {paintState}\nRig: {rigState}\nClip: {animState}";
             }
 
             if (m_AddTerrainBlobButton != null)
@@ -755,6 +894,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             RefreshPaintSection();
             RefreshRigSection();
+            RefreshAnimSection();
 
             // The same EditorPrefs key is driven from the Flow window's Collision stage, so
             // re-read it rather than trusting the toggle's last known value.

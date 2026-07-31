@@ -577,10 +577,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             s_NextSetupPoll = EditorApplication.timeSinceStartup + k_SetupPollInterval;
 
-            // TODO(M4): port _any_anim_playing (lines 503-510) — never bake a PLAYING animation
-            // into rests. There is no PoseAnimator/preview playback until M4, so the only
-            // equivalent today is play mode, which is guarded below.
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            // _any_anim_playing port (lines 503-510): never bake a PLAYING animation into
+            // rests — neither play mode nor a Pose Sheet preview scrubbing the rig.
+            if (EditorApplication.isPlayingOrWillChangePlaymode || PoseSheetState.AnyPreviewPlaying())
                 return;
 
             var rigs = CollectSetupRigs();

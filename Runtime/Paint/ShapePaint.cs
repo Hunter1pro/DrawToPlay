@@ -416,20 +416,13 @@ namespace PowerOfFire.DrawToPlay
             return fill;
         }
 
-        /// <summary>Port of _points(): the baked outline ring with the render wobble applied.</summary>
+        /// <summary>Port of _points() — delegated to DrawnShapeRenderer.BuildRenderRing()
+        /// (M4): baked ring → FORM MORPH blend → render wobble, the one implementation every
+        /// deformable consumer shares. The paint layer therefore follows a morph for free:
+        /// PoseAnimator's Regenerate raises geometryChanged, which re-clips this layer.</summary>
         private List<Vector2> BuildOuterRing()
         {
-            if (!EnsureRenderer())
-                return null;
-            var style = m_Renderer.asset;
-            if (style == null)
-                return null;
-            var raw = m_Renderer.GetBakedRing();
-            if (raw == null || raw.Count < 3)
-                return null;
-            var outer = DrawKit.Displace(raw, style.edgeNoiseAmp, style.edgeNoiseWavelength,
-                style.edgeNoiseSeed, true);
-            return outer != null && outer.Count >= 3 ? outer : null;
+            return EnsureRenderer() ? m_Renderer.BuildRenderRing() : null;
         }
 
         /// <summary>Mirror of DrawnShapeRenderer.CollectHoles: bake + wobble each hole with its

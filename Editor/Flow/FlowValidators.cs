@@ -56,13 +56,29 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// than claim to be empty (an unknown stage never claims a state).</summary>
         public const string TerrainGameplayStageId = "terrain.gameplay";
 
+        /// <summary>Character flow, stage 1 — body-part shapes (§6.1).</summary>
+        public const string CharacterDrawStageId = "character.draw";
+
+        /// <summary>Character flow, stage 2 — bone chains per part (§6.1).</summary>
+        public const string CharacterRigStageId = "character.rig";
+
+        /// <summary>Character flow, stage 3 — skin binding and weights (§6.1).</summary>
+        public const string CharacterSkinStageId = "character.skin";
+
+        /// <summary>Character flow, stage 4 — pose clips (§6.1).</summary>
+        public const string CharacterAnimateStageId = "character.animate";
+
         private static readonly Dictionary<string, Func<StageStatus>> s_Validators =
             new Dictionary<string, Func<StageStatus>>
             {
                 { TerrainSculptStageId, ValidateTerrainSculpt },
                 { TerrainPaintStageId, ValidateTerrainPaint },
                 { TerrainDecorateStageId, ValidateTerrainDecorate },
-                { TerrainCollisionStageId, ValidateTerrainCollision }
+                { TerrainCollisionStageId, ValidateTerrainCollision },
+                { CharacterDrawStageId, ValidateCharacterDraw },
+                { CharacterRigStageId, ValidateCharacterRig },
+                { CharacterSkinStageId, ValidateCharacterSkin },
+                { CharacterAnimateStageId, ValidateCharacterAnimate }
             };
 
         /// <summary>Register (or replace) the probe for a stage id. Later flows register from
@@ -177,6 +193,93 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return StageStatus.Empty;
 
             return withBlob < shaped ? StageStatus.InProgress : StageStatus.Complete;
+        }
+
+        // --- built-in Character flow probes -----------------------------------------------
+
+        /// <summary>Draw: the same question as terrain.sculpt — "is there a drawn shape with
+        /// geometry?" (§6.1 "≥1 shape"). Registered as its own entry rather than pointing the
+        /// character id at the terrain probe, so the Character stage can tighten later (e.g.
+        /// "every part parented under one entity root") without silently redefining what
+        /// Complete means for Terrain. "Style set" is not probed: every asset has a style, so
+        /// there is nothing honest to measure.</summary>
+        private static StageStatus ValidateCharacterDraw()
+        {
+            return ValidateTerrainSculpt();
+        }
+
+        /// <summary>Rig: Complete as soon as one skeleton in the scene owns a RigAsset with at
+        /// least one bone. A ShapeRig with no asset (or an empty one) is InProgress — the
+        /// component is usually added a moment before the first chain is committed. §6.1's real
+        /// bar, "every part bound or explicitly marked static", needs a per-part static flag that
+        /// nothing authors yet, so the badge deliberately measures less than the checklist asks
+        /// for rather than guessing.</summary>
+        private static StageStatus ValidateCharacterRig()
+        {
+            var rigs = FindComponents<ShapeRig>();
+            if (rigs.Length == 0)
+                return StageStatus.Empty;
+
+            for (var i = 0; i < rigs.Length; ++i)
+            {
+                var rig = rigs[i];
+                if (rig == null || rig.rig == null || rig.rig.bones == null)
+                    continue;
+
+                if (rig.rig.bones.Count > 0)
+                    return StageStatus.Complete;
+            }
+
+            return StageStatus.InProgress;
+        }
+
+        /// <summary>Skin: Complete when a bound part is actually skinned right now — isSkinned
+        /// means the generated SkinnedMeshRenderer exists and has taken over from the flat mesh.
+        /// That is a live check, not an authoring record: the skin layer is HideFlags.DontSave,
+        /// so a freshly reopened scene reads InProgress until something regenerates it (the next
+        /// bind, "Regenerate Skins In Scene", or entering play mode). Reporting that honestly is
+        /// the point — it is exactly the state the user is looking at.</summary>
+        private static StageStatus ValidateCharacterSkin()
+        {
+            var skins = FindComponents<DrawnShapeSkin>();
+            if (skins.Length == 0)
+                return StageStatus.Empty;
+
+            for (var i = 0; i < skins.Length; ++i)
+            {
+                if (skins[i] != null && skins[i].isSkinned)
+                    return StageStatus.Complete;
+            }
+
+            return StageStatus.InProgress;
+        }
+
+        /// <summary>Animate: Complete when an animator holds a clip with at least two pose
+        /// columns — one column is a rest snapshot, two is the first thing that can be called an
+        /// animation. The whole clips list is scanned rather than PoseAnimator.Clip(), so the
+        /// badge does not depend on <c>current</c> being set (and cannot throw out of a probe
+        /// that runs on every hierarchy change). §6.1's required clip NAMES (idle/run/hit/death)
+        /// are a per-game contract nothing declares yet, so they are not checked.</summary>
+        private static StageStatus ValidateCharacterAnimate()
+        {
+            var animators = FindComponents<PoseAnimator>();
+            if (animators.Length == 0)
+                return StageStatus.Empty;
+
+            for (var i = 0; i < animators.Length; ++i)
+            {
+                var clips = animators[i] != null ? animators[i].clips : null;
+                if (clips == null)
+                    continue;
+
+                for (var j = 0; j < clips.Count; ++j)
+                {
+                    if (clips[j] != null && clips[j].poseCount >= 2)
+                        return StageStatus.Complete;
+                }
+            }
+
+            return StageStatus.InProgress;
         }
 
         /// <summary>Every drawn shape in the stage the user is looking at.</summary>

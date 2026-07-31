@@ -306,20 +306,16 @@ namespace PowerOfFire.DrawToPlay
                 m_Bindposes[i] = m_RestWorld[i].inverse * shapeToWorld;
         }
 
-        /// <summary>Port of _points(): the baked outline ring with the render wobble applied.
-        /// Godot passes _points() (WOBBLED) to _sync_skin, so the skin follows the drawn edge
-        /// exactly like the paint layer does — collision keeps using the raw ring.</summary>
+        /// <summary>Port of _points() — delegated to DrawnShapeRenderer.BuildRenderRing()
+        /// (M4): baked ring → FORM MORPH blend → render wobble. Godot passes _points()
+        /// (morphed + wobbled) to _sync_skin, so the skin follows the drawn edge exactly like
+        /// the paint layer does — collision keeps using the raw ring. Sharing the renderer's
+        /// single implementation is what makes a morph channel deform the skinned mesh too:
+        /// PoseAnimator writes morphWeight and calls Regenerate, geometryChanged lands here,
+        /// and this ring already carries the blend.</summary>
         private List<Vector2> BuildOuterRing()
         {
-            DrawnShapeAsset style = m_Renderer.asset;
-            if (style == null)
-                return null;
-            List<Vector2> raw = m_Renderer.GetBakedRing();
-            if (raw == null || raw.Count < 3)
-                return null;
-            List<Vector2> outer = DrawKit.Displace(raw, style.edgeNoiseAmp,
-                style.edgeNoiseWavelength, style.edgeNoiseSeed, true);
-            return outer != null && outer.Count >= 3 ? outer : null;
+            return m_Renderer != null ? m_Renderer.BuildRenderRing() : null;
         }
 
         // --- generated objects ----------------------------------------------------------
