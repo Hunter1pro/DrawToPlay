@@ -2,7 +2,8 @@
     "name": "PowerOfFire.DrawToPlay",
     "rootNamespace": "PowerOfFire.DrawToPlay",
     "references": [
-        "Unity.Collections"
+        "Unity.Collections",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
