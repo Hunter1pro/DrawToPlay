@@ -52,6 +52,16 @@ namespace PowerOfFire.DrawToPlay
         [HideInInspector] public byte[] maskPng = System.Array.Empty<byte>();
         [HideInInspector] public Rect maskRect;
 
+        [Header("Skeleton (skinned deform)")]
+        /// <summary>Interior lattice spacing for the skin mesh — Godot skin_detail 6 px.</summary>
+        public float skinDetail = 0.1875f;
+        /// <summary>Weight falloff softness — Godot skin_softness 4 px.</summary>
+        public float skinSoftness = 0.125f;
+        /// <summary>Bone names this shape binds to (empty = all bones of the rig).
+        /// Animation references bones by NAME, so redrawing never breaks bindings.</summary>
+        public List<string> includeBones = new List<string>();
+        public List<string> excludeBones = new List<string>();
+
         [Header("Depth")]
         [Range(0f, 1f)] public float fillShade = 0f;
         public Color shadowColor = new Color(0f, 0f, 0f, 0f);

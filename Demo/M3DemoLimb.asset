@@ -1,0 +1,84 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a1132e56eca5f40d39ed9abb9fed9d63, type: 3}
+  m_Name: M3DemoLimb
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.DrawnShapeAsset
+  curve:
+    m_Points:
+    - position: {x: 1.5560116, y: -0.445414}
+      inHandle: {x: -0.15044346, y: -0.006742132}
+      outHandle: {x: 0.15044346, y: 0.006742132}
+    - position: {x: 1.892525, y: -0.27659288}
+      inHandle: {x: -0.072345756, y: -0.07671914}
+      outHandle: {x: 0.072345756, y: 0.07671914}
+    - position: {x: 1.9900861, y: 0.014900854}
+      inHandle: {x: 0.003235221, y: -0.095951535}
+      outHandle: {x: -0.003235221, y: 0.095951535}
+    - position: {x: 1.8731136, y: 0.29911634}
+      inHandle: {x: 0.06525797, y: -0.07075035}
+      outHandle: {x: -0.06525797, y: 0.07075035}
+    - position: {x: 1.5985383, y: 0.43940294}
+      inHandle: {x: 0.12321784, y: -0.0053734886}
+      outHandle: {x: -0.12321784, y: 0.0053734886}
+    - position: {x: -1.5200851, y: 0.4470926}
+      inHandle: {x: 0.12412624, y: 0.0032077902}
+      outHandle: {x: -0.12412624, y: -0.0032077902}
+    - position: {x: -1.8153149, y: 0.35117885}
+      inHandle: {x: 0.07674593, y: 0.059179753}
+      outHandle: {x: -0.07674593, y: -0.059179753}
+    - position: {x: -1.9805607, y: 0.09201406}
+      inHandle: {x: 0.020117879, y: 0.09388292}
+      outHandle: {x: -0.020117879, y: -0.09388292}
+    - position: {x: -1.9360222, y: -0.21211863}
+      inHandle: {x: -0.058862705, y: 0.08772531}
+      outHandle: {x: 0.058862705, y: -0.08772531}
+    - position: {x: -1.6273844, y: -0.4343378}
+      inHandle: {x: -0.15178718, y: 0.01014058}
+      outHandle: {x: 0.15178718, y: -0.01014058}
+    - position: {x: 1.5560116, y: -0.445414}
+      inHandle: {x: -0.15044346, y: -0.006742132}
+      outHandle: {x: 0, y: 0}
+  holeCurves: []
+  fillColor: {r: 0.72, g: 0.45, b: 0.32, a: 1}
+  fillTexture: {fileID: 0}
+  textureScale: 2
+  outlineColor: {r: 0.12, g: 0.07, b: 0.05, a: 1}
+  outlineWidth: 0.06
+  rimColor: {r: 0.96, g: 0.78, b: 0.58, a: 1}
+  rimWidth: 0.05
+  bakeInterval: 0.125
+  edgeNoiseAmp: 0
+  edgeNoiseWavelength: 0.4
+  edgeNoiseSeed: 7
+  paintTexture2: {fileID: 0}
+  paintTexture3: {fileID: 0}
+  paintSculptsEdges: 1
+  maskResolution: 128
+  brushRadius: 0.1
+  brushSoftness: 0.5
+  maskPng: 
+  maskRect:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 0
+    height: 0
+  skinDetail: 0.1875
+  skinSoftness: 0.125
+  includeBones:
+  - LimbBone1
+  - LimbBone2
+  - LimbBone3
+  excludeBones: []
+  fillShade: 0.35
+  shadowColor: {r: 0, g: 0, b: 0, a: 0}
+  shadowOffset: {x: 0.06, y: -0.09}

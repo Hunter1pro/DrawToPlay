@@ -36,6 +36,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (paint != null && paint.hasMask)
                     paint.SyncLayer();
             }
+            // Skins share the same DontSave-layer model: rebuild them after load too,
+            // or a rigged shape reopens showing its undeformed base mesh.
+            foreach (var skin in stage.FindComponentsOfType<DrawnShapeSkin>())
+            {
+                if (skin != null && skin.rig != null)
+                    skin.RegenerateSkin();
+            }
         }
     }
 }

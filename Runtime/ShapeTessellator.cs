@@ -50,6 +50,10 @@ namespace PowerOfFire.DrawToPlay
 
             public int vertexCount => m_Positions.Count;
 
+            /// <summary>XY of an already-added vertex — consumers that need to post-process
+            /// appended geometry (e.g. skin weights over ribbon vertices) read back here.</summary>
+            public Vector2 GetPosition(int index) => m_Positions[index];
+
             public int submeshCount => m_Submeshes.Count;
 
             /// <summary>Submesh that <see cref="AddTriangleCcw"/> writes to (auto-grows).</summary>
