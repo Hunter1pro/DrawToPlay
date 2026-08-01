@@ -1,0 +1,17 @@
+using System;
+using Unity.GraphToolkit.Editor;
+
+namespace PowerOfFire.DrawToPlay.GraphEditor
+{
+    /// <summary>Fires the weapon def's projectile prefab from a muzzle offset toward the target — the archer's shot.
+    /// Bakes into one <see cref="SpawnProjectileTask"/>; its parameter ports mirror that type's fields 1:1.</summary>
+    [Serializable]
+    [UseWithGraph(typeof(StateTreeGraph))]
+    [UseWithContext(typeof(StateNode))]
+    [Node("Tasks/Combat", null, "Spawn Projectile")]
+    public class SpawnProjectileTaskNode : StateTaskBlockNode
+    {
+        /// <inheritdoc />
+        public override Type taskType => typeof(SpawnProjectileTask);
+    }
+}

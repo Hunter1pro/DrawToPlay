@@ -132,7 +132,16 @@ namespace PowerOfFire.DrawToPlay.Editor
             });
             header.Add(m_DefinitionField);
 
-            var refresh = new Button(RefreshBadges) { text = "Refresh" };
+            var refresh = new Button(() =>
+            {
+                // Also forget what the window learned about the graph frontend: the usual reason
+                // to press Refresh after seeing "the frontend is not loaded" is that you have
+                // just resolved the package, and re-opening the window to clear a cache would be
+                // a silly thing to have to know.
+                StateTreeGraphBridge.InvalidateCache();
+                RefreshBadges();
+            })
+            { text = "Refresh" };
             refresh.tooltip = "Re-run every stage validator now.";
             refresh.style.marginLeft = 4f;
             header.Add(refresh);
@@ -220,8 +229,81 @@ namespace PowerOfFire.DrawToPlay.Editor
                 notes.Add("Collision debug overlay enabled.");
             }
 
+            // The two graph stages (§6.1 Behavior for a player, §6.2 AI for an enemy) are the
+            // same editor with different palettes, so they open the same way: the tab is a
+            // shortcut into the graph window exactly as the Draw tab is a shortcut into the Draw
+            // tool. Failures are notes in the stage panel, never console errors — an entity that
+            // has no graph (or a project where the experimental package has not resolved) must
+            // stay browsable.
+            if (string.Equals(stage.id, FlowValidators.CharacterBehaviorStageId, StringComparison.Ordinal) ||
+                string.Equals(stage.id, FlowValidators.EnemyAIStageId, StringComparison.Ordinal))
+            {
+                OpenGraphForSelection(notes);
+            }
+
             RebuildStagePanel(notes);
             RefreshBadges();
+        }
+
+        /// <summary>Open the selected entity's graph asset, or offer to create one.
+        ///
+        /// Open path: the graph is a normal asset, so AssetDatabase.OpenAsset hands it to the
+        /// window its importer registered. Create path:
+        /// <c>GraphDatabase.PromptInProjectBrowserToCreateNewAsset&lt;T&gt;</c> — "Creates a new
+        /// graph asset and activates the naming field in the Project Browser" (GraphDatabase.cs).
+        /// Naming it is half of deciding what it is for, so the prompt is the right creation
+        /// gesture here even though it means the asset lands wherever the Project window is
+        /// pointed rather than in the conventional folder.
+        ///
+        /// Both calls go through <see cref="StateTreeGraphBridge"/> rather than being typed
+        /// against Graph Toolkit: this window must keep working when the experimental package
+        /// does not (§7.3, §8 Risks).</summary>
+        private static void OpenGraphForSelection(List<string> notes)
+        {
+            if (!StateTreeGraphBridge.TryResolve(out var error))
+            {
+                notes.Add(error);
+                notes.Add("You can still author the tree by hand: build a StateTreeAsset in the " +
+                          "Inspector (or start from a preset) and drop it on the runner. The " +
+                          "runner cannot tell the difference — that is what the frontend/model " +
+                          "boundary buys.");
+                return;
+            }
+
+            var entityName = ResolveEntityName();
+            var path = StateTreeGraphBridge.GraphAssetPath(entityName);
+
+            if (StateTreeGraphBridge.OpenGraphAsset(path))
+            {
+                notes.Add($"Opened {path}.");
+                notes.Add("Remember to bake after editing — the runner reads the baked asset, " +
+                          "never the graph.");
+                return;
+            }
+
+            if (!StateTreeGraphBridge.PromptCreate(entityName, out var createError))
+            {
+                notes.Add(createError);
+                return;
+            }
+
+            notes.Add($"No graph for '{entityName}' at {path} yet — a new one is waiting to be " +
+                      "named in the Project Browser (it is created where the Project window is " +
+                      $"pointed; move it to {StateTreeGraphBridge.GraphFolder} to have this tab " +
+                      "find it next time).");
+        }
+
+        /// <summary>Which entity the graph belongs to. The runner's GameObject when the selection
+        /// is anywhere inside a rigged entity — clicking a limb should open the character's
+        /// brain, not look for a graph called "LeftForearm" — else the selection itself.</summary>
+        private static string ResolveEntityName()
+        {
+            var selected = Selection.activeGameObject;
+            if (selected == null)
+                return "New State Tree";
+
+            var runner = selected.GetComponentInParent<StateTreeRunner>();
+            return runner != null ? runner.gameObject.name : selected.name;
         }
 
         /// <summary>Put the user in the stage's tool. A missing/unusable type is reported in

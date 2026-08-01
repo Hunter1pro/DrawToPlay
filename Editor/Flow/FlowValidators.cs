@@ -68,6 +68,18 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Character flow, stage 4 — pose clips (§6.1).</summary>
         public const string CharacterAnimateStageId = "character.animate";
 
+        /// <summary>Character flow, stage 5 — ragdoll, bodies and sensor shapes (§6.1).</summary>
+        public const string CharacterPhysicsStageId = "character.physics";
+
+        /// <summary>Character flow, stage 6 — the ability graph (§6.1, §7.3). The player half of
+        /// the graph frontend: a flow tree whose transitions are driven by input intents.</summary>
+        public const string CharacterBehaviorStageId = "character.behavior";
+
+        /// <summary>Enemy / AI variant flow, stage 7 — the same graph editor with the perception
+        /// palette (§6.2). Lives on the Character flow because §6.2 IS the Character flow plus a
+        /// tail ("inherits Character stages 1-5"), not a separate document.</summary>
+        public const string EnemyAIStageId = "enemy.ai";
+
         private static readonly Dictionary<string, Func<StageStatus>> s_Validators =
             new Dictionary<string, Func<StageStatus>>
             {
@@ -78,7 +90,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 { CharacterDrawStageId, ValidateCharacterDraw },
                 { CharacterRigStageId, ValidateCharacterRig },
                 { CharacterSkinStageId, ValidateCharacterSkin },
-                { CharacterAnimateStageId, ValidateCharacterAnimate }
+                { CharacterAnimateStageId, ValidateCharacterAnimate },
+                { CharacterPhysicsStageId, ValidateCharacterPhysics },
+                { CharacterBehaviorStageId, ValidateCharacterBehavior },
+                { EnemyAIStageId, ValidateEnemyAI }
             };
 
         /// <summary>Register (or replace) the probe for a stage id. Later flows register from
@@ -277,6 +292,78 @@ namespace PowerOfFire.DrawToPlay.Editor
                     if (clips[j] != null && clips[j].poseCount >= 2)
                         return StageStatus.Complete;
                 }
+            }
+
+            return StageStatus.InProgress;
+        }
+
+        /// <summary>Physics: Complete when a <see cref="RagdollDriver"/> is wired to a rig — the
+        /// stage's headline output, since the driver derives every capsule and hinge from that
+        /// rig at StartRagdoll and can do nothing without it. A driver with no rig, or a scene
+        /// that only has bodies (<see cref="EntityBody"/> / <see cref="DestructibleShape"/>), is
+        /// InProgress: physics has been started but the character half is not there.
+        ///
+        /// §6.1's fuller bar — "ragdoll valid (no unjointed dynamic bone bodies), categories
+        /// assigned" — is deliberately NOT probed. Joint validity only exists while ragdolling
+        /// (the bodies are created in play mode and destroyed on stop), so an edit-mode badge
+        /// claiming it would be claiming something it cannot see; and every shape definition
+        /// carries SOME layer, so "categories assigned" has no honest edit-time test.</summary>
+        private static StageStatus ValidateCharacterPhysics()
+        {
+            var drivers = FindComponents<RagdollDriver>();
+            for (var i = 0; i < drivers.Length; ++i)
+            {
+                if (drivers[i] != null && drivers[i].rig != null)
+                    return StageStatus.Complete;
+            }
+
+            if (drivers.Length > 0 || FindComponents<EntityBody>().Length > 0)
+                return StageStatus.InProgress;
+
+            return StageStatus.Empty;
+        }
+
+        /// <summary>Behavior: Complete when a <see cref="StateTreeRunner"/> in the stage has a
+        /// tree assigned. That is the whole §6.1 stage-6 output in one field — the runner IS the
+        /// entity's brain, and <c>data</c> is the only thing it cannot run without.
+        ///
+        /// Note what this does NOT check: whether the tree came from the graph editor or was
+        /// hand-built in M6. It must not care. §7.3's hard boundary says the runtime never knows
+        /// a graph existed, so a badge that could tell the difference would be reading something
+        /// the model deliberately does not record.</summary>
+        private static StageStatus ValidateCharacterBehavior()
+        {
+            var runners = FindComponents<StateTreeRunner>();
+            if (runners.Length == 0)
+                return StageStatus.Empty;
+
+            for (var i = 0; i < runners.Length; ++i)
+            {
+                if (runners[i] != null && runners[i].data != null)
+                    return StageStatus.Complete;
+            }
+
+            // A runner with no tree: the component is usually added a moment before the asset is
+            // dragged on, exactly like ShapeRig in the Rig stage.
+            return StageStatus.InProgress;
+        }
+
+        /// <summary>AI: the same runner, one bar higher — §6.2's "tree has an entry node". A tree
+        /// whose root is null resolves to no state at all and StartTree does nothing, so it is
+        /// the one structural fault that makes an assigned tree still not a brain. Ranges and the
+        /// death clip (the rest of §6.2's checklist) are per-component fields and a cross-stage
+        /// reach into Animate respectively; neither is probed rather than probed wrongly.</summary>
+        private static StageStatus ValidateEnemyAI()
+        {
+            var runners = FindComponents<StateTreeRunner>();
+            if (runners.Length == 0)
+                return StageStatus.Empty;
+
+            for (var i = 0; i < runners.Length; ++i)
+            {
+                var data = runners[i] != null ? runners[i].data : null;
+                if (data != null && data.root != null)
+                    return StageStatus.Complete;
             }
 
             return StageStatus.InProgress;

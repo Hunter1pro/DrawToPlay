@@ -6,12 +6,21 @@ namespace PowerOfFire.DrawToPlay.Editor
 {
     /// <summary>
     /// The built-in Character <see cref="FlowDefinition"/> (draw-tool-port-brief.md §6.1:
-    /// Draw → Rig → Skin → Animate → Physics → Behavior). M4 "completes the Character flow
-    /// through Animate" (§8), so this asset ships the first FOUR stages — the ones whose tools
-    /// exist. Physics (M5) and Behavior (M6/M7) are deliberately absent rather than stubbed:
-    /// <see cref="EnsureStages"/> appends missing built-ins in canonical order, so a later
-    /// milestone adds them to an already-authored asset without touching anything the user
-    /// edited.
+    /// Draw → Rig → Skin → Animate → Physics → Behavior), plus the §6.2 Enemy/AI tail.
+    ///
+    /// M7 completes it. M4 shipped the first four stages (§8: "completes the Character flow
+    /// through Animate"); Physics has been authorable since M5 and Behavior since M6/M7, so
+    /// <see cref="EnsureStages"/> now appends all three remaining tabs — Physics, Behavior, AI —
+    /// in canonical order, additively, leaving an asset a user has already edited alone.
+    ///
+    /// WHY AI LIVES HERE. §6.2 defines the Enemy flow as "(inherits Character stages 1–5) →
+    /// Combat → AI" — it is this flow plus a tail, not a second document, and building a second
+    /// FlowDefinition would have meant maintaining five duplicated stages to add one. The AI tab
+    /// is therefore the seventh stage of this asset and simply stays neutral for a player
+    /// entity, which is the same "nothing is modal, badges just tell the truth" contract every
+    /// other stage follows. §6.2's Combat stage is not a tab: its outputs (HealthComponent, the
+    /// weapon/effect/loot defs, hitbox windows) are components and assets with no tool of their
+    /// own, and a tab that activates nothing and validates nothing is worse than the Inspector.
     ///
     /// Same lifecycle as <see cref="TerrainFlowAsset"/>: created on demand (menu item), upgraded
     /// in place, and otherwise a normal asset whose checklists are data you can edit in the
@@ -73,9 +82,10 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         // --- content ----------------------------------------------------------------------
 
-        /// <summary>§6.1 stages 1-4. Checklists are trimmed to what M0-M4 actually ship; where a
-        /// §6.1 requirement has no validator behind it yet (every part bound, required clip
-        /// names) the line says so rather than implying the badge checks it.</summary>
+        /// <summary>§6.1 stages 1-6 plus the §6.2 AI tail. Checklists are trimmed to what
+        /// M0-M7 actually ship; where a §6 requirement has no validator behind it (every part
+        /// bound, required clip names, ranges sane) the line says so rather than implying the
+        /// badge checks it.</summary>
         private static List<FlowStage> BuildStages()
         {
             return new List<FlowStage>
@@ -202,6 +212,103 @@ namespace PowerOfFire.DrawToPlay.Editor
                         "Done when an animator holds a clip with at least two pose columns.",
                         "Tools ▸ Draw To Play ▸ Verify M4 Pose Animation builds a worked example of all " +
                         "of the above in one scene."
+                    }
+                },
+                new FlowStage
+                {
+                    id = FlowValidators.CharacterPhysicsStageId,
+                    title = "Physics",
+                    // Ragdoll setup is Inspector work on a component, and hurt/hitbox volumes are
+                    // drawn with the Draw tool from stage 1. Neither is a tool this tab should
+                    // steal — the checklist points at both instead.
+                    toolTypeName = string.Empty,
+                    description =
+                        "Give the character a body. RagdollDriver generates one capsule per rig " +
+                        "bone and a hinge per parent-child pair from the REST pose the moment it " +
+                        "is switched on, so the ragdoll follows the rig rather than being " +
+                        "authored twice. Props and debris use the same EntityBody chassis.",
+                    checklist = new List<string>
+                    {
+                        "Add a RagdollDriver to the entity root and point rig at the Skeleton's ShapeRig. " +
+                        "That one reference is the whole setup — capsules and hinge limits are derived.",
+                        "boneRadiusScale / minBoneRadius size the capsules against bone length; " +
+                        "hingeLowerDegrees / hingeUpperDegrees are limits RELATIVE to the rest angle.",
+                        "Set animator so the driver can pause posing while ragdolling and resume after.",
+                        "Ragdoll is play-mode only: the bodies are created on StartRagdoll and destroyed " +
+                        "on StopRagdoll, so there is nothing to see (and nothing to break) in edit mode.",
+                        "Destructible props: DestructibleShape on the drawn shape, with impactSpeedThreshold " +
+                        "for impact breaks and HealthComponent.fragmentOnDeath for the §6.3 HP seam.",
+                        "§6.1 also wants sensor hit/hurt volumes and collision categories. Draw them with " +
+                        "the Draw tool and set the layers on the shape definition; the badge does not " +
+                        "check either — every shape has some layer, so there is nothing honest to test.",
+                        "Done when a RagdollDriver has a rig assigned.",
+                        "Tools ▸ Draw To Play ▸ Verify M5 Ragdoll + Destruction builds a worked example: " +
+                        "Space toggles the ragdoll, the crate fragments on impact."
+                    }
+                },
+                new FlowStage
+                {
+                    id = FlowValidators.CharacterBehaviorStageId,
+                    title = "Behavior",
+                    // The graph editor is a window owned by Graph Toolkit, not an EditorTool, so
+                    // FlowWindow opens it directly for this stage id (see FlowWindow.OpenGraph).
+                    toolTypeName = string.Empty,
+                    description =
+                        "The ability graph (§7). An ability is a STATE, not a tag bundle, so one " +
+                        "ability's exit transitions straight into the next through the same " +
+                        "machinery the AI uses — combos, recovery, stagger interrupts. Opening " +
+                        "this tab opens (or offers to create) this entity's graph asset.",
+                    checklist = new List<string>
+                    {
+                        "Clicking this tab opens the entity's graph. With nothing selected, or with no " +
+                        "graph for it yet, it offers to create one and puts the Project Browser in " +
+                        "rename mode.",
+                        "Author states, drop task blocks inside them, and wire transitions with their " +
+                        "condition nodes. Port types make invalid wiring impossible instead of " +
+                        "reporting it afterwards (§7.3).",
+                        "BAKE before running. The graph is editor-only authoring; the bake step extracts " +
+                        "the flat StateTreeAsset the runner reads (§7.3's hard boundary — the runtime " +
+                        "never sees a graph type).",
+                        "Assign the BAKED asset to a StateTreeRunner on the entity, with ownerObject set " +
+                        "to the entity root.",
+                        "A hand-built tree from the Inspector is just as valid — the runner cannot tell " +
+                        "the difference, which is the point of the boundary.",
+                        "In play mode the active state is visible while the graph window is open — the " +
+                        "single most useful AI debugging feature (§7.3).",
+                        "§6.1 wants a mover archetype and an aim rig too; neither is ported yet, so a " +
+                        "player entity's movement is still game code.",
+                        "Done when a StateTreeRunner in the scene has a tree assigned."
+                    }
+                },
+                new FlowStage
+                {
+                    id = FlowValidators.EnemyAIStageId,
+                    title = "AI",
+                    toolTypeName = string.Empty,
+                    description =
+                        "§6.2's enemy tail: the SAME graph editor as Behavior, different palette. " +
+                        "An enemy tree is state-tree-first — perception conditions drive the " +
+                        "transitions and abilities sit inside states — where a player's is " +
+                        "flow-tree-first, driven by input intents. Same asset, same bake, same " +
+                        "runner.",
+                    checklist = new List<string>
+                    {
+                        "Clicking this tab opens the entity's graph, exactly like Behavior does.",
+                        "Zombie / Brute / Archer ship as preset trees: Tools ▸ Draw To Play ▸ Create " +
+                        "Enemy Preset Trees. Read one before authoring your own — they are the ported " +
+                        "enemies/*.gd archetypes, ranges and timings included.",
+                        "Perception is a condition: TargetDetected acquires the nearest living health " +
+                        "pool of another team, TargetInRange measures it, LineOfSight raycasts to it.",
+                        "Interrupts are what make an enemy feel alive: a transition with " +
+                        "checkWhileRunning is re-tested every tick and cancels the running tasks " +
+                        "(OnExit with Cancelled), which is how a chase becomes an attack mid-stride.",
+                        "Ranges are in world units — Godot pixels ÷ 32. The presets keep the source " +
+                        "number visible in the code that builds them.",
+                        "§6.2 also wants min < max range checks and a death clip in Animate; neither " +
+                        "cross-check exists yet, so the badge stops at \"the tree has an entry node\".",
+                        "Done when a runner's tree has a root the runner can enter.",
+                        "Tools ▸ Draw To Play ▸ Verify M7 Graph Frontend builds the whole path end to " +
+                        "end: zombie graph → bake → a scene running the baked tree."
                     }
                 }
             };
