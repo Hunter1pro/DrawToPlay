@@ -250,31 +250,29 @@ namespace PowerOfFire.DrawToPlay.Editor
                 {
                     id = FlowValidators.CharacterBehaviorStageId,
                     title = "Behavior",
-                    // The graph editor is a window owned by Graph Toolkit, not an EditorTool, so
-                    // FlowWindow opens it directly for this stage id (see FlowWindow.OpenGraph).
+                    // The state tree editor is an EditorWindow, not an EditorTool, so FlowWindow
+                    // opens it directly for this stage id (see FlowWindow).
                     toolTypeName = string.Empty,
                     description =
-                        "The ability graph (§7). An ability is a STATE, not a tag bundle, so one " +
+                        "Behavior as states (§7). An ability is a STATE, not a tag bundle, so one " +
                         "ability's exit transitions straight into the next through the same " +
                         "machinery the AI uses — combos, recovery, stagger interrupts. Opening " +
-                        "this tab opens (or offers to create) this entity's graph asset.",
+                        "this tab opens the entity's state tree in the State Tree Editor — the " +
+                        "window edits the EXACT asset the runner runs.",
                     checklist = new List<string>
                     {
-                        "Clicking this tab opens the entity's graph. With nothing selected, or with no " +
-                        "graph for it yet, it offers to create one and puts the Project Browser in " +
-                        "rename mode.",
-                        "Author states, drop task blocks inside them, and wire transitions with their " +
-                        "condition nodes. Port types make invalid wiring impossible instead of " +
-                        "reporting it afterwards (§7.3).",
-                        "BAKE before running. The graph is editor-only authoring; the bake step extracts " +
-                        "the flat StateTreeAsset the runner reads (§7.3's hard boundary — the runtime " +
-                        "never sees a graph type).",
-                        "Assign the BAKED asset to a StateTreeRunner on the entity, with ownerObject set " +
-                        "to the entity root.",
-                        "A hand-built tree from the Inspector is just as valid — the runner cannot tell " +
-                        "the difference, which is the point of the boundary.",
-                        "In play mode the active state is visible while the graph window is open — the " +
-                        "single most useful AI debugging feature (§7.3).",
+                        "Clicking this tab opens the entity's tree in the State Tree Editor; with no " +
+                        "tree yet it creates one under Assets/DrawToPlay/Trees and assigns it to the " +
+                        "runner in one undo step.",
+                        "Add states, pick tasks and conditions from the dropdowns, and wire " +
+                        "transitions in the inspector: target state, condition, and the Interrupt " +
+                        "toggle (re-tested every tick, cancels running tasks).",
+                        "There is NO bake step. Every edit writes into the runtime StateTreeAsset " +
+                        "itself — what the window shows is what the next Play runs.",
+                        "In play mode the window tints the active state green (previous amber) — the " +
+                        "single most useful behavior-debugging feature.",
+                        "The Graph Toolkit canvas remains an optional visualization with its own " +
+                        "menu; it authors a separate graph asset and needs its bake step.",
                         "§6.1 wants a mover archetype and an aim rig too; neither is ported yet, so a " +
                         "player entity's movement is still game code.",
                         "Done when a StateTreeRunner in the scene has a tree assigned."
@@ -286,14 +284,14 @@ namespace PowerOfFire.DrawToPlay.Editor
                     title = "AI",
                     toolTypeName = string.Empty,
                     description =
-                        "§6.2's enemy tail: the SAME graph editor as Behavior, different palette. " +
-                        "An enemy tree is state-tree-first — perception conditions drive the " +
-                        "transitions and abilities sit inside states — where a player's is " +
-                        "flow-tree-first, driven by input intents. Same asset, same bake, same " +
-                        "runner.",
+                        "§6.2's enemy tail: the SAME state tree editor as Behavior. An enemy tree " +
+                        "is state-tree-first — perception conditions drive the transitions and " +
+                        "abilities sit inside states — where a player's is flow-tree-first, driven " +
+                        "by input intents. Same asset, same editor, same runner.",
                     checklist = new List<string>
                     {
-                        "Clicking this tab opens the entity's graph, exactly like Behavior does.",
+                        "Clicking this tab opens the entity's tree in the State Tree Editor, exactly " +
+                        "like Behavior does.",
                         "Zombie / Brute / Archer ship as preset trees: Tools ▸ Draw To Play ▸ Create " +
                         "Enemy Preset Trees. Read one before authoring your own — they are the ported " +
                         "enemies/*.gd archetypes, ranges and timings included.",
@@ -305,10 +303,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                         "Ranges are in world units — Godot pixels ÷ 32. The presets keep the source " +
                         "number visible in the code that builds them.",
                         "§6.2 also wants min < max range checks and a death clip in Animate; neither " +
-                        "cross-check exists yet, so the badge stops at \"the tree has an entry node\".",
-                        "Done when a runner's tree has a root the runner can enter.",
-                        "Tools ▸ Draw To Play ▸ Verify M7 Graph Frontend builds the whole path end to " +
-                        "end: zombie graph → bake → a scene running the baked tree."
+                        "cross-check exists yet, so the badge stops at \"the entry state does " +
+                        "something\".",
+                        "Done when the tree's entry state has tasks or transitions.",
+                        "Tools ▸ Draw To Play ▸ Verify M7b Direct Editor proves the window renders a " +
+                        "preset's states and wiring; edit a range there, press Play, the behavior " +
+                        "changes — same asset, no bake."
                     }
                 }
             };

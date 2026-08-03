@@ -348,11 +348,22 @@ namespace PowerOfFire.DrawToPlay.Editor
             return StageStatus.InProgress;
         }
 
-        /// <summary>AI: the same runner, one bar higher — §6.2's "tree has an entry node". A tree
-        /// whose root is null resolves to no state at all and StartTree does nothing, so it is
-        /// the one structural fault that makes an assigned tree still not a brain. Ranges and the
-        /// death clip (the rest of §6.2's checklist) are per-component fields and a cross-stage
-        /// reach into Animate respectively; neither is probed rather than probed wrongly.</summary>
+        /// <summary>AI: the same runner, one bar higher — §6.2's "tree has an entry node", read as
+        /// an entry node the runner can DO something with. A null root resolves to no state at all
+        /// and StartTree refuses; a root with nothing under it resolves to itself and the runner
+        /// sits in it forever, which is the same "not a brain yet" in a different shape.
+        ///
+        /// M7b RAISED THIS BAR, and had to. Before M7b nothing created an empty tree, so "root is
+        /// not null" and "the tree runs" were the same statement. The AI tab now creates a
+        /// root-only tree for an entity that has none, which would have awarded Complete for
+        /// clicking a tab — so the probe walks the root exactly the way
+        /// <c>StateTreeRunner.ResolveEntryNode</c> does and asks whether the state it lands on has
+        /// any tasks or any transitions. (The Behavior stage keeps the lower bar: §6.1 asks only
+        /// for a tree to be assigned, and its checklist says so.)
+        ///
+        /// Ranges and the death clip (the rest of §6.2's checklist) are per-component fields and a
+        /// cross-stage reach into Animate respectively; neither is probed rather than probed
+        /// wrongly.</summary>
         private static StageStatus ValidateEnemyAI()
         {
             var runners = FindComponents<StateTreeRunner>();
@@ -362,11 +373,21 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (var i = 0; i < runners.Length; ++i)
             {
                 var data = runners[i] != null ? runners[i].data : null;
-                if (data != null && data.root != null)
+                if (data != null && HasRunnableEntry(data.root))
                     return StageStatus.Complete;
             }
 
             return StageStatus.InProgress;
+        }
+
+        /// <summary>Would the runner's entry state actually do anything? The descent itself is
+        /// <see cref="StateTreeEditorOps.ResolveEntryNode"/> — the State Tree Editor's mirror of
+        /// the runner's own walk, borrowed rather than copied so the badge and the row the editor
+        /// marks as the entry state can never disagree.</summary>
+        private static bool HasRunnableEntry(StateTreeNodeAsset root)
+        {
+            var entry = StateTreeEditorOps.ResolveEntryNode(root);
+            return entry != null && (entry.tasks.Count > 0 || entry.transitions.Count > 0);
         }
 
         /// <summary>Every drawn shape in the stage the user is looking at.</summary>

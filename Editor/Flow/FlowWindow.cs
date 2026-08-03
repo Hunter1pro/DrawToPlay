@@ -26,6 +26,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         // This window drives it through CollisionDebugOverlay.enabled rather than writing the
         // key itself, so all three toggles stay the same switch.
 
+        /// <summary>Where trees authored from the Behavior / AI tabs land. Beside the preset trees
+        /// in spirit, in their own folder in practice, so "Create Enemy Preset Trees" can never
+        /// overwrite something a user authored here.</summary>
+        private const string k_TreeFolder = "Assets/DrawToPlay/Trees";
+
         // Badge palette. Deliberately mid-tone so it reads on both editor skins.
         private static readonly Color k_BadgeUnknown = new Color(0.55f, 0.55f, 0.55f, 0.35f);
         private static readonly Color k_BadgeEmpty = new Color(0.62f, 0.62f, 0.62f, 1f);
@@ -134,10 +139,11 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var refresh = new Button(() =>
             {
-                // Also forget what the window learned about the graph frontend: the usual reason
-                // to press Refresh after seeing "the frontend is not loaded" is that you have
-                // just resolved the package, and re-opening the window to clear a cache would be
-                // a silly thing to have to know.
+                // Also forget the cached graph-frontend lookups. No tab reaches them any more
+                // (M7b: the Behavior/AI tabs open the direct editor), but "Verify M7 Graph
+                // Frontend" still reads that cache, and Refresh is the one button a user presses
+                // after recompiling something — having to reopen a window to clear a cache would
+                // be a silly thing to have to know.
                 StateTreeGraphBridge.InvalidateCache();
                 RefreshBadges();
             })
@@ -229,81 +235,201 @@ namespace PowerOfFire.DrawToPlay.Editor
                 notes.Add("Collision debug overlay enabled.");
             }
 
-            // The two graph stages (§6.1 Behavior for a player, §6.2 AI for an enemy) are the
-            // same editor with different palettes, so they open the same way: the tab is a
-            // shortcut into the graph window exactly as the Draw tab is a shortcut into the Draw
-            // tool. Failures are notes in the stage panel, never console errors — an entity that
-            // has no graph (or a project where the experimental package has not resolved) must
-            // stay browsable.
+            // The two behaviour stages (§6.1 Behavior for a player, §6.2 AI for an enemy) are the
+            // same editor with a different tree kind, so they open the same way: the tab is a
+            // shortcut into the State Tree Editor exactly as the Draw tab is a shortcut into the
+            // Draw tool. Failures are notes in the stage panel, never console errors — an entity
+            // with no tree yet must stay browsable.
             if (string.Equals(stage.id, FlowValidators.CharacterBehaviorStageId, StringComparison.Ordinal) ||
                 string.Equals(stage.id, FlowValidators.EnemyAIStageId, StringComparison.Ordinal))
             {
-                OpenGraphForSelection(notes);
+                OpenStateTreeEditorForSelection(stage.id, notes);
             }
 
             RebuildStagePanel(notes);
             RefreshBadges();
         }
 
-        /// <summary>Open the selected entity's graph asset, or offer to create one.
+        /// <summary>Open the selected entity's tree in the State Tree Editor, creating one when
+        /// the entity has none.
         ///
-        /// Open path: the graph is a normal asset, so AssetDatabase.OpenAsset hands it to the
-        /// window its importer registered. Create path:
-        /// <c>GraphDatabase.PromptInProjectBrowserToCreateNewAsset&lt;T&gt;</c> — "Creates a new
-        /// graph asset and activates the naming field in the Project Browser" (GraphDatabase.cs).
-        /// Naming it is half of deciding what it is for, so the prompt is the right creation
-        /// gesture here even though it means the asset lands wherever the Project window is
-        /// pointed rather than in the conventional folder.
+        /// M7b MOVED THIS OFF THE GRAPH. Until M7b these two tabs opened the Graph Toolkit
+        /// frontend, which authors a SEPARATE document that a bake step then converts into the
+        /// <see cref="StateTreeAsset"/> the runner executes. That indirection is the whole problem
+        /// it caused: what you edit is not what runs, so every change costs a bake, and a tree the
+        /// runner is running has no editor at all unless it happens to have come from a graph.
+        /// The direct editor edits the runtime asset itself — the same object the runner
+        /// deep-copies on StartTree — so authoring and running are the same file and there is no
+        /// step in between to forget. The graph frontend is untouched and still reachable through
+        /// its own menus (Assets ▸ Create ▸ Draw To Play ▸ State Tree Graph, and Tools ▸ Draw To
+        /// Play ▸ Bake State Tree Graph); it is a visualisation now, not the way in.
         ///
-        /// Both calls go through <see cref="StateTreeGraphBridge"/> rather than being typed
-        /// against Graph Toolkit: this window must keep working when the experimental package
-        /// does not (§7.3, §8 Risks).</summary>
-        private static void OpenGraphForSelection(List<string> notes)
+        /// WHICH TREE. The runner's own <c>data</c> when it has one — that is by definition the
+        /// tree this entity is running, whether it came from a preset, the Inspector, this editor
+        /// or a bake. Otherwise the conventional path for the entity's name, loaded if it is
+        /// already there and created (root state included) if it is not, and then assigned to the
+        /// runner so the badge, the play-mode highlight and the next click all agree about what
+        /// this entity's brain is.
+        ///
+        /// Creating the .asset is NOT undoable (AssetDatabase creation never is — the same caveat
+        /// the drawn-shape tools carry); assigning it to the runner is.</summary>
+        private static void OpenStateTreeEditorForSelection(string stageId, List<string> notes)
         {
-            if (!StateTreeGraphBridge.TryResolve(out var error))
-            {
-                notes.Add(error);
-                notes.Add("You can still author the tree by hand: build a StateTreeAsset in the " +
-                          "Inspector (or start from a preset) and drop it on the runner. The " +
-                          "runner cannot tell the difference — that is what the frontend/model " +
-                          "boundary buys.");
+            var runner = ResolveEntityRunner();
+            var entityName = ResolveEntityName(runner);
+            var tree = runner != null ? runner.data : null;
+
+            if (tree == null && !TryProvideTree(stageId, entityName, runner, notes, out tree))
                 return;
-            }
 
-            var entityName = ResolveEntityName();
-            var path = StateTreeGraphBridge.GraphAssetPath(entityName);
+            // Statement, not an assignment: the window owns its own return contract, and this call
+            // site only needs it opened on the right asset.
+            StateTreeEditorWindow.Open(tree);
 
-            if (StateTreeGraphBridge.OpenGraphAsset(path))
-            {
-                notes.Add($"Opened {path}.");
-                notes.Add("Remember to bake after editing — the runner reads the baked asset, " +
-                          "never the graph.");
-                return;
-            }
-
-            if (!StateTreeGraphBridge.PromptCreate(entityName, out var createError))
-            {
-                notes.Add(createError);
-                return;
-            }
-
-            notes.Add($"No graph for '{entityName}' at {path} yet — a new one is waiting to be " +
-                      "named in the Project Browser (it is created where the Project window is " +
-                      $"pointed; move it to {StateTreeGraphBridge.GraphFolder} to have this tab " +
-                      "find it next time).");
+            notes.Add($"Opened '{tree.name}' in the State Tree Editor. Every edit writes straight " +
+                      "into that asset — the runner reads the same file, so there is nothing to " +
+                      "bake and nothing to keep in step.");
         }
 
-        /// <summary>Which entity the graph belongs to. The runner's GameObject when the selection
-        /// is anywhere inside a rigged entity — clicking a limb should open the character's
-        /// brain, not look for a graph called "LeftForearm" — else the selection itself.</summary>
-        private static string ResolveEntityName()
+        /// <summary>Find (or create) the tree for an entity that has none assigned, as ONE undo
+        /// step (m0's undo contract — a tab click is a gesture). False means nothing could be
+        /// opened and <paramref name="notes"/> already says why.</summary>
+        private static bool TryProvideTree(string stageId, string entityName, StateTreeRunner runner,
+            List<string> notes, out StateTreeAsset tree)
+        {
+            var path = TreeAssetPath(entityName);
+            var group = StateTreeEditorOps.BeginUndoGroup("Provide State Tree");
+
+            tree = AssetDatabase.LoadAssetAtPath<StateTreeAsset>(path);
+            if (tree != null)
+            {
+                notes.Add($"'{entityName}' had no tree assigned, but {path} already exists — " +
+                          "opening that rather than creating a second one.");
+            }
+            else
+            {
+                tree = CreateTree(path, entityName, TreeKindFor(stageId));
+                if (tree == null)
+                {
+                    StateTreeEditorOps.EndUndoGroup(group);
+                    notes.Add($"Could not create {path}: the folder could not be made. Create a " +
+                              "State Tree through Assets ▸ Create ▸ Draw To Play ▸ State Tree and " +
+                              "drop it on the runner instead.");
+                    return false;
+                }
+
+                notes.Add($"Created {path} with one root state. Add states under it in the editor; " +
+                          "the runner enters the first leaf under the root.");
+            }
+
+            if (runner != null)
+            {
+                Undo.RecordObject(runner, "Provide State Tree");
+                runner.data = tree;
+                EditorUtility.SetDirty(runner);
+                notes.Add($"Assigned it to the StateTreeRunner on '{runner.gameObject.name}'.");
+            }
+            else
+            {
+                notes.Add("Nothing in the selection has a StateTreeRunner, so the tree is not " +
+                          "wired to anything yet — add a runner to the entity and drop this asset " +
+                          "on its Data field.");
+            }
+
+            StateTreeEditorOps.EndUndoGroup(group);
+            return true;
+        }
+
+        /// <summary>Build a new tree asset with the organizational root state every preset uses, so
+        /// the thing the editor opens is already a valid tree rather than a null root the runner
+        /// would refuse to start. The root goes in through
+        /// <see cref="StateTreeEditorOps.CreateNode"/> — the same call the editor's own toolbar
+        /// makes — so a tree started from this tab and a tree grown in the window have identical
+        /// sub-asset naming and undo behaviour, with one definition of how a state is born.
+        /// Null when the folder could not be created.</summary>
+        private static StateTreeAsset CreateTree(string assetPath, string treeName, string treeKind)
+        {
+            // EnsureFolder is plain AssetDatabase and touches nothing graph-related; it lives on
+            // the bridge only because that is where the shared copy ended up. Borrowing it beats a
+            // third copy of the same fifteen lines.
+            if (StateTreeGraphBridge.EnsureFolder(k_TreeFolder) != k_TreeFolder)
+                return null;
+
+            var tree = ScriptableObject.CreateInstance<StateTreeAsset>();
+            tree.name = treeName;
+            tree.treeName = treeName;
+            tree.treeKind = treeKind;
+
+            // The main asset has to be on disk before anything can be added to it.
+            AssetDatabase.CreateAsset(tree, assetPath);
+
+            // parent == null means "become the tree root" (StateTreeEditorOps.CreateNode).
+            StateTreeEditorOps.CreateNode(tree, null, "root", treeName, "Provide State Tree");
+
+            EditorUtility.SetDirty(tree);
+            AssetDatabase.SaveAssets();
+            return tree;
+        }
+
+        /// <summary>§6.2's enemy tail authors an AI tree, §6.1's Behavior stage a player flow tree.
+        /// The runtime does not branch on this — it is the label the graph frontend's EntryNode
+        /// writes and the one honest record of which tab a tree was started from.</summary>
+        private static string TreeKindFor(string stageId)
+        {
+            return string.Equals(stageId, FlowValidators.CharacterBehaviorStageId, StringComparison.Ordinal)
+                ? "player_flow"
+                : "enemy_ai";
+        }
+
+        /// <summary>Project path for an entity's tree. One folder rather than "next to the entity"
+        /// because a tree is a project asset shared by every instance of an archetype, exactly like
+        /// the preset trees it sits beside.</summary>
+        private static string TreeAssetPath(string entityName)
+        {
+            return $"{k_TreeFolder}/{SanitizeFileName(entityName)}.asset";
+        }
+
+        /// <summary>The runner whose brain this tab edits: the nearest one at or above the
+        /// selection, so clicking a limb opens the character's brain rather than looking for a tree
+        /// called "LeftForearm".</summary>
+        private static StateTreeRunner ResolveEntityRunner()
         {
             var selected = Selection.activeGameObject;
-            if (selected == null)
-                return "New State Tree";
+            return selected != null ? selected.GetComponentInParent<StateTreeRunner>() : null;
+        }
 
-            var runner = selected.GetComponentInParent<StateTreeRunner>();
-            return runner != null ? runner.gameObject.name : selected.name;
+        /// <summary>What to call the entity: the runner's GameObject, else the selection, else a
+        /// neutral name so the tab still does something useful with nothing selected.</summary>
+        private static string ResolveEntityName(StateTreeRunner runner)
+        {
+            if (runner != null)
+                return runner.gameObject.name;
+
+            var selected = Selection.activeGameObject;
+            return selected != null ? selected.name : "New State Tree";
+        }
+
+        /// <summary>Make a GameObject name safe to use as a file name (kept local rather than
+        /// shared so this tab does not depend on the graph bridge's private members).</summary>
+        private static string SanitizeFileName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return "Entity";
+
+            var invalid = System.IO.Path.GetInvalidFileNameChars();
+            var builder = new System.Text.StringBuilder(name.Length);
+            for (var i = 0; i < name.Length; ++i)
+            {
+                var c = name[i];
+                var bad = c == '.';
+                for (var j = 0; j < invalid.Length && !bad; ++j)
+                    bad = invalid[j] == c;
+
+                builder.Append(bad ? '_' : c);
+            }
+
+            var result = builder.ToString().Trim();
+            return result.Length > 0 ? result : "Entity";
         }
 
         /// <summary>Put the user in the stage's tool. A missing/unusable type is reported in
