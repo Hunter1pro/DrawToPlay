@@ -304,6 +304,40 @@ namespace PowerOfFire.DrawToPlay.Editor
             return task;
         }
 
+        /// <summary>Point an existing composite task at a DIFFERENT tree, in place. The one caller
+        /// that needs this is "convert to graph": the tree the task ran has just been re-authored
+        /// as a graph file, and the task has to follow it or the conversion has changed nothing
+        /// the runner will see.
+        ///
+        /// Re-pointing rather than remove-and-re-add is what keeps the task's OWN parameters — its
+        /// success/failure state lists, which the author may well have edited away from the
+        /// defaults. Deleting the sub-asset and creating a fresh one would silently reset them,
+        /// and the conversion is meant to preserve behaviour exactly.
+        ///
+        /// Returns false for every assignment the model refuses (no task, no tree, a tree running
+        /// itself, or a composition that closes a loop) so the caller reports instead of believing
+        /// a mutation happened. <paramref name="tree"/> is the OWNING tree — the one whose asset
+        /// the task is a sub-asset of — and is what the cycle check is run against.</summary>
+        internal static bool RepointSubTreeTask(StateTreeAsset tree, RunSubTreeTask task,
+            StateTreeAsset subTree, string undoName)
+        {
+            if (task == null || subTree == null)
+                return false;
+            if (tree != null && (subTree == tree || CreatesCycle(subTree, tree)))
+                return false;
+            if (task.subTree == subTree)
+                return true;
+
+            Undo.RecordObject(task, undoName);
+            task.subTree = subTree;
+            EditorUtility.SetDirty(task);
+
+            if (tree != null)
+                EditorUtility.SetDirty(tree);
+
+            return true;
+        }
+
         /// <summary>Swap the condition on one transition. Replacing (rather than adding) is the
         /// only sane semantic: a transition holds exactly one condition reference, and the old
         /// sub-asset would otherwise be orphaned inside the asset file forever.</summary>

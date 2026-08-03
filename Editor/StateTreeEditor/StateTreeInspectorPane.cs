@@ -40,6 +40,17 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// itself — directly or through another tree — is the one wiring mistake this model makes
     /// easy to express and impossible to execute.
     ///
+    /// AND A TASK DOES NOT HAVE TO EXIST YET. "+ Graph Task" (beside Add Task, and pinned in the
+    /// picker) is the authoring loop in one gesture: name it, and it becomes a scaffold GRAPH
+    /// under Assets/DrawToPlay/Tasks, a composite task on this state wired to the tree that graph
+    /// bakes, and an open canvas to extend. Composite rows carry the other half — "Edit in Graph"
+    /// when the tree came from a graph file, "Convert to Graph…" when it did not, which re-authors
+    /// a hand-built tree as a graph and re-points this task at it, leaving the original asset on
+    /// disk for the author to delete once satisfied. Everything past that boundary is reached
+    /// through <see cref="StateTreeGraphBridge"/>, and every one of these commands reports what
+    /// stopped it: a frontend that will not compile must read as a message, never as a button that
+    /// does nothing.
+    ///
     /// With no state selected the pane edits the TREE: its name, its kind, and the toggle that
     /// makes it appear in every other tree's task picker. Those fields exist nowhere else in the
     /// window, and "mark this tree as a task" is the whole entry point to composition.
@@ -54,6 +65,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const string k_NoConditionChoice = "None (always passes)";
         private const string k_NoTargetChoice = "<none>";
         private const string k_SubTreeProperty = "subTree";
+
+        /// <summary>Title shared by every dialog in the graph-task loop, so a failure is
+        /// recognisable as "the graph side said no" wherever it comes from.</summary>
+        private const string k_GraphDialogTitle = "Graph Tasks";
 
         private readonly ScrollView m_Root;
         private readonly Action m_StructuralChanged;
@@ -346,6 +361,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     var open = new Button(() => OpenTree(composite.subTree)) { text = "Open" };
                     open.tooltip = "Edit the sub-tree in this window.";
                     header.Add(open);
+                    header.Add(BuildGraphButton(composite));
                 }
 
                 var remove = new Button(() => RemoveTask(index)) { text = "✕" };
@@ -376,13 +392,62 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Root.Add(box);
             }
 
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.marginTop = 4f;
+
             var add = new Button { text = "Add Task…" };
             add.tooltip = "Search every task type AND every tree marked as a reusable task, by "
                 + "name, category or description.";
-            add.style.marginTop = 4f;
+            add.style.flexGrow = 1f;
             add.clicked += () => StateTreeNodePicker.Show(StateTreeNodePicker.ScreenRectOf(add),
-                typeof(StateTreeTaskAsset), AddTask, "Add Task", AddSubTreeTask, CanRunSubTree);
-            m_Root.Add(add);
+                typeof(StateTreeTaskAsset), AddTask, "Add Task", AddSubTreeTask, CanRunSubTree,
+                CreateGraphTask);
+            row.Add(add);
+
+            // The same command as the picker's pinned row, one click closer. It is worth both
+            // places: from inside the picker it is the answer to "none of these is what I want",
+            // and out here it is the answer to "I already know I am writing a new one".
+            var graph = new Button(CreateGraphTask) { text = "+ Graph Task" };
+            graph.style.flexShrink = 0f;
+            graph.tooltip = "Create a new task as a graph under " + StateTreeGraphBridge.TaskFolder
+                + ", add it to this state, and open its canvas.";
+            row.Add(graph);
+
+            m_Root.Add(row);
+
+            // Reported once, up front, rather than only on click: a button whose command cannot
+            // run should look like a button whose command cannot run.
+            if (!StateTreeGraphBridge.TryResolveAuthoring(out var unavailable))
+            {
+                graph.tooltip = unavailable;
+                m_Root.Add(new HelpBox("Graph tasks are unavailable: " + unavailable,
+                    HelpBoxMessageType.Warning));
+            }
+        }
+
+        /// <summary>The composite row's graph button, which is two commands wearing one slot
+        /// because the author's question is one question — "let me edit this on the canvas" — and
+        /// the answer depends on something they should not have to check first: whether the tree
+        /// is a <c>.statetree</c> graph file or a hand-authored asset. Graph-backed trees open;
+        /// the rest offer the conversion that makes them open.</summary>
+        private Button BuildGraphButton(RunSubTreeTask task)
+        {
+            var path = AssetDatabase.GetAssetPath(task.subTree);
+
+            if (StateTreeGraphBridge.IsGraphAssetPath(path))
+            {
+                var edit = new Button(() => OpenGraphOrReport(path)) { text = "Edit in Graph" };
+                edit.tooltip = $"Open '{path}' on the graph canvas. Saving the graph re-bakes the "
+                    + "tree this task runs.";
+                return edit;
+            }
+
+            var convert = new Button(() => ConvertToGraph(task)) { text = "Convert to Graph…" };
+            convert.tooltip = "This tree was authored by hand. Write it out as a graph file, "
+                + "re-point this task at the graph, and open it.";
+            convert.SetEnabled(!string.IsNullOrEmpty(path));
+            return convert;
         }
 
         /// <summary>Composite tasks are labelled by what they run: "Run Sub Tree" on five boxes
@@ -781,6 +846,194 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
 
             m_Root.schedule.Execute(() => StateTreeEditorWindow.Open(tree)).ExecuteLater(0);
+        }
+
+        // --- graph tasks ------------------------------------------------------------------
+
+        /// <summary>Name a task, and get back a graph you are already editing and a state that
+        /// already runs it. The order is deliberate and each step guards the next: the frontend is
+        /// asked whether it can author BEFORE the author is asked for a name, the scaffold is
+        /// verified to have imported BEFORE anything is wired, and the wiring is one undo step
+        /// that leaves the file on disk if undone (asset creation is not undoable — established in
+        /// m7b, and the reason the dialog says "created" before it says "added").</summary>
+        private void CreateGraphTask()
+        {
+            if (m_Tree == null || m_Node == null)
+                return;
+
+            if (!StateTreeGraphBridge.TryResolveAuthoring(out var error))
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle, error, "OK");
+                return;
+            }
+
+            StateTreeGraphBridge.EnsureFolder(StateTreeGraphBridge.TaskFolder);
+
+            var path = EditorUtility.SaveFilePanelInProject("New Graph Task", SuggestedTaskName(),
+                StateTreeGraphBridge.graphExtension,
+                "Name the task. It is created as a graph you can extend on the canvas, and added "
+                + "to this state straight away.", StateTreeGraphBridge.TaskFolder);
+            if (string.IsNullOrEmpty(path))
+                return;
+
+            var treeName = System.IO.Path.GetFileNameWithoutExtension(path);
+            var created = StateTreeGraphBridge.CreateTaskScaffold(path, treeName, out error);
+            if (created == null)
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    "The task graph was not created, and nothing was added to this state.\n\n"
+                    + error, "OK");
+                return;
+            }
+
+            var tree = AssetDatabase.LoadAssetAtPath<StateTreeAsset>(created);
+            if (tree == null)
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    $"'{created}' was created, but it did not bake a {nameof(StateTreeAsset)}, so "
+                    + "there is nothing for a task to run. Nothing was added to this state — the "
+                    + "Console will say why the import failed.", "OK");
+                return;
+            }
+
+            var group = StateTreeEditorOps.BeginUndoGroup("Add Graph Task");
+            var task = StateTreeEditorOps.CreateSubTreeTask(m_Tree, m_Node, tree, "Add Graph Task");
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+
+            if (task == null)
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    $"'{created}' was created, but it could not be added to this state. Add it "
+                    + "with Add Task… once you have looked at it.", "OK");
+            }
+            else if (!StateTreeEditorOps.IsTaskTree(tree))
+            {
+                // The kind is authored ON the graph (the Entry node's Tree Kind port), so a
+                // scaffold that came back with any other kind still runs here but is invisible to
+                // every other state's picker — which is exactly the promise this command made.
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    $"'{created}' baked with tree kind '{tree.treeKind}' rather than "
+                    + $"'{StateTreeEditorOps.TaskTreeKind}'. It runs on this state, but it will "
+                    + "not be offered in other states' Add Task… picker until the graph's Entry "
+                    + $"node sets Tree Kind to '{StateTreeEditorOps.TaskTreeKind}'.", "OK");
+            }
+
+            OpenGraphOrReport(created);
+            DeferStructuralChange();
+        }
+
+        /// <summary>Re-author a hand-built tree as a graph and follow it. The source asset is left
+        /// untouched on disk — a conversion that also deleted the original would be the one
+        /// destructive command in this window, and the round-trip it depends on is exactly the
+        /// thing the author has not verified yet. Only THIS task is re-pointed for the same
+        /// reason: rewriting every other reference in the project is not a decision one composite
+        /// row is entitled to make, and the dialog says so before anything happens.</summary>
+        private void ConvertToGraph(RunSubTreeTask task)
+        {
+            if (m_Tree == null || task == null || task.subTree == null)
+                return;
+
+            if (!StateTreeGraphBridge.TryResolveAuthoring(out var error))
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle, error, "OK");
+                return;
+            }
+
+            var source = task.subTree;
+            var sourceName = StateTreeEditorOps.TreeDisplayName(source);
+            var sourcePath = AssetDatabase.GetAssetPath(source);
+            if (string.IsNullOrEmpty(sourcePath))
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    $"'{sourceName}' is not saved as its own asset, so there is no tree file to "
+                    + "convert.", "OK");
+                return;
+            }
+
+            // Beside the source, same name, graph extension — and uniqued, because a previous
+            // conversion sitting there is a file someone may still be editing.
+            var target = AssetDatabase.GenerateUniqueAssetPath(DirectoryOf(sourcePath) + "/"
+                + System.IO.Path.GetFileNameWithoutExtension(sourcePath) + "."
+                + StateTreeGraphBridge.graphExtension);
+
+            if (!EditorUtility.DisplayDialog("Convert to Graph",
+                $"Write '{sourceName}' out as a graph at\n\n{target}\n\nThis task is then "
+                + "re-pointed at the tree that graph bakes (one undo step), and the graph opens.\n\n"
+                + $"'{sourcePath}' is left exactly as it is — check the graph, then delete the old "
+                + "asset yourself. Anything else referencing it keeps pointing at it.",
+                "Convert", "Cancel"))
+                return;
+
+            var created = StateTreeGraphBridge.ConvertTreeToGraph(source, target, out error);
+            if (created == null)
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    $"'{sourceName}' was not converted, and this task is unchanged.\n\n" + error,
+                    "OK");
+                return;
+            }
+
+            var converted = AssetDatabase.LoadAssetAtPath<StateTreeAsset>(created);
+            if (converted == null)
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    $"'{created}' was written, but it did not bake a {nameof(StateTreeAsset)}. "
+                    + "This task still runs the original tree — the Console will say why the "
+                    + "import failed.", "OK");
+                return;
+            }
+
+            var group = StateTreeEditorOps.BeginUndoGroup("Convert Sub Tree To Graph");
+            var repointed = StateTreeEditorOps.RepointSubTreeTask(m_Tree, task, converted,
+                "Convert Sub Tree To Graph");
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+
+            if (!repointed)
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    $"The graph was written to '{created}', but this task still runs the original "
+                    + "tree: pointing it at the graph would close a composition loop. The graph is "
+                    + "on disk and can be assigned by hand once the loop is gone.", "OK");
+            }
+
+            OpenGraphOrReport(created);
+            DeferStructuralChange();
+        }
+
+        /// <summary>Open a graph file, or say why it did not. The two causes need different fixes
+        /// (the frontend assembly is not loaded / nothing is imported at that path) and the bridge
+        /// knows which applies, so this never invents a third.</summary>
+        private void OpenGraphOrReport(string assetPath)
+        {
+            if (StateTreeGraphBridge.OpenGraphAsset(assetPath, out var error))
+                return;
+
+            EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                $"'{assetPath}' did not open.\n\n{error}", "OK");
+        }
+
+        /// <summary>Default file name for a new graph task: the state it is being added to, which
+        /// is what the author just named and the closest thing to what the task is for.</summary>
+        private string SuggestedTaskName()
+        {
+            var id = m_Node != null ? m_Node.nodeId : null;
+            if (string.IsNullOrWhiteSpace(id))
+                return "NewTask";
+
+            var trimmed = id.Trim().Replace(" ", string.Empty);
+            if (trimmed.Length == 0)
+                return "NewTask";
+
+            var name = char.ToUpperInvariant(trimmed[0]) + trimmed.Substring(1);
+            return name.EndsWith("Task", StringComparison.Ordinal) ? name : name + "Task";
+        }
+
+        private static string DirectoryOf(string assetPath)
+        {
+            var directory = System.IO.Path.GetDirectoryName(assetPath);
+            return string.IsNullOrEmpty(directory) ? "Assets" : directory.Replace('\\', '/');
         }
 
         /// <summary>Swap (or clear) the condition on one transition. Same Ops call the dropdown

@@ -37,7 +37,18 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// index and one favourites store: from the author's side "what can this state do?" has a
     /// single answer, and where the behaviour came from is a detail of the row, not of the
     /// window. Authored rows appear only when the caller passes an <c>onTreePicked</c> callback —
-    /// a picker whose owner cannot act on a tree must not offer one.
+    /// a picker whose owner cannot act on a tree must not offer one. Rows for trees that are
+    /// BAKED FROM A GRAPH carry a " (graph)" suffix, because "can I open this on a canvas?" is
+    /// the one thing about an authored task the row cannot otherwise show.
+    ///
+    /// PLUS ONE ACTION ROW. "+ New Graph Task…" is not an item, it is a command: it creates the
+    /// task that does not exist yet and drops the author on its canvas. It is pinned above the
+    /// list rather than filed under Authored, because it is needed MOST when there is nothing
+    /// authored — an empty category cannot hold the way out of being empty. It never takes the
+    /// default highlight (Enter after opening the picker must commit a node, never a modal file
+    /// dialog) and it sorts last in search results for the same reason; UpArrow from the top row
+    /// reaches it, which is what keyboard-reachable has to mean for a row that must not be
+    /// selected by accident.
     /// </summary>
     internal sealed class StateTreeNodePicker : EditorWindow
     {
@@ -66,6 +77,23 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// folder the asset lives in, which is the taxonomy the author already maintains.</summary>
         private const string k_AuthoredCategory = "Authored";
 
+        /// <summary>Label of the pinned command row, and the text its search index is built
+        /// from.</summary>
+        private const string k_NewGraphTaskLabel = "+ New Graph Task…";
+
+        private const string k_NewGraphTaskDescription =
+            "Create a task as a graph and open it for editing";
+
+        /// <summary>Appended to a row whose tree is baked from a graph file. A suffix rather than
+        /// part of the name so search, duplicate detection and the favourites key all keep working
+        /// on what the author actually called the tree.</summary>
+        private const string k_GraphSuffix = " (graph)";
+
+        /// <summary>Search rank of a command row: worse than every real tier (0-4), so a query
+        /// that matches both a node and the command puts the node first and Enter commits it.
+        /// </summary>
+        private const int k_ActionScore = 9;
+
         /// <summary>Marks a favourites entry as an asset GUID rather than a type full name.</summary>
         private const string k_GuidKeyPrefix = "guid:";
 
@@ -86,11 +114,18 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static StateTreeNodePicker s_Open;
 
         private readonly List<Entry> m_Entries = new List<Entry>();
+
+        /// <summary>Command rows. Kept apart from <see cref="m_Entries"/> because they are not
+        /// sorted, categorised, favourited or counted as library content — everything the list
+        /// does to an item is wrong for a command.</summary>
+        private readonly List<Entry> m_Actions = new List<Entry>();
+
         private readonly List<Row> m_Rows = new List<Row>();
 
         private Type m_BaseType;
         private Action<Type> m_OnPicked;
         private Action<StateTreeAsset> m_OnTreePicked;
+        private Action m_OnNewGraphTask;
         private Predicate<StateTreeAsset> m_TreeFilter;
         private string m_Title = "Add Node";
         private string m_Kind = k_TasksKind;
@@ -117,13 +152,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// has closed, so the callback is free to rebuild the UI that owns the activator.
         ///
         /// Pass <paramref name="onTreePicked"/> to also offer AUTHORED trees (composite tasks);
-        /// exactly one of the two callbacks fires per pick. <paramref name="treeFilter"/> vets
+        /// exactly one of the three callbacks fires per pick. <paramref name="treeFilter"/> vets
         /// each candidate before it is listed — the inspector uses it to keep a tree from being
-        /// offered as a task inside itself. Both are optional, so the four-argument call sites
+        /// offered as a task inside itself. <paramref name="onNewGraphTask"/> adds the pinned
+        /// "+ New Graph Task…" command. All three are optional, so the four-argument call sites
         /// that only deal in types are unchanged.</summary>
         internal static StateTreeNodePicker Show(Rect activatorScreenRect, Type baseType,
             Action<Type> onPicked, string title, Action<StateTreeAsset> onTreePicked = null,
-            Predicate<StateTreeAsset> treeFilter = null)
+            Predicate<StateTreeAsset> treeFilter = null, Action onNewGraphTask = null)
         {
             if (baseType == null || onPicked == null)
                 return null;
@@ -135,6 +171,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             window.m_BaseType = baseType;
             window.m_OnPicked = onPicked;
             window.m_OnTreePicked = onTreePicked;
+            window.m_OnNewGraphTask = onNewGraphTask;
             window.m_TreeFilter = treeFilter;
             window.m_Title = string.IsNullOrEmpty(title) ? "Add Node" : title;
             window.m_Kind = KindOf(baseType);
@@ -244,13 +281,22 @@ namespace PowerOfFire.DrawToPlay.Editor
         // --- model ------------------------------------------------------------------------
 
         /// <summary>One pickable item. Exactly one of <see cref="type"/> (a compiled task or
-        /// condition class) and <see cref="tree"/> (an authored composite) is set; everything
-        /// below that line — search index, category, favourite key, row — is identical for both,
-        /// which is the point of the item model.</summary>
+        /// condition class), <see cref="tree"/> (an authored composite) and <see cref="action"/>
+        /// (a command row) is set; everything below that line — search index, category, favourite
+        /// key, row — is identical for all three, which is the point of the item model.</summary>
         private sealed class Entry
         {
             internal Type type;
             internal StateTreeAsset tree;
+
+            /// <summary>Set on a command row: picking it runs this instead of reporting an item.
+            /// </summary>
+            internal Action action;
+
+            /// <summary>The tree is baked from a graph file, so its row gets
+            /// <see cref="k_GraphSuffix"/>.</summary>
+            internal bool graphBacked;
+
             internal string displayName;
             internal string category;
             internal string description;
@@ -289,13 +335,35 @@ namespace PowerOfFire.DrawToPlay.Editor
         private void CollectEntries()
         {
             m_Entries.Clear();
+            m_Actions.Clear();
             if (m_BaseType == null)
                 return;
 
             CollectTypeEntries();
             CollectAuthoredEntries();
+            CollectActionEntries();
             BuildSearchIndex();
             m_Entries.Sort(CompareEntries);
+        }
+
+        /// <summary>The command rows. There is one, and it is offered on the same terms as the
+        /// authored rows: only over the task base type, and only when the caller passed a callback
+        /// — a picker whose owner has no state to attach a new task to must not offer to make
+        /// one.</summary>
+        private void CollectActionEntries()
+        {
+            if (m_OnNewGraphTask == null || !typeof(StateTreeTaskAsset).IsAssignableFrom(m_BaseType))
+                return;
+
+            m_Actions.Add(new Entry
+            {
+                action = m_OnNewGraphTask,
+                displayName = k_NewGraphTaskLabel,
+                category = k_AuthoredCategory,
+                description = k_NewGraphTaskDescription,
+                persistKey = "action:new-graph-task",
+                identity = "Creates Assets/DrawToPlay/Tasks/<name>.statetree and opens it."
+            });
         }
 
         private void CollectTypeEntries()
@@ -362,6 +430,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Entries.Add(new Entry
                 {
                     tree = tree,
+                    graphBacked = StateTreeGraphBridge.IsGraphAssetPath(path),
                     displayName = DisplayNameOf(tree),
                     category = folder.Length > 0
                         ? k_AuthoredCategory + "/" + folder
@@ -393,11 +462,19 @@ namespace PowerOfFire.DrawToPlay.Editor
                     && !string.IsNullOrEmpty(entry.qualifier))
                     entry.displayName = $"{entry.displayName} ({entry.qualifier})";
 
-                entry.lowerName = entry.displayName.ToLowerInvariant();
-                entry.compactName = entry.lowerName.Replace(" ", string.Empty);
-                entry.lowerCategory = entry.category.ToLowerInvariant();
-                entry.lowerDescription = entry.description.ToLowerInvariant();
+                IndexEntry(entry);
             }
+
+            for (var i = 0; i < m_Actions.Count; ++i)
+                IndexEntry(m_Actions[i]);
+        }
+
+        private static void IndexEntry(Entry entry)
+        {
+            entry.lowerName = entry.displayName.ToLowerInvariant();
+            entry.compactName = entry.lowerName.Replace(" ", string.Empty);
+            entry.lowerCategory = entry.category.ToLowerInvariant();
+            entry.lowerDescription = entry.description.ToLowerInvariant();
         }
 
         /// <summary>Last path segment of the asset's folder ("Assets/DrawToPlay/Trees/X.asset" →
@@ -675,7 +752,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Rows.Clear();
             m_Selected = -1;
 
-            if (m_Entries.Count == 0)
+            if (m_Entries.Count == 0 && m_Actions.Count == 0)
             {
                 m_List.Add(Hint($"No {m_BaseType?.Name} types exist in this project yet."));
                 return;
@@ -701,6 +778,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// tree built from the attribute paths.</summary>
         private void BuildBrowse()
         {
+            // Pinned above everything, outside every foldout: a command that is only reachable
+            // once you have expanded the right category is not a way out of an empty library.
+            for (var i = 0; i < m_Actions.Count; ++i)
+                m_List.Add(MakeRow(m_Actions[i], k_AuthoredCategory, null));
+
             var favorites = new List<Entry>();
             for (var i = 0; i < m_Entries.Count; ++i)
             {
@@ -743,6 +825,17 @@ namespace PowerOfFire.DrawToPlay.Editor
 
                 scores[m_Entries[i]] = score;
                 hits.Add(m_Entries[i]);
+            }
+
+            // A command that matches the query is worth showing ("new", "graph"), but never above
+            // a node that matches it too — hence one fixed rank below every real tier.
+            for (var i = 0; i < m_Actions.Count; ++i)
+            {
+                if (Score(m_Actions[i], lower) < 0)
+                    continue;
+
+                scores[m_Actions[i]] = k_ActionScore;
+                hits.Add(m_Actions[i]);
             }
 
             hits.Sort((a, b) =>
@@ -869,12 +962,16 @@ namespace PowerOfFire.DrawToPlay.Editor
             star.style.unityTextAlign = TextAnchor.MiddleCenter;
             element.Add(star);
 
-            var name = new Label(entry.displayName);
+            var name = new Label(entry.graphBacked
+                ? entry.displayName + k_GraphSuffix
+                : entry.displayName);
             name.style.flexGrow = 1f;
             name.style.flexShrink = 1f;
             name.style.overflow = Overflow.Hidden;
             name.style.textOverflow = TextOverflow.Ellipsis;
             name.style.whiteSpace = WhiteSpace.NoWrap;
+            if (entry.action != null)
+                name.style.unityFontStyleAndWeight = FontStyle.Bold;
             element.Add(name);
 
             if (!string.IsNullOrEmpty(secondary))
@@ -926,9 +1023,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static string TooltipOf(Entry entry)
         {
             var identity = entry.identity ?? string.Empty;
-            return string.IsNullOrEmpty(entry.description)
+            var tooltip = string.IsNullOrEmpty(entry.description)
                 ? identity
                 : entry.description + "\n\n" + identity;
+
+            return entry.graphBacked
+                ? tooltip + "\n\nBaked from a graph — 'Edit in Graph' opens its canvas."
+                : tooltip;
         }
 
         private static Label Hint(string text)
@@ -983,7 +1084,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (m_Selected >= 0 && visible.Contains(m_Selected))
                 return;
 
-            SetSelected(visible[0]);
+            SetSelected(FirstVisibleIndex());
         }
 
         private List<int> VisibleIndices()
@@ -1021,15 +1122,26 @@ namespace PowerOfFire.DrawToPlay.Editor
             return true;
         }
 
+        /// <summary>The row the highlight starts on. Command rows are skipped unless there is
+        /// nothing else: opening the picker and pressing Enter must add a node, never open a modal
+        /// file dialog. They stay one UpArrow away, which is how a row can be both reachable and
+        /// impossible to trigger by reflex.</summary>
         private int FirstVisibleIndex()
         {
+            var fallback = -1;
             for (var i = 0; i < m_Rows.Count; ++i)
             {
-                if (IsRowVisible(m_Rows[i]))
+                if (!IsRowVisible(m_Rows[i]))
+                    continue;
+
+                if (m_Rows[i].entry.action == null)
                     return i;
+
+                if (fallback < 0)
+                    fallback = i;
             }
 
-            return -1;
+            return fallback;
         }
 
         private int IndexOfKey(string persistKey)
@@ -1087,14 +1199,19 @@ namespace PowerOfFire.DrawToPlay.Editor
             var entry = m_Rows[m_Selected].entry;
 
             // Close first, then call back: the callback rebuilds the pane that owns the button we
-            // were anchored to, and nothing of ours may be touched after Close destroys it.
+            // were anchored to (and, for a command, opens a modal dialog on top of it), and
+            // nothing of ours may be touched after Close destroys it.
             var typeCallback = m_OnPicked;
             var treeCallback = m_OnTreePicked;
+            var action = entry.action;
             m_OnPicked = null;
             m_OnTreePicked = null;
+            m_OnNewGraphTask = null;
             CloseSelf();
 
-            if (entry.tree != null)
+            if (action != null)
+                action.Invoke();
+            else if (entry.tree != null)
                 treeCallback?.Invoke(entry.tree);
             else
                 typeCallback?.Invoke(entry.type);
@@ -1102,6 +1219,11 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void ToggleFavorite(Row row)
         {
+            // A command is not an item, so it cannot be starred: the favourites section is "the
+            // nodes I reach for", and an entry that creates a new one every time is not one.
+            if (row.entry.action != null)
+                return;
+
             if (m_Favorites.Contains(row.entry.persistKey))
                 m_Favorites.Remove(row.entry.persistKey);
             else
@@ -1117,6 +1239,14 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void PaintStar(Row row, bool hovered)
         {
+            if (row.entry.action != null)
+            {
+                row.star.text = k_StarOff;
+                row.star.style.opacity = 0f;
+                row.star.pickingMode = PickingMode.Ignore;
+                return;
+            }
+
             var favorite = m_Favorites.Contains(row.entry.persistKey);
             row.star.text = favorite ? k_StarOn : k_StarOff;
 

@@ -50,6 +50,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>The bake step (§7.3): graph → <see cref="StateTreeAsset"/>.</summary>
         internal const string BakerTypeName = FrontendNamespace + ".StateTreeGraphBaker";
 
+        /// <summary>The authoring entry points (m7d): "make me a task graph" and "turn this
+        /// hand-authored tree into one". They live in the frontend because writing a graph needs
+        /// Graph Toolkit types; they are reached from here because the tools that OFFER those two
+        /// commands are in this assembly, which cannot name them.</summary>
+        internal const string AuthoringTypeName = FrontendNamespace + ".StateTreeGraphAuthoring";
+
         private const string k_GraphDatabaseTypeName = "Unity.GraphToolkit.Editor.GraphDatabase";
         private const string k_GraphAttributeTypeName = "Unity.GraphToolkit.Editor.GraphAttribute";
 
@@ -57,6 +63,17 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// "next to the entity" because a graph is a project asset shared by every instance of an
         /// archetype, exactly like the M6 preset trees it replaces.</summary>
         internal const string GraphFolder = "Assets/DrawToPlay/Graphs";
+
+        /// <summary>Where graph TASKS land — the authoring loop's default folder, separate from
+        /// <see cref="GraphFolder"/> because a task graph is a library component, not one
+        /// entity's behaviour.</summary>
+        internal const string TaskFolder = "Assets/DrawToPlay/Tasks";
+
+        /// <summary>The extension to assume when the frontend cannot be asked for its own. Used
+        /// only so that "is this asset a graph?" keeps answering honestly while the frontend is
+        /// broken — the answer then leads to a command that fails with a real message, which is
+        /// the point: a graph-backed tree must not silently read as hand-authored.</summary>
+        private const string k_DefaultExtension = "statetree";
 
         // Member-name candidates: 0.5.0-exp.1 first, 0.4.0-exp.2 second.
         private static readonly string[] k_NodeCountNames = { "NodeCount", "nodeCount" };
@@ -66,11 +83,23 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static readonly string[] k_SaveNames = { "SaveGraph", "SaveGraphIfDirty" };
         private static readonly string[] k_PositionNames = { "Position", "position" };
 
+        // Frontend authoring entry points, same candidate-list idiom: the spelling this project
+        // pinned first, then the shorter names the same method might reasonably have been given.
+        private static readonly string[] k_ScaffoldNames =
+            { "CreateTaskScaffold", "CreateTaskScaffoldGraph", "CreateScaffold" };
+
+        private static readonly string[] k_ConvertNames =
+            { "ConvertTreeToGraph", "ConvertToGraph", "ConvertTree" };
+
         private static Type s_GraphType;
         private static Type s_GraphDatabaseType;
         private static string s_Extension;
         private static string s_Error;
         private static bool s_Resolved;
+
+        private static Type s_AuthoringType;
+        private static string s_AuthoringError;
+        private static bool s_AuthoringResolved;
 
         /// <summary>Forget every cached lookup. Called by the Flow window's Refresh so a user who
         /// has just recompiled the frontend does not have to reopen the window.</summary>
@@ -81,6 +110,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             s_GraphDatabaseType = null;
             s_Extension = null;
             s_Error = null;
+
+            s_AuthoringResolved = false;
+            s_AuthoringType = null;
+            s_AuthoringError = null;
         }
 
         /// <summary>True when the frontend and Graph Toolkit are both loaded and the graph type
@@ -120,15 +153,32 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
         }
 
+        /// <summary>The graph extension, never empty: <see cref="extension"/> when the frontend
+        /// can be asked, <see cref="k_DefaultExtension"/> when it cannot.</summary>
+        internal static string graphExtension
+        {
+            get
+            {
+                var declared = extension;
+                return string.IsNullOrEmpty(declared) ? k_DefaultExtension : declared;
+            }
+        }
+
+        /// <summary>Is this asset path a graph file — i.e. is the tree at it BAKED FROM a graph
+        /// rather than hand-authored? That single question decides whether an editor offers "edit
+        /// this on the canvas" or "convert it first", so it has one answer here rather than a
+        /// string comparison at each site.</summary>
+        internal static bool IsGraphAssetPath(string assetPath)
+        {
+            return !string.IsNullOrEmpty(assetPath)
+                && assetPath.EndsWith("." + graphExtension, StringComparison.OrdinalIgnoreCase);
+        }
+
         /// <summary>Project path for an entity's graph asset. Named after the entity so a scene
         /// with a zombie and an archer keeps two graphs apart.</summary>
         internal static string GraphAssetPath(string entityName)
         {
-            var safe = SanitizeFileName(entityName);
-            var ext = extension;
-            if (string.IsNullOrEmpty(ext))
-                ext = "statetree";
-            return $"{GraphFolder}/{safe}.{ext}";
+            return $"{GraphFolder}/{SanitizeFileName(entityName)}.{graphExtension}";
         }
 
         // --- create / open -------------------------------------------------------------------
@@ -284,13 +334,194 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// is an asset, and its importer registers the window.</summary>
         internal static bool OpenGraphAsset(string assetPath)
         {
+            return OpenGraphAsset(assetPath, out _);
+        }
+
+        /// <summary>The same, with the sentence to show when it does not open. Failing to open a
+        /// graph has exactly two causes and they need different fixes — the frontend assembly is
+        /// not loaded (so nothing imports a <c>.statetree</c> and there is no window), or the path
+        /// is wrong — so the caller is given the one that applies rather than "could not open".
+        /// </summary>
+        internal static bool OpenGraphAsset(string assetPath, out string error)
+        {
+            error = null;
+
             var asset = AssetDatabase.LoadMainAssetAtPath(assetPath);
-            if (asset == null)
+            if (asset != null)
+            {
+                AssetDatabase.OpenAsset(asset);
+                EditorGUIUtility.PingObject(asset);
+                return true;
+            }
+
+            if (!TryResolve(out error))
                 return false;
 
-            AssetDatabase.OpenAsset(asset);
-            EditorGUIUtility.PingObject(asset);
-            return true;
+            error = $"Nothing is imported at '{assetPath}'. Either the file is missing, or its "
+                + "import failed — the Console will say which.";
+            return false;
+        }
+
+        // --- authoring entry points (m7d) ------------------------------------------------------
+
+        /// <summary>Is the frontend's authoring surface reachable? Resolved once and cached
+        /// (<see cref="InvalidateCache"/> after a recompile), because the two commands that need
+        /// it are drawn on every inspector rebuild and a failed lookup must not cost a type scan
+        /// each time.
+        ///
+        /// <paramref name="error"/> is a user-facing sentence when false, and the ONLY acceptable
+        /// response to false is to show it: a "+ New Graph Task" button that does nothing when the
+        /// frontend is broken is indistinguishable from a bug in the button.</summary>
+        internal static bool TryResolveAuthoring(out string error)
+        {
+            if (!s_AuthoringResolved)
+            {
+                s_AuthoringResolved = true;
+                s_AuthoringError = ResolveAuthoring();
+            }
+
+            error = s_AuthoringError;
+            return error == null;
+        }
+
+        /// <summary>Create a scaffold task graph at <paramref name="assetPath"/> —
+        /// <c>StateTreeGraphAuthoring.CreateTaskScaffold(string assetPath, string treeName)</c>.
+        /// Returns the path the asset actually landed at, or null with a reason.</summary>
+        internal static string CreateTaskScaffold(string assetPath, string treeName,
+            out string error)
+        {
+            if (!TryResolveAuthoring(out error))
+                return null;
+
+            var method = FindStaticMethod(s_AuthoringType, k_ScaffoldNames,
+                new[] { typeof(string), typeof(string) });
+            if (method == null)
+            {
+                error = MissingAuthoringMethod(k_ScaffoldNames[0], "(string assetPath, string treeName)");
+                return null;
+            }
+
+            object result;
+            try
+            {
+                result = method.Invoke(null, new object[] { assetPath, treeName });
+            }
+            catch (Exception exception)
+            {
+                error = Describe($"{AuthoringTypeName}.{method.Name}", exception);
+                return null;
+            }
+
+            return ResolveCreatedAsset(result, assetPath, method, out error);
+        }
+
+        /// <summary>Author a graph FROM an existing hand-built tree —
+        /// <c>StateTreeGraphAuthoring.ConvertTreeToGraph(StateTreeAsset tree, string assetPath)</c>.
+        /// The source asset is left alone; the caller re-points whatever referenced it.</summary>
+        internal static string ConvertTreeToGraph(StateTreeAsset tree, string assetPath,
+            out string error)
+        {
+            if (!TryResolveAuthoring(out error))
+                return null;
+
+            if (tree == null)
+            {
+                error = "No tree to convert.";
+                return null;
+            }
+
+            var method = FindStaticMethod(s_AuthoringType, k_ConvertNames,
+                new[] { typeof(StateTreeAsset), typeof(string) });
+            if (method == null)
+            {
+                error = MissingAuthoringMethod(k_ConvertNames[0],
+                    $"({nameof(StateTreeAsset)} tree, string assetPath)");
+                return null;
+            }
+
+            object result;
+            try
+            {
+                result = method.Invoke(null, new object[] { tree, assetPath });
+            }
+            catch (Exception exception)
+            {
+                error = Describe($"{AuthoringTypeName}.{method.Name}", exception);
+                return null;
+            }
+
+            return ResolveCreatedAsset(result, assetPath, method, out error);
+        }
+
+        private static string ResolveAuthoring()
+        {
+            if (!TryResolve(out var error))
+                return error;
+
+            s_AuthoringType = FindType(AuthoringTypeName);
+            if (s_AuthoringType == null)
+            {
+                return $"'{AuthoringTypeName}' was not found, so this editor cannot create or "
+                    + "convert graphs. The frontend assembly declares: " + DescribeFrontendTypes();
+            }
+
+            if (FindStaticMethod(s_AuthoringType, k_ScaffoldNames,
+                    new[] { typeof(string), typeof(string) }) == null)
+                return MissingAuthoringMethod(k_ScaffoldNames[0], "(string assetPath, string treeName)");
+
+            if (FindStaticMethod(s_AuthoringType, k_ConvertNames,
+                    new[] { typeof(StateTreeAsset), typeof(string) }) == null)
+            {
+                return MissingAuthoringMethod(k_ConvertNames[0],
+                    $"({nameof(StateTreeAsset)} tree, string assetPath)");
+            }
+
+            return null;
+        }
+
+        private static string MissingAuthoringMethod(string name, string signature)
+        {
+            return $"'{AuthoringTypeName}' has no public static {name}{signature}. It declares: "
+                + DescribeStaticMethods(s_AuthoringType);
+        }
+
+        /// <summary>Normalise what an authoring call handed back into a project path, and refuse
+        /// to believe it until something is actually imported there.
+        ///
+        /// The frontend may return the path, the baked main asset, or nothing at all (the asset is
+        /// at the path it was given) — all three are reasonable and none of them is worth pinning
+        /// across an assembly boundary. What IS worth checking is the only thing the caller cares
+        /// about: a file that imports. A graph written to disk whose import failed loads as null,
+        /// and wiring a task to null is the failure mode this whole loop exists to avoid.
+        ///
+        /// The returned object is also read for the PATH rather than the requested one, because a
+        /// converter is entitled to step aside from a file that already exists.</summary>
+        private static string ResolveCreatedAsset(object result, string requestedPath,
+            MethodInfo method, out string error)
+        {
+            error = null;
+
+            // A method that hands back an object and handed back null has already reported why —
+            // it is the frontend's own failure signal, and a second explanation invented here
+            // would only bury the real one.
+            if (result == null && typeof(UnityEngine.Object).IsAssignableFrom(method.ReturnType))
+            {
+                error = $"{method.Name} could not author the graph. The Console names the cause.";
+                return null;
+            }
+
+            var path = result as string;
+            if (string.IsNullOrEmpty(path) && result is UnityEngine.Object asset)
+                path = AssetDatabase.GetAssetPath(asset);
+            if (string.IsNullOrEmpty(path))
+                path = requestedPath;
+
+            if (AssetDatabase.LoadMainAssetAtPath(path) != null)
+                return path;
+
+            error = $"{method.Name} reported no error, but nothing is imported at '{path}'. If the "
+                + "file exists, its import failed — the Console will say why.";
+            return null;
         }
 
         // --- bake ----------------------------------------------------------------------------
@@ -1122,6 +1353,27 @@ namespace PowerOfFire.DrawToPlay.Editor
             return builder.Length > 0 ? builder.ToString() : "(none)";
         }
 
+        /// <summary>Every public static method on a type, signature and all — what to print when a
+        /// pinned entry point is missing, so "which of these did you mean?" is answerable without
+        /// opening the other assembly's source.</summary>
+        private static string DescribeStaticMethods(Type type)
+        {
+            if (type == null)
+                return "(the type was not found)";
+
+            var builder = new StringBuilder();
+            var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static |
+                BindingFlags.DeclaredOnly);
+            for (var i = 0; i < methods.Length; ++i)
+            {
+                if (builder.Length > 0)
+                    builder.Append("; ");
+                builder.Append(methods[i].ToString());
+            }
+
+            return builder.Length > 0 ? builder.ToString() : "(no public static methods)";
+        }
+
         private static string DescribeMethods(Type type, string name)
         {
             var builder = new StringBuilder();
@@ -1253,6 +1505,40 @@ namespace PowerOfFire.DrawToPlay.Editor
                         BindingFlags.Public | BindingFlags.Instance);
                     if (method != null && method.GetParameters().Length == parameterCount)
                         return method;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>A public static method matched by NAME CANDIDATE and by argument types, not by
+        /// parameter count alone. The count-only match the rest of this file uses is right for
+        /// Graph Toolkit, where the candidates differ only in case; it is wrong for an entry point
+        /// this project defines itself, where the wrong two-parameter overload would be found and
+        /// then throw at invoke time with a message about nothing in particular.</summary>
+        private static MethodInfo FindStaticMethod(Type type, string[] names, Type[] argumentTypes)
+        {
+            if (type == null)
+                return null;
+
+            var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static);
+            for (var n = 0; n < names.Length; ++n)
+            {
+                for (var i = 0; i < methods.Length; ++i)
+                {
+                    if (!string.Equals(methods[i].Name, names[n], StringComparison.Ordinal))
+                        continue;
+
+                    var parameters = methods[i].GetParameters();
+                    if (parameters.Length != argumentTypes.Length)
+                        continue;
+
+                    var accepts = true;
+                    for (var p = 0; p < parameters.Length && accepts; ++p)
+                        accepts = parameters[p].ParameterType.IsAssignableFrom(argumentTypes[p]);
+
+                    if (accepts)
+                        return methods[i];
                 }
             }
 
