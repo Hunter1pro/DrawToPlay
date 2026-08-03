@@ -24,6 +24,13 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// 3. Node ids and display names commit on Enter/blur (<c>isDelayed</c>), not per keystroke:
     ///    an id edit rewrites every transition that targets it, which must happen once per
     ///    rename, not once per character.
+    ///
+    /// Picking WHICH task or condition to add is not a dropdown. Both add-sites open
+    /// <see cref="StateTreeNodePicker"/>, a searchable categorised popup, because the node
+    /// library is the part of this toolset that grows without bound: a flat alphabetical list of
+    /// class names stops being navigable long before the library stops growing. The mutations
+    /// behind the picker are unchanged — the same <see cref="StateTreeEditorOps"/> calls the
+    /// dropdowns made.
     /// </summary>
     internal sealed class StateTreeInspectorPane
     {
@@ -33,7 +40,6 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private const string k_NoConditionChoice = "None (always passes)";
         private const string k_NoTargetChoice = "<none>";
-        private const string k_AddTaskChoice = "Add Task…";
 
         private readonly ScrollView m_Root;
         private readonly Action m_StructuralChanged;
@@ -226,23 +232,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Root.Add(box);
             }
 
-            var types = StateTreeEditorOps.CollectConcreteTypes<StateTreeTaskAsset>();
-            var choices = new List<string> { k_AddTaskChoice };
-            choices.AddRange(StateTreeEditorOps.BuildTypeChoices(types));
-
-            var dropdown = new DropdownField(string.Empty, choices, 0);
-            dropdown.tooltip = "Every StateTreeTaskAsset subclass in the project.";
-            dropdown.style.marginTop = 4f;
-            dropdown.RegisterValueChangedCallback(evt =>
-            {
-                var index = dropdown.index;
-                dropdown.SetValueWithoutNotify(k_AddTaskChoice);
-                if (index <= 0 || index > types.Count)
-                    return;
-
-                AddTask(types[index - 1]);
-            });
-            m_Root.Add(dropdown);
+            var add = new Button { text = "Add Task…" };
+            add.tooltip = "Search every StateTreeTaskAsset in the project by name, category or "
+                + "description.";
+            add.style.marginTop = 4f;
+            add.clicked += () => StateTreeNodePicker.Show(StateTreeNodePicker.ScreenRectOf(add),
+                typeof(StateTreeTaskAsset), AddTask, "Add Task");
+            m_Root.Add(add);
         }
 
         private void BuildTransitions()
@@ -255,7 +251,6 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Root.Add(note);
 
             var nodes = StateTreeEditorOps.CollectNodes(m_Tree);
-            var conditionTypes = StateTreeEditorOps.CollectConcreteTypes<StateTreeConditionAsset>();
 
             for (var i = 0; i < m_Node.transitions.Count; ++i)
             {
@@ -271,7 +266,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 box.Add(BuildTransitionHeader(index, transition));
                 box.Add(BuildTransitionTarget(index, transition, nodes));
                 box.Add(BuildTransitionInterrupt(transition));
-                box.Add(BuildTransitionCondition(transition, conditionTypes));
+                box.Add(BuildTransitionCondition(transition));
                 box.Add(BuildParameterFields(transition.condition));
 
                 m_Root.Add(box);
@@ -375,49 +370,49 @@ namespace PowerOfFire.DrawToPlay.Editor
             return toggle;
         }
 
-        private VisualElement BuildTransitionCondition(StateTreeTransition transition,
-            List<Type> conditionTypes)
+        /// <summary>The condition slot. A transition holds exactly one condition, so this is a
+        /// swap, not a list — the picker names the replacement and the ✕ is the only way back to
+        /// "None (always passes)", which the picker itself cannot express (it deals in types).
+        /// The base-field USS classes are borrowed on purpose: they are what makes this composite
+        /// row line up with the real fields (Target, Interrupt) either side of it.</summary>
+        private VisualElement BuildTransitionCondition(StateTreeTransition transition)
         {
-            var labels = new List<string> { k_NoConditionChoice };
-            labels.AddRange(StateTreeEditorOps.BuildTypeChoices(conditionTypes));
+            var row = new VisualElement();
+            row.AddToClassList("unity-base-field");
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
 
-            var selected = 0;
-            if (transition.condition != null)
+            var label = new Label("Condition");
+            label.AddToClassList("unity-base-field__label");
+            row.Add(label);
+
+            var current = transition.condition != null ? transition.condition.GetType() : null;
+            var button = new Button
             {
-                var typeIndex = conditionTypes.IndexOf(transition.condition.GetType());
-                if (typeIndex >= 0)
-                {
-                    selected = typeIndex + 1;
-                }
-                else
-                {
-                    // A condition whose type no longer resolves (script deleted): show the truth
-                    // rather than silently reporting "None", which reads as "always passes".
-                    labels.Add($"<missing: {transition.condition.GetType().Name}>");
-                    selected = labels.Count - 1;
-                }
-            }
+                text = current != null
+                    ? StateTreeNodePicker.DisplayNameOf(current)
+                    : k_NoConditionChoice
+            };
+            button.AddToClassList("unity-base-field__input");
+            button.style.flexGrow = 1f;
+            button.style.unityTextAlign = TextAnchor.MiddleLeft;
+            button.tooltip = current != null
+                ? $"{current.FullName}\n\nClick to replace this condition with another."
+                : "This transition fires as soon as it is evaluated. Click to add a condition.";
+            button.clicked += () => StateTreeNodePicker.Show(
+                StateTreeNodePicker.ScreenRectOf(button), typeof(StateTreeConditionAsset),
+                type => SetCondition(transition, type),
+                current != null ? "Change Condition" : "Add Condition");
+            row.Add(button);
 
-            var dropdown = new DropdownField("Condition", labels, selected);
-            dropdown.RegisterValueChangedCallback(evt =>
-            {
-                var choice = dropdown.index;
-                if (choice < 0 || choice > conditionTypes.Count)
-                    return;
+            var clear = new Button(() => SetCondition(transition, null)) { text = "✕" };
+            clear.tooltip = "Remove the condition — the transition then always passes.";
+            clear.style.width = 22f;
+            clear.style.flexShrink = 0f;
+            clear.SetEnabled(current != null);
+            row.Add(clear);
 
-                var type = choice == 0 ? null : conditionTypes[choice - 1];
-                if (transition.condition == null ? type == null : type == transition.condition.GetType())
-                    return;
-
-                var group = StateTreeEditorOps.BeginUndoGroup("Set Transition Condition");
-                StateTreeEditorOps.SetTransitionCondition(m_Tree, m_Node, transition, type,
-                    "Set Transition Condition");
-                StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
-                StateTreeEditorOps.EndUndoGroup(group);
-                DeferStructuralChange();
-            });
-
-            return dropdown;
+            return row;
         }
 
         /// <summary>Generic parameter block for one task/condition sub-asset. Nothing here knows
@@ -482,8 +477,32 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void AddTask(Type type)
         {
+            if (type == null || m_Tree == null || m_Node == null)
+                return;
+
             var group = StateTreeEditorOps.BeginUndoGroup("Add Task");
             StateTreeEditorOps.CreateTask(m_Tree, m_Node, type, "Add Task");
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            DeferStructuralChange();
+        }
+
+        /// <summary>Swap (or clear) the condition on one transition. Same Ops call the dropdown
+        /// made — the no-op guard matters because the picker can legitimately re-pick the type
+        /// that is already there, and re-creating the sub-asset would silently reset its
+        /// parameters.</summary>
+        private void SetCondition(StateTreeTransition transition, Type type)
+        {
+            if (m_Tree == null || m_Node == null || transition == null)
+                return;
+
+            var current = transition.condition != null ? transition.condition.GetType() : null;
+            if (current == type)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup("Set Transition Condition");
+            StateTreeEditorOps.SetTransitionCondition(m_Tree, m_Node, transition, type,
+                "Set Transition Condition");
             StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
             StateTreeEditorOps.EndUndoGroup(group);
             DeferStructuralChange();

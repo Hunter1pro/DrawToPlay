@@ -520,41 +520,6 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         // --- type dropdowns ---------------------------------------------------------------
 
-        /// <summary>Every concrete subclass in the project, TypeCache-backed (fast, and it picks
-        /// up new library components the moment they compile — no registry to maintain).</summary>
-        internal static List<Type> CollectConcreteTypes<T>() where T : class
-        {
-            var types = new List<Type>();
-            foreach (var type in TypeCache.GetTypesDerivedFrom<T>())
-            {
-                if (type.IsAbstract || type.IsGenericTypeDefinition)
-                    continue;
-                types.Add(type);
-            }
 
-            types.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
-            return types;
-        }
-
-        /// <summary>Display strings for a type list, disambiguated by namespace only where two
-        /// types share a short name (which is exactly when the short name is a lie).</summary>
-        internal static List<string> BuildTypeChoices(List<Type> types)
-        {
-            var counts = new Dictionary<string, int>();
-            for (var i = 0; i < types.Count; ++i)
-            {
-                counts.TryGetValue(types[i].Name, out var count);
-                counts[types[i].Name] = count + 1;
-            }
-
-            var choices = new List<string>(types.Count);
-            for (var i = 0; i < types.Count; ++i)
-            {
-                var type = types[i];
-                choices.Add(counts[type.Name] > 1 ? $"{type.Name} ({type.Namespace})" : type.Name);
-            }
-
-            return choices;
-        }
     }
 }
