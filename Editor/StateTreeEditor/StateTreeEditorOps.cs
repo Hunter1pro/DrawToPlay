@@ -18,8 +18,15 @@ namespace PowerOfFire.DrawToPlay.Editor
     ///
     /// Sub-asset names follow <c>StateTreePresets</c> verbatim ("Node {order} {id}",
     /// "Task {id} {Type}", "Cond {from}-&gt;{to} {Type}") so a hand-authored tree and a preset
-    /// tree are indistinguishable in the Project window. <see cref="RefreshSubAssetNames"/>
-    /// recomputes the whole set after any structural edit; it is idempotent by construction.
+    /// tree are indistinguishable in the Project window — with one addition, "Task {id}
+    /// SubTree:{tree}" for composite tasks, because a class name is not what distinguishes those
+    /// from each other. <see cref="RefreshSubAssetNames"/> recomputes the whole set after any
+    /// structural edit; it is idempotent by construction.
+    ///
+    /// Composite tasks (<see cref="CreateSubTreeTask"/>) are also why this file knows about
+    /// TREE-level state: whether a tree is a reusable task is one string field on the asset, and
+    /// the check that keeps a composition from closing a loop (<see cref="CreatesCycle"/>) has to
+    /// read the authored graph of other assets entirely.
     ///
     /// Saving is NOT done here. Callers batch it (see StateTreeEditorWindow) because
     /// AssetDatabase.SaveAssets() on every keystroke stalls the editor on large trees.
@@ -29,6 +36,15 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Matches the runner's own recursion guard: an authored children cycle must
         /// never stack-overflow the editor either.</summary>
         internal const int DepthGuard = 256;
+
+        /// <summary><see cref="StateTreeAsset.treeKind"/> value that marks a tree as a reusable
+        /// composite task. It is the ONLY thing that puts a tree in another tree's task picker,
+        /// so the string lives here rather than being spelled out at each site.</summary>
+        internal const string TaskTreeKind = "task";
+
+        /// <summary>Fallback kind when a tree stops being a reusable task and the editor has no
+        /// previous kind to restore — the same default <see cref="StateTreeAsset"/> ships.</summary>
+        internal const string DefaultTreeKind = "enemy_ai";
 
         // --- undo groups ------------------------------------------------------------------
 
@@ -256,6 +272,38 @@ namespace PowerOfFire.DrawToPlay.Editor
             return task;
         }
 
+        /// <summary>Add a composite task: a whole authored tree, run as one task of
+        /// <paramref name="node"/> through <see cref="RunSubTreeTask"/>. This is what "save a
+        /// tree, pick it as a task" resolves to — the picker hands over the asset, the sub-asset
+        /// lifecycle is identical to <see cref="CreateTask"/>, and the only extra work is wiring
+        /// <c>subTree</c> before the object joins the asset file so the created-object undo
+        /// captures it already wired.
+        ///
+        /// The self-reference is refused here as well as in the UI and at runtime: a tree that
+        /// runs itself is an infinite composition, and the cheapest place to say no is the one
+        /// that would otherwise write it to disk.</summary>
+        internal static StateTreeTaskAsset CreateSubTreeTask(StateTreeAsset tree,
+            StateTreeNodeAsset node, StateTreeAsset subTree, string undoName)
+        {
+            if (tree == null || node == null || subTree == null || subTree == tree)
+                return null;
+
+            var task = ScriptableObject.CreateInstance<RunSubTreeTask>();
+            if (task == null)
+                return null;
+
+            task.subTree = subTree;
+            task.name = SubTreeTaskAssetName(node.nodeId, subTree);
+            AssetDatabase.AddObjectToAsset(task, tree);
+            Undo.RegisterCreatedObjectUndo(task, undoName);
+
+            Undo.RecordObject(node, undoName);
+            node.tasks.Add(task);
+            EditorUtility.SetDirty(node);
+            EditorUtility.SetDirty(tree);
+            return task;
+        }
+
         /// <summary>Swap the condition on one transition. Replacing (rather than adding) is the
         /// only sane semantic: a transition holds exactly one condition reference, and the old
         /// sub-asset would otherwise be orphaned inside the asset file forever.</summary>
@@ -466,11 +514,117 @@ namespace PowerOfFire.DrawToPlay.Editor
             Undo.DestroyObjectImmediate(target);
         }
 
+        // --- authored trees as tasks ------------------------------------------------------
+
+        /// <summary>The name an authored tree goes by everywhere in the editor: its
+        /// <c>treeName</c>, or the asset file name when that was never filled in. One definition
+        /// so the picker row, the task sub-asset name and the inspector label cannot drift.</summary>
+        internal static string TreeDisplayName(StateTreeAsset tree)
+        {
+            if (tree == null)
+                return "(none)";
+
+            return !string.IsNullOrWhiteSpace(tree.treeName) ? tree.treeName.Trim() : tree.name;
+        }
+
+        internal static bool IsTaskTree(StateTreeAsset tree) => tree != null && IsTaskKind(tree.treeKind);
+
+        internal static bool IsTaskKind(string kind)
+        {
+            return !string.IsNullOrWhiteSpace(kind)
+                && string.Equals(kind.Trim(), TaskTreeKind, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Would running <paramref name="candidate"/> inside <paramref name="host"/>
+        /// close a loop? True for the obvious case (a tree running itself) and for the indirect
+        /// one (the candidate already runs the host, at any depth). The runtime has its own depth
+        /// abort, but a composition that can only be discovered by watching an error log at play
+        /// time is a composition the tool failed to prevent — so the picker filters on this and
+        /// the inspector reports it.
+        ///
+        /// This is a STATIC read of the authored graph. A tree reached only through data set at
+        /// runtime is outside what any editor check can see; that case is what the runtime guard
+        /// is for.</summary>
+        internal static bool CreatesCycle(StateTreeAsset candidate, StateTreeAsset host)
+        {
+            if (candidate == null || host == null)
+                return false;
+            if (candidate == host)
+                return true;
+
+            return ReferencesTree(candidate, host, new HashSet<StateTreeAsset>(), 0);
+        }
+
+        private static bool ReferencesTree(StateTreeAsset tree, StateTreeAsset target,
+            HashSet<StateTreeAsset> visited, int depth)
+        {
+            if (tree == null || depth > DepthGuard || !visited.Add(tree))
+                return false;
+
+            var nodes = CollectNodes(tree);
+            for (var i = 0; i < nodes.Count; ++i)
+            {
+                var tasks = nodes[i].tasks;
+                for (var t = 0; t < tasks.Count; ++t)
+                {
+                    if (!(tasks[t] is RunSubTreeTask sub) || sub.subTree == null)
+                        continue;
+                    if (sub.subTree == target)
+                        return true;
+                    if (ReferencesTree(sub.subTree, target, visited, depth + 1))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Rename the tree. Callers refresh the OWNING tree's sub-asset names afterwards;
+        /// composite tasks in OTHER trees carry this name too and go stale until those trees are
+        /// next edited. That is deliberate — silently rewriting assets the author has not opened
+        /// (and may not have checked out) to keep a cosmetic name current is the worse trade.
+        /// </summary>
+        internal static void SetTreeName(StateTreeAsset tree, string value, string undoName)
+        {
+            if (tree == null || tree.treeName == value)
+                return;
+
+            Undo.RecordObject(tree, undoName);
+            tree.treeName = value ?? string.Empty;
+            EditorUtility.SetDirty(tree);
+        }
+
+        /// <summary>Set the tree kind. <see cref="TaskTreeKind"/> is the value that makes the tree
+        /// appear in other trees' task pickers; every other value is opaque to the editor.
+        /// </summary>
+        internal static void SetTreeKind(StateTreeAsset tree, string value, string undoName)
+        {
+            if (tree == null || tree.treeKind == value)
+                return;
+
+            Undo.RecordObject(tree, undoName);
+            tree.treeKind = value ?? string.Empty;
+            EditorUtility.SetDirty(tree);
+        }
+
         // --- sub-asset naming -------------------------------------------------------------
 
         internal static string NodeAssetName(int order, string nodeId) => $"Node {order} {nodeId}";
 
         internal static string TaskAssetName(string nodeId, Type type) => $"Task {nodeId} {type.Name}";
+
+        /// <summary>Composite tasks are named after what they RUN, not after their class: fifty
+        /// "Task x RunSubTreeTask" rows in the Project window would be indistinguishable, which
+        /// is the one thing the naming convention exists to prevent.</summary>
+        internal static string SubTreeTaskAssetName(string nodeId, StateTreeAsset subTree)
+            => $"Task {nodeId} SubTree:{TreeDisplayName(subTree)}";
+
+        private static string TaskAssetNameFor(string nodeId, StateTreeTaskAsset task)
+        {
+            return task is RunSubTreeTask sub
+                ? SubTreeTaskAssetName(nodeId, sub.subTree)
+                : TaskAssetName(nodeId, task.GetType());
+        }
 
         internal static string ConditionAssetName(string fromId, string toId, Type type)
             => $"Cond {fromId}->{toId} {type.Name}";
@@ -493,7 +647,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 {
                     var task = node.tasks[t];
                     if (task != null)
-                        Rename(task, TaskAssetName(node.nodeId, task.GetType()));
+                        Rename(task, TaskAssetNameFor(node.nodeId, task));
                 }
 
                 for (var t = 0; t < node.transitions.Count; ++t)
@@ -517,9 +671,5 @@ namespace PowerOfFire.DrawToPlay.Editor
             target.name = desired;
             EditorUtility.SetDirty(target);
         }
-
-        // --- type dropdowns ---------------------------------------------------------------
-
-
     }
 }

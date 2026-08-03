@@ -299,6 +299,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_TreeField.RegisterValueChangedCallback(evt => LoadTree(evt.newValue as StateTreeAsset));
             toolbar.Add(m_TreeField);
 
+            var treeSettings = new ToolbarButton(ShowTreeSettings) { text = "Tree…" };
+            treeSettings.tooltip = "Edit the tree's own name and kind, including \"reusable "
+                + "task\" — which lists this tree in every other tree's Add Task picker.";
+            toolbar.Add(treeSettings);
+
             var addState = new ToolbarButton(AddState) { text = "Add State" };
             addState.tooltip = "Add a state under the root.";
             toolbar.Add(addState);
@@ -636,6 +641,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             SetSelectedNode(selected);
         }
 
+        /// <summary>Deselect, which is how the tree-level fields (name, kind, "reusable task")
+        /// are reached: the inspector pane shows them when no state is selected, and a tree view
+        /// otherwise offers no way back out of a selection.</summary>
+        private void ShowTreeSettings()
+        {
+            m_TreeView?.SetSelectionByIdWithoutNotify(new List<int>());
+            SetSelectedNode(null);
+        }
+
         private void SetSelectedNode(StateTreeNodeAsset node)
         {
             m_SelectedNode = node;
@@ -893,9 +907,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                 var entry = m_Tree.root != null
                     ? StateTreeEditorOps.ResolveEntryNode(m_Tree.root)
                     : null;
+                var kind = StateTreeEditorOps.IsTaskTree(m_Tree) ? " · reusable task" : string.Empty;
                 m_StatusLabel.text = entry != null
-                    ? $"{nodes.Count} states · entry '{entry.nodeId}' · edits apply on the next run"
-                    : $"{nodes.Count} states";
+                    ? $"{nodes.Count} states · entry '{entry.nodeId}'{kind} · edits apply on the "
+                        + "next run"
+                    : $"{nodes.Count} states{kind}";
                 SetRunnerChoices();
                 return;
             }

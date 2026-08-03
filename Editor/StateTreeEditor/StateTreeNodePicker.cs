@@ -29,12 +29,23 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// arrows move the selection through the *visible* rows (a row inside a collapsed category is
     /// not reachable, which is what "visible" has to mean for the highlight to be honest), and
     /// Enter commits. The mouse path (double-click) is the alternative, not the reverse.
+    ///
+    /// TWO KINDS OF ITEM. A row is either a compiled type (TypeCache over the base type) or an
+    /// AUTHORED tree — a <see cref="StateTreeAsset"/> whose <c>treeKind</c> is "task", offered as
+    /// a composite task under "Authored/&lt;folder&gt;". That is what makes a saved tree usable as
+    /// a task in another tree without writing a class, so the two live in one list, one search
+    /// index and one favourites store: from the author's side "what can this state do?" has a
+    /// single answer, and where the behaviour came from is a detail of the row, not of the
+    /// window. Authored rows appear only when the caller passes an <c>onTreePicked</c> callback —
+    /// a picker whose owner cannot act on a tree must not offer one.
     /// </summary>
     internal sealed class StateTreeNodePicker : EditorWindow
     {
-        /// <summary>Per-kind favourites, type full names, comma joined. The kind suffix
-        /// ("Tasks"/"Conditions") is derived from the base type, so a third node family would get
-        /// its own list for free.</summary>
+        /// <summary>Per-kind favourites, comma joined. Entries are type full names for compiled
+        /// items and "guid:&lt;GUID&gt;" for authored trees — a GUID rather than a path because a
+        /// favourite must survive the author moving or renaming the asset, which is precisely the
+        /// thing a path does not. The kind suffix ("Tasks"/"Conditions") is derived from the base
+        /// type, so a third node family would get its own list for free.</summary>
         private const string k_FavoritesPrefix = "PowerOfFire.DrawToPlay.PickerFavorites.";
 
         private const string k_ExpandedPrefix = "PowerOfFire.DrawToPlay.PickerExpanded.";
@@ -50,6 +61,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const string k_FooterHint = "'Double-click' or hit 'Enter' to add a node.";
         private const string k_StarOn = "★";
         private const string k_StarOff = "☆";
+
+        /// <summary>Root category of the authored (tree-as-task) rows. One level down is the
+        /// folder the asset lives in, which is the taxonomy the author already maintains.</summary>
+        private const string k_AuthoredCategory = "Authored";
+
+        /// <summary>Marks a favourites entry as an asset GUID rather than a type full name.</summary>
+        private const string k_GuidKeyPrefix = "guid:";
 
         /// <summary>A category path deeper than this is authored nonsense; the guard exists so a
         /// typo in an attribute cannot build an unbounded foldout chain.</summary>
@@ -72,6 +90,8 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private Type m_BaseType;
         private Action<Type> m_OnPicked;
+        private Action<StateTreeAsset> m_OnTreePicked;
+        private Predicate<StateTreeAsset> m_TreeFilter;
         private string m_Title = "Add Node";
         private string m_Kind = k_TasksKind;
         private HashSet<string> m_Favorites = new HashSet<string>();
@@ -94,9 +114,16 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Open the picker under <paramref name="activatorScreenRect"/> (screen space —
         /// use <see cref="ScreenRectOf"/> to derive it from the button that opened it).
         /// <paramref name="onPicked"/> is invoked with the chosen concrete type AFTER the popup
-        /// has closed, so the callback is free to rebuild the UI that owns the activator.</summary>
+        /// has closed, so the callback is free to rebuild the UI that owns the activator.
+        ///
+        /// Pass <paramref name="onTreePicked"/> to also offer AUTHORED trees (composite tasks);
+        /// exactly one of the two callbacks fires per pick. <paramref name="treeFilter"/> vets
+        /// each candidate before it is listed — the inspector uses it to keep a tree from being
+        /// offered as a task inside itself. Both are optional, so the four-argument call sites
+        /// that only deal in types are unchanged.</summary>
         internal static StateTreeNodePicker Show(Rect activatorScreenRect, Type baseType,
-            Action<Type> onPicked, string title)
+            Action<Type> onPicked, string title, Action<StateTreeAsset> onTreePicked = null,
+            Predicate<StateTreeAsset> treeFilter = null)
         {
             if (baseType == null || onPicked == null)
                 return null;
@@ -107,6 +134,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             var window = CreateInstance<StateTreeNodePicker>();
             window.m_BaseType = baseType;
             window.m_OnPicked = onPicked;
+            window.m_OnTreePicked = onTreePicked;
+            window.m_TreeFilter = treeFilter;
             window.m_Title = string.IsNullOrEmpty(title) ? "Add Node" : title;
             window.m_Kind = KindOf(baseType);
             window.m_Favorites = LoadFavorites(window.m_Kind);
@@ -161,6 +190,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             return ObjectNames.NicifyVariableName(name);
         }
 
+        /// <summary>The label an authored tree gets: its <c>treeName</c>, falling back to the
+        /// asset file name. One definition, shared with the sub-asset naming in
+        /// <see cref="StateTreeEditorOps"/>, so the row and the created task agree.</summary>
+        internal static string DisplayNameOf(StateTreeAsset tree)
+        {
+            return StateTreeEditorOps.TreeDisplayName(tree);
+        }
+
         // --- window lifecycle -------------------------------------------------------------
 
         private void CreateGUI()
@@ -206,13 +243,29 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         // --- model ------------------------------------------------------------------------
 
+        /// <summary>One pickable item. Exactly one of <see cref="type"/> (a compiled task or
+        /// condition class) and <see cref="tree"/> (an authored composite) is set; everything
+        /// below that line — search index, category, favourite key, row — is identical for both,
+        /// which is the point of the item model.</summary>
         private sealed class Entry
         {
             internal Type type;
+            internal StateTreeAsset tree;
             internal string displayName;
             internal string category;
             internal string description;
+
+            /// <summary>Favourite key AND selection identity across a rebuild: type full name, or
+            /// "guid:&lt;GUID&gt;" for a tree.</summary>
             internal string persistKey;
+
+            /// <summary>Shown in brackets when two items nicify to the same name — the namespace
+            /// for a type, the containing folder for a tree.</summary>
+            internal string qualifier;
+
+            /// <summary>Tooltip's second line: the thing you would search the project for.</summary>
+            internal string identity;
+
             internal string lowerName;
             internal string compactName;
             internal string lowerCategory;
@@ -239,7 +292,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (m_BaseType == null)
                 return;
 
-            var byName = new Dictionary<string, int>();
+            CollectTypeEntries();
+            CollectAuthoredEntries();
+            BuildSearchIndex();
+            m_Entries.Sort(CompareEntries);
+        }
+
+        private void CollectTypeEntries()
+        {
             foreach (var type in TypeCache.GetTypesDerivedFrom(m_BaseType))
             {
                 if (type.IsAbstract || type.IsGenericTypeDefinition)
@@ -258,36 +318,98 @@ namespace PowerOfFire.DrawToPlay.Editor
                     ? attribute.description
                     : string.Empty;
 
-                var displayName = DisplayNameOf(type);
-                byName.TryGetValue(displayName, out var count);
-                byName[displayName] = count + 1;
-
                 m_Entries.Add(new Entry
                 {
                     type = type,
-                    displayName = displayName,
+                    displayName = DisplayNameOf(type),
                     category = category,
                     description = description,
-                    persistKey = type.FullName
+                    persistKey = type.FullName,
+                    qualifier = type.Namespace,
+                    identity = type.FullName
                 });
+            }
+        }
+
+        /// <summary>The authored half of the library: every <see cref="StateTreeAsset"/> the
+        /// author marked as a reusable task (<c>treeKind == "task"</c>). It is a project-wide
+        /// asset scan run once per open — trees are small and the alternative (a registry asset)
+        /// is one more thing to keep in sync with the file system.</summary>
+        private void CollectAuthoredEntries()
+        {
+            if (m_OnTreePicked == null || !typeof(StateTreeTaskAsset).IsAssignableFrom(m_BaseType))
+                return;
+
+            var guids = AssetDatabase.FindAssets("t:StateTreeAsset");
+            for (var i = 0; i < guids.Length; ++i)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guids[i]);
+                if (string.IsNullOrEmpty(path))
+                    continue;
+
+                var tree = AssetDatabase.LoadAssetAtPath<StateTreeAsset>(path);
+                if (tree == null || !StateTreeEditorOps.IsTaskTree(tree))
+                    continue;
+
+                // The filter is how the caller refuses a composition that would recurse; a tree
+                // it rejects is not listed at all, so the error case is unreachable by mouse.
+                if (m_TreeFilter != null && !m_TreeFilter(tree))
+                    continue;
+
+                var folder = FolderNameOf(path);
+                var states = StateTreeEditorOps.CollectNodes(tree).Count;
+
+                m_Entries.Add(new Entry
+                {
+                    tree = tree,
+                    displayName = DisplayNameOf(tree),
+                    category = folder.Length > 0
+                        ? k_AuthoredCategory + "/" + folder
+                        : k_AuthoredCategory,
+                    description = $"Composite: {states} states",
+                    persistKey = k_GuidKeyPrefix + guids[i],
+                    qualifier = folder,
+                    identity = path
+                });
+            }
+        }
+
+        private void BuildSearchIndex()
+        {
+            var byName = new Dictionary<string, int>();
+            for (var i = 0; i < m_Entries.Count; ++i)
+            {
+                byName.TryGetValue(m_Entries[i].displayName, out var count);
+                byName[m_Entries[i].displayName] = count + 1;
             }
 
             for (var i = 0; i < m_Entries.Count; ++i)
             {
                 var entry = m_Entries[i];
 
-                // Two types with the same nicified name are two types the author cannot tell
-                // apart, which is exactly when the namespace stops being noise.
-                if (byName.TryGetValue(entry.displayName, out var count) && count > 1)
-                    entry.displayName = $"{entry.displayName} ({entry.type.Namespace})";
+                // Two items with the same nicified name are two items the author cannot tell
+                // apart, which is exactly when the namespace (or the folder) stops being noise.
+                if (byName.TryGetValue(entry.displayName, out var count) && count > 1
+                    && !string.IsNullOrEmpty(entry.qualifier))
+                    entry.displayName = $"{entry.displayName} ({entry.qualifier})";
 
                 entry.lowerName = entry.displayName.ToLowerInvariant();
                 entry.compactName = entry.lowerName.Replace(" ", string.Empty);
                 entry.lowerCategory = entry.category.ToLowerInvariant();
                 entry.lowerDescription = entry.description.ToLowerInvariant();
             }
+        }
 
-            m_Entries.Sort(CompareEntries);
+        /// <summary>Last path segment of the asset's folder ("Assets/DrawToPlay/Trees/X.asset" →
+        /// "Trees"), which is what the author sees in the Project window.</summary>
+        private static string FolderNameOf(string assetPath)
+        {
+            var end = assetPath.LastIndexOf('/');
+            if (end <= 0)
+                return string.Empty;
+
+            var start = assetPath.LastIndexOf('/', end - 1);
+            return assetPath.Substring(start + 1, end - start - 1);
         }
 
         private static int CompareEntries(Entry a, Entry b)
@@ -546,7 +668,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_LastQuery = query;
 
             var previous = keepSelection && m_Selected >= 0 && m_Selected < m_Rows.Count
-                ? m_Rows[m_Selected].entry.type
+                ? m_Rows[m_Selected].entry.persistKey
                 : null;
 
             m_List.Clear();
@@ -570,7 +692,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             }
 
-            var restored = IndexOfType(previous);
+            var restored = IndexOfKey(previous);
             SetSelected(restored >= 0 ? restored : FirstVisibleIndex());
         }
 
@@ -803,9 +925,10 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private static string TooltipOf(Entry entry)
         {
+            var identity = entry.identity ?? string.Empty;
             return string.IsNullOrEmpty(entry.description)
-                ? entry.type.FullName
-                : entry.description + "\n\n" + entry.type.FullName;
+                ? identity
+                : entry.description + "\n\n" + identity;
         }
 
         private static Label Hint(string text)
@@ -909,14 +1032,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             return -1;
         }
 
-        private int IndexOfType(Type type)
+        private int IndexOfKey(string persistKey)
         {
-            if (type == null)
+            if (string.IsNullOrEmpty(persistKey))
                 return -1;
 
             for (var i = 0; i < m_Rows.Count; ++i)
             {
-                if (m_Rows[i].entry.type == type && IsRowVisible(m_Rows[i]))
+                if (string.Equals(m_Rows[i].entry.persistKey, persistKey, StringComparison.Ordinal)
+                    && IsRowVisible(m_Rows[i]))
                     return i;
             }
 
@@ -960,14 +1084,20 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (m_Selected < 0 || m_Selected >= m_Rows.Count)
                 return;
 
-            var type = m_Rows[m_Selected].entry.type;
+            var entry = m_Rows[m_Selected].entry;
 
             // Close first, then call back: the callback rebuilds the pane that owns the button we
             // were anchored to, and nothing of ours may be touched after Close destroys it.
-            var callback = m_OnPicked;
+            var typeCallback = m_OnPicked;
+            var treeCallback = m_OnTreePicked;
             m_OnPicked = null;
+            m_OnTreePicked = null;
             CloseSelf();
-            callback?.Invoke(type);
+
+            if (entry.tree != null)
+                treeCallback?.Invoke(entry.tree);
+            else
+                typeCallback?.Invoke(entry.type);
         }
 
         private void ToggleFavorite(Row row)

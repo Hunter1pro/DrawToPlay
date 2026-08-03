@@ -31,15 +31,29 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// class names stops being navigable long before the library stops growing. The mutations
     /// behind the picker are unchanged — the same <see cref="StateTreeEditorOps"/> calls the
     /// dropdowns made.
+    ///
+    /// A task does not have to be a class. The task picker also lists AUTHORED trees — any tree
+    /// marked "reusable task" — and picking one wires a <see cref="RunSubTreeTask"/> to it, so a
+    /// behaviour assembled by wiring five states is reusable exactly like a compiled task. Two
+    /// things change here: composite task boxes name the tree they run (a class name
+    /// would be the same on all of them), and they carry the loop guard, because a tree that runs
+    /// itself — directly or through another tree — is the one wiring mistake this model makes
+    /// easy to express and impossible to execute.
+    ///
+    /// With no state selected the pane edits the TREE: its name, its kind, and the toggle that
+    /// makes it appear in every other tree's task picker. Those fields exist nowhere else in the
+    /// window, and "mark this tree as a task" is the whole entry point to composition.
     /// </summary>
     internal sealed class StateTreeInspectorPane
     {
         private static readonly Color k_BoxBackground = new Color(0f, 0f, 0f, 0.16f);
         private static readonly Color k_TransitionBackground = new Color(0.30f, 0.55f, 0.92f, 0.12f);
         private static readonly Color k_InterruptBackground = new Color(0.95f, 0.58f, 0.25f, 0.12f);
+        private static readonly Color k_SubTreeBackground = new Color(0.55f, 0.40f, 0.92f, 0.14f);
 
         private const string k_NoConditionChoice = "None (always passes)";
         private const string k_NoTargetChoice = "<none>";
+        private const string k_SubTreeProperty = "subTree";
 
         private readonly ScrollView m_Root;
         private readonly Action m_StructuralChanged;
@@ -47,6 +61,11 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private StateTreeAsset m_Tree;
         private StateTreeNodeAsset m_Node;
+
+        /// <summary>The kind to restore when "reusable task" is switched back off. Remembered
+        /// rather than assumed, so un-ticking the toggle on a "player_flow" tree does not quietly
+        /// turn it into an enemy AI tree.</summary>
+        private string m_LastNonTaskKind = StateTreeEditorOps.DefaultTreeKind;
 
         internal StateTreeInspectorPane(ScrollView root, Action structuralChanged, Action edited)
         {
@@ -70,7 +89,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             if (node == null)
             {
-                m_Root.Add(Hint("Select a state on the left."));
+                BuildTreeSettings();
                 return;
             }
 
@@ -79,6 +98,102 @@ namespace PowerOfFire.DrawToPlay.Editor
             BuildValidation();
             BuildTasks();
             BuildTransitions();
+        }
+
+        // --- tree settings ----------------------------------------------------------------
+
+        /// <summary>Shown when no state is selected — the tree's own fields, which the window
+        /// otherwise never exposes. The important control is the "reusable task" toggle: it is
+        /// the single act that turns a finished tree into a task other trees can pick, so it is
+        /// presented as a decision ("is this a reusable task?") rather than as the string field
+        /// it is stored in. The raw kind stays editable underneath, because the runtime treats it
+        /// as free-form data and the tool must not narrow that.</summary>
+        private void BuildTreeSettings()
+        {
+            var isTask = StateTreeEditorOps.IsTaskTree(m_Tree);
+            if (!isTask && !string.IsNullOrWhiteSpace(m_Tree.treeKind))
+                m_LastNonTaskKind = m_Tree.treeKind;
+
+            var header = new VisualElement();
+            header.style.flexDirection = FlexDirection.Row;
+            header.style.alignItems = Align.Center;
+            header.style.marginBottom = 6f;
+
+            var title = new Label(m_Tree.name);
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            title.style.flexGrow = 1f;
+            header.Add(title);
+
+            var ping = new Button(() => EditorGUIUtility.PingObject(m_Tree)) { text = "Ping" };
+            ping.tooltip = "Highlight this tree asset in the Project window.";
+            header.Add(ping);
+            m_Root.Add(header);
+
+            var nameField = new TextField("Tree Name")
+            {
+                value = m_Tree.treeName,
+                isDelayed = true
+            };
+            nameField.tooltip = "The name this tree goes by in other trees' task picker. Empty "
+                + "falls back to the asset file name.";
+            nameField.RegisterValueChangedCallback(evt =>
+            {
+                var group = StateTreeEditorOps.BeginUndoGroup("Rename State Tree");
+                StateTreeEditorOps.SetTreeName(m_Tree, evt.newValue, "Rename State Tree");
+                StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+                StateTreeEditorOps.EndUndoGroup(group);
+                DeferStructuralChange();
+            });
+            m_Root.Add(nameField);
+
+            var kindField = new TextField("Tree Kind")
+            {
+                value = m_Tree.treeKind,
+                isDelayed = true
+            };
+            kindField.tooltip = "Free-form classification ('enemy_ai', 'player_flow', 'task'). "
+                + "Only 'task' has a meaning to the editor.";
+            kindField.RegisterValueChangedCallback(evt => CommitTreeKind(evt.newValue));
+            m_Root.Add(kindField);
+
+            var toggle = new Toggle("Mark as reusable task") { value = isTask };
+            toggle.tooltip = "On: this tree is listed in every other tree's Add Task… picker "
+                + "under Authored/, and running it there is one task.";
+            toggle.RegisterValueChangedCallback(evt => CommitTreeKind(evt.newValue
+                ? StateTreeEditorOps.TaskTreeKind
+                : (string.IsNullOrWhiteSpace(m_LastNonTaskKind)
+                    ? StateTreeEditorOps.DefaultTreeKind
+                    : m_LastNonTaskKind)));
+            m_Root.Add(toggle);
+
+            m_Root.Add(new HelpBox(isTask
+                ? "This tree is a reusable task. Adding it to a state of another tree runs it on "
+                + "that tree's blackboard and owner; it finishes when it reaches one of the states "
+                + "listed in the composite task's success/failure lists."
+                : "Mark this tree as a reusable task to pick it as a single task inside other "
+                + "trees — behaviour authored by wiring, reused like a compiled task.",
+                HelpBoxMessageType.Info));
+
+            if (isTask && m_Tree.root == null)
+            {
+                m_Root.Add(new HelpBox("This tree has no root state, so running it as a task does "
+                    + "nothing. Create a root before using it elsewhere.",
+                    HelpBoxMessageType.Warning));
+            }
+
+            m_Root.Add(SectionLabel("States"));
+            var nodes = StateTreeEditorOps.CollectNodes(m_Tree);
+            m_Root.Add(Hint(nodes.Count == 0
+                ? "This tree has no states yet — press Add State in the toolbar."
+                : $"{nodes.Count} state(s). Select one on the left to edit it."));
+        }
+
+        private void CommitTreeKind(string kind)
+        {
+            var group = StateTreeEditorOps.BeginUndoGroup("Set Tree Kind");
+            StateTreeEditorOps.SetTreeKind(m_Tree, kind, "Set Tree Kind");
+            StateTreeEditorOps.EndUndoGroup(group);
+            DeferStructuralChange();
         }
 
         // --- sections ---------------------------------------------------------------------
@@ -210,17 +325,28 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 var index = i;
                 var task = m_Node.tasks[index];
+                var composite = task as RunSubTreeTask;
 
-                var box = Box(k_BoxBackground);
+                var box = Box(composite != null ? k_SubTreeBackground : k_BoxBackground);
 
                 var header = new VisualElement();
                 header.style.flexDirection = FlexDirection.Row;
                 header.style.alignItems = Align.Center;
 
-                var label = new Label(task != null ? task.GetType().Name : "(missing task)");
+                var label = new Label(TaskLabel(task));
                 label.style.unityFontStyleAndWeight = FontStyle.Bold;
                 label.style.flexGrow = 1f;
+                label.style.overflow = Overflow.Hidden;
+                label.style.textOverflow = TextOverflow.Ellipsis;
+                label.style.whiteSpace = WhiteSpace.NoWrap;
                 header.Add(label);
+
+                if (composite != null && composite.subTree != null && composite.subTree != m_Tree)
+                {
+                    var open = new Button(() => OpenTree(composite.subTree)) { text = "Open" };
+                    open.tooltip = "Edit the sub-tree in this window.";
+                    header.Add(open);
+                }
 
                 var remove = new Button(() => RemoveTask(index)) { text = "✕" };
                 remove.tooltip = "Delete this task sub-asset.";
@@ -228,17 +354,132 @@ namespace PowerOfFire.DrawToPlay.Editor
                 header.Add(remove);
                 box.Add(header);
 
-                box.Add(BuildParameterFields(task));
+                if (composite != null)
+                    box.Add(BuildSubTreeStatus(composite));
+
+                var fields = BuildParameterFields(task);
+                if (composite != null)
+                {
+                    // The sub-tree can also be swapped by dropping an asset on the generic
+                    // ObjectField below, which is the path that can produce a loop — so that one
+                    // property (and only that one, or every keystroke in the state lists would
+                    // rebuild the pane under the author's cursor) re-runs the guard.
+                    fields.RegisterCallback<SerializedPropertyChangeEvent>(evt =>
+                    {
+                        if (evt.changedProperty != null
+                            && evt.changedProperty.propertyPath == k_SubTreeProperty)
+                            DeferStructuralChange();
+                    });
+                }
+
+                box.Add(fields);
                 m_Root.Add(box);
             }
 
             var add = new Button { text = "Add Task…" };
-            add.tooltip = "Search every StateTreeTaskAsset in the project by name, category or "
-                + "description.";
+            add.tooltip = "Search every task type AND every tree marked as a reusable task, by "
+                + "name, category or description.";
             add.style.marginTop = 4f;
             add.clicked += () => StateTreeNodePicker.Show(StateTreeNodePicker.ScreenRectOf(add),
-                typeof(StateTreeTaskAsset), AddTask, "Add Task");
+                typeof(StateTreeTaskAsset), AddTask, "Add Task", AddSubTreeTask, CanRunSubTree);
             m_Root.Add(add);
+        }
+
+        /// <summary>Composite tasks are labelled by what they run: "Run Sub Tree" on five boxes
+        /// tells the author nothing, and the tree name is the only thing that differs.</summary>
+        private static string TaskLabel(StateTreeTaskAsset task)
+        {
+            if (task == null)
+                return "(missing task)";
+
+            return task is RunSubTreeTask composite
+                ? $"Sub Tree · {StateTreeEditorOps.TreeDisplayName(composite.subTree)}"
+                : task.GetType().Name;
+        }
+
+        /// <summary>The loop guard, and the one place an author can see it. The picker never
+        /// offers a tree that would close a loop, so reaching an error here means the asset was
+        /// dropped straight onto the field — hence a way out (Clear) next to the message rather
+        /// than a silent revert, which would look like the drop had not registered.</summary>
+        private VisualElement BuildSubTreeStatus(RunSubTreeTask task)
+        {
+            var container = new VisualElement();
+
+            if (task.subTree == null)
+            {
+                container.Add(new HelpBox("No sub-tree assigned — this task fails as soon as the "
+                    + "state is entered.", HelpBoxMessageType.Warning));
+                return container;
+            }
+
+            if (task.subTree == m_Tree)
+            {
+                container.Add(new HelpBox("A tree cannot run itself: the composition would never "
+                    + "bottom out. Pick a different tree.", HelpBoxMessageType.Error));
+                container.Add(ClearSubTreeButton(task));
+                return container;
+            }
+
+            if (StateTreeEditorOps.CreatesCycle(task.subTree, m_Tree))
+            {
+                container.Add(new HelpBox(
+                    $"'{StateTreeEditorOps.TreeDisplayName(task.subTree)}' runs this tree again, "
+                    + "directly or through another sub-tree. The runtime aborts the chain rather "
+                    + "than recursing forever.", HelpBoxMessageType.Error));
+                container.Add(ClearSubTreeButton(task));
+                return container;
+            }
+
+            // The default success/failure lists are generic names ("success", "exit"); a sub-tree
+            // that uses none of them can only ever be ended by a parent interrupt. That is legal
+            // and occasionally intended, so it is a warning with the available ids attached —
+            // dangling-target reporting, applied across the tree boundary.
+            var states = StateTreeEditorOps.CollectNodes(task.subTree);
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < states.Count; ++i)
+                ids.Add(states[i].nodeId);
+
+            if (!AnyKnownState(task.successStates, ids) && !AnyKnownState(task.failureStates, ids))
+            {
+                container.Add(new HelpBox("None of the success/failure states below exist in "
+                    + $"'{StateTreeEditorOps.TreeDisplayName(task.subTree)}', so this task runs "
+                    + "until something in this tree interrupts it. Its states are: "
+                    + JoinIds(states) + ".", HelpBoxMessageType.Warning));
+            }
+
+            return container;
+        }
+
+        private static bool AnyKnownState(List<string> listed, HashSet<string> ids)
+        {
+            if (listed == null)
+                return false;
+
+            for (var i = 0; i < listed.Count; ++i)
+            {
+                if (!string.IsNullOrWhiteSpace(listed[i]) && ids.Contains(listed[i].Trim()))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static string JoinIds(List<StateTreeNodeAsset> nodes)
+        {
+            const int max = 8;
+            var names = new List<string>(Mathf.Min(nodes.Count, max));
+            for (var i = 0; i < nodes.Count && i < max; ++i)
+                names.Add(nodes[i].nodeId);
+
+            var joined = names.Count > 0 ? string.Join(", ", names) : "(none)";
+            return nodes.Count > max ? joined + ", …" : joined;
+        }
+
+        private Button ClearSubTreeButton(RunSubTreeTask task)
+        {
+            var clear = new Button(() => ClearSubTree(task)) { text = "Clear Sub Tree" };
+            clear.tooltip = "Unassign the sub-tree so the task can be re-pointed.";
+            return clear;
         }
 
         private void BuildTransitions()
@@ -485,6 +726,61 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
             StateTreeEditorOps.EndUndoGroup(group);
             DeferStructuralChange();
+        }
+
+        /// <summary>The other half of "Add Task…": the picked item was an authored tree, so the
+        /// state gets a composite task wired to it. Same undo shape as
+        /// <see cref="AddTask"/> — one gesture, one step.</summary>
+        private void AddSubTreeTask(StateTreeAsset subTree)
+        {
+            if (subTree == null || m_Tree == null || m_Node == null)
+                return;
+
+            // Unreachable through the picker (CanRunSubTree filtered it out) but not through a
+            // stale popup left open while the other tree changed underneath it.
+            if (!CanRunSubTree(subTree))
+            {
+                EditorUtility.DisplayDialog("Cannot add sub-tree",
+                    $"'{StateTreeEditorOps.TreeDisplayName(subTree)}' runs '{m_Tree.name}', so "
+                    + "adding it here would close a loop.", "OK");
+                return;
+            }
+
+            var group = StateTreeEditorOps.BeginUndoGroup("Add Sub Tree Task");
+            StateTreeEditorOps.CreateSubTreeTask(m_Tree, m_Node, subTree, "Add Sub Tree Task");
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            DeferStructuralChange();
+        }
+
+        private bool CanRunSubTree(StateTreeAsset candidate)
+        {
+            return candidate != null && !StateTreeEditorOps.CreatesCycle(candidate, m_Tree);
+        }
+
+        private void ClearSubTree(RunSubTreeTask task)
+        {
+            if (task == null || m_Tree == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup("Clear Sub Tree");
+            Undo.RecordObject(task, "Clear Sub Tree");
+            task.subTree = null;
+            EditorUtility.SetDirty(task);
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            DeferStructuralChange();
+        }
+
+        /// <summary>Follow a composite task into the tree it runs. Deferred, because loading a
+        /// different tree rebuilds this pane — including the button that is still dispatching the
+        /// click.</summary>
+        private void OpenTree(StateTreeAsset tree)
+        {
+            if (tree == null)
+                return;
+
+            m_Root.schedule.Execute(() => StateTreeEditorWindow.Open(tree)).ExecuteLater(0);
         }
 
         /// <summary>Swap (or clear) the condition on one transition. Same Ops call the dropdown
