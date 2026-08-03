@@ -8,7 +8,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     [Serializable]
     [UseWithGraph(typeof(StateTreeGraph))]
     [UseWithContext(typeof(StateNode))]
-    [Node("Tasks/Flow", null, "Wait")]
+    [Node("Tasks/Timing", null, "Wait")]
     public class WaitTaskNode : StateTaskBlockNode
     {
         /// <inheritdoc />

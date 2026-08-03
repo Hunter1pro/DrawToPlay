@@ -56,6 +56,19 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// commands are in this assembly, which cannot name them.</summary>
         internal const string AuthoringTypeName = FrontendNamespace + ".StateTreeGraphAuthoring";
 
+        /// <summary>The OTHER authored-task flavour (m7e): a task written as a LOGIC graph —
+        /// branch, blackboard, node composition — rather than as a sub-tree of states. It is a
+        /// <c>[Graph]</c> class of its own, so it has its own extension, its own importer and its
+        /// own main asset type (<see cref="GraphTaskAsset"/>); everything this bridge knows about
+        /// it is therefore parallel to, not shared with, the state-tree graph above.</summary>
+        internal const string TaskGraphTypeName = FrontendNamespace + ".TaskGraph";
+
+        /// <summary>Where a task graph is created from. Separate from
+        /// <see cref="AuthoringTypeName"/> because the two graph kinds are authored by different
+        /// code: nothing about scaffolding a logic graph is shared with converting a state
+        /// tree.</summary>
+        internal const string TaskGraphAuthoringTypeName = FrontendNamespace + ".TaskGraphAuthoring";
+
         private const string k_GraphDatabaseTypeName = "Unity.GraphToolkit.Editor.GraphDatabase";
         private const string k_GraphAttributeTypeName = "Unity.GraphToolkit.Editor.GraphAttribute";
 
@@ -75,6 +88,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// the point: a graph-backed tree must not silently read as hand-authored.</summary>
         private const string k_DefaultExtension = "statetree";
 
+        /// <summary>The task-graph extension to assume when the frontend cannot be asked, for the
+        /// same reason as <see cref="k_DefaultExtension"/>: "is this a logic graph?" must keep
+        /// answering honestly while the frontend is broken, so the command it leads to can fail
+        /// with a real message instead of the row quietly reading as something else.</summary>
+        private const string k_DefaultTaskGraphExtension = "taskgraph";
+
         // Member-name candidates: 0.5.0-exp.1 first, 0.4.0-exp.2 second.
         private static readonly string[] k_NodeCountNames = { "NodeCount", "nodeCount" };
         private static readonly string[] k_NameNames = { "Name", "name" };
@@ -91,6 +110,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static readonly string[] k_ConvertNames =
             { "ConvertTreeToGraph", "ConvertToGraph", "ConvertTree" };
 
+        private static readonly string[] k_TaskGraphScaffoldNames =
+            { "CreateTaskGraphScaffold", "CreateScaffold", "CreateTaskGraph" };
+
         private static Type s_GraphType;
         private static Type s_GraphDatabaseType;
         private static string s_Extension;
@@ -100,6 +122,15 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static Type s_AuthoringType;
         private static string s_AuthoringError;
         private static bool s_AuthoringResolved;
+
+        private static Type s_TaskGraphType;
+        private static string s_TaskGraphExtension;
+        private static string s_TaskGraphError;
+        private static bool s_TaskGraphResolved;
+
+        private static Type s_TaskGraphAuthoringType;
+        private static string s_TaskGraphAuthoringError;
+        private static bool s_TaskGraphAuthoringResolved;
 
         /// <summary>Forget every cached lookup. Called by the Flow window's Refresh so a user who
         /// has just recompiled the frontend does not have to reopen the window.</summary>
@@ -114,6 +145,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             s_AuthoringResolved = false;
             s_AuthoringType = null;
             s_AuthoringError = null;
+
+            s_TaskGraphResolved = false;
+            s_TaskGraphType = null;
+            s_TaskGraphExtension = null;
+            s_TaskGraphError = null;
+
+            s_TaskGraphAuthoringResolved = false;
+            s_TaskGraphAuthoringType = null;
+            s_TaskGraphAuthoringError = null;
         }
 
         /// <summary>True when the frontend and Graph Toolkit are both loaded and the graph type
@@ -179,6 +219,137 @@ namespace PowerOfFire.DrawToPlay.Editor
         internal static string GraphAssetPath(string entityName)
         {
             return $"{GraphFolder}/{SanitizeFileName(entityName)}.{graphExtension}";
+        }
+
+        // --- task graphs (m7e) -----------------------------------------------------------------
+
+        /// <summary>True when the TASK graph type is loaded and declares a usable extension. Kept
+        /// independent of <see cref="TryResolve"/>: the two graph kinds are separate classes in the
+        /// frontend, and a project that can author one must not be told it cannot author the other
+        /// because the other one is what is broken.</summary>
+        internal static bool TryResolveTaskGraph(out string error)
+        {
+            if (!s_TaskGraphResolved)
+            {
+                s_TaskGraphResolved = true;
+                s_TaskGraphError = ResolveTaskGraph();
+            }
+
+            error = s_TaskGraphError;
+            return error == null;
+        }
+
+        /// <summary>The task-graph extension WITHOUT the leading dot, never empty — the declared
+        /// one when the frontend can be asked, <see cref="k_DefaultTaskGraphExtension"/> when it
+        /// cannot.</summary>
+        internal static string taskGraphExtension
+        {
+            get
+            {
+                TryResolveTaskGraph(out _);
+                return string.IsNullOrEmpty(s_TaskGraphExtension)
+                    ? k_DefaultTaskGraphExtension
+                    : s_TaskGraphExtension;
+            }
+        }
+
+        /// <summary>Is this asset path a LOGIC graph file — i.e. is its main asset a baked
+        /// <see cref="GraphTaskAsset"/>? The counterpart of <see cref="IsGraphAssetPath"/>, and
+        /// the reason both exist here: an editor routing "open this on a canvas" must not decide
+        /// between the two by spelling an extension itself.</summary>
+        internal static bool IsTaskGraphAssetPath(string assetPath)
+        {
+            return !string.IsNullOrEmpty(assetPath)
+                && assetPath.EndsWith("." + taskGraphExtension, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Is the task-graph authoring surface reachable? Same contract as
+        /// <see cref="TryResolveAuthoring"/>: <paramref name="error"/> is a user-facing sentence
+        /// when false, and the only acceptable response to false is to show it.</summary>
+        internal static bool TryResolveTaskGraphAuthoring(out string error)
+        {
+            if (!s_TaskGraphAuthoringResolved)
+            {
+                s_TaskGraphAuthoringResolved = true;
+                s_TaskGraphAuthoringError = ResolveTaskGraphAuthoring();
+            }
+
+            error = s_TaskGraphAuthoringError;
+            return error == null;
+        }
+
+        /// <summary>Create a scaffold LOGIC graph at <paramref name="assetPath"/> —
+        /// <c>TaskGraphAuthoring.CreateTaskGraphScaffold(string assetPath, string name)</c>, whose
+        /// pinned result is the baked <see cref="GraphTaskAsset"/>. Returns the path the asset
+        /// actually landed at (verified to import), or null with a reason.</summary>
+        internal static string CreateTaskGraphScaffold(string assetPath, string name,
+            out string error)
+        {
+            if (!TryResolveTaskGraphAuthoring(out error))
+                return null;
+
+            var method = FindStaticMethod(s_TaskGraphAuthoringType, k_TaskGraphScaffoldNames,
+                new[] { typeof(string), typeof(string) });
+            if (method == null)
+            {
+                error = MissingMethod(TaskGraphAuthoringTypeName, s_TaskGraphAuthoringType,
+                    k_TaskGraphScaffoldNames[0], "(string assetPath, string name)");
+                return null;
+            }
+
+            object result;
+            try
+            {
+                result = method.Invoke(null, new object[] { assetPath, name });
+            }
+            catch (Exception exception)
+            {
+                error = Describe($"{TaskGraphAuthoringTypeName}.{method.Name}", exception);
+                return null;
+            }
+
+            return ResolveCreatedAsset(result, assetPath, method, out error);
+        }
+
+        private static string ResolveTaskGraph()
+        {
+            s_TaskGraphType = FindType(TaskGraphTypeName);
+            if (s_TaskGraphType == null)
+            {
+                return $"The task-graph frontend is not loaded: '{TaskGraphTypeName}' was not " +
+                       $"found. It ships in the {FrontendNamespace} assembly, which declares: " +
+                       DescribeFrontendTypes();
+            }
+
+            var error = ReadGraphExtension(s_TaskGraphType, TaskGraphTypeName, out var declared);
+            if (error != null)
+                return error;
+
+            s_TaskGraphExtension = declared;
+            return null;
+        }
+
+        private static string ResolveTaskGraphAuthoring()
+        {
+            if (!TryResolveTaskGraph(out var error))
+                return error;
+
+            s_TaskGraphAuthoringType = FindType(TaskGraphAuthoringTypeName);
+            if (s_TaskGraphAuthoringType == null)
+            {
+                return $"'{TaskGraphAuthoringTypeName}' was not found, so this editor cannot " +
+                       "create task graphs. The frontend assembly declares: "
+                       + DescribeFrontendTypes();
+            }
+
+            if (FindStaticMethod(s_TaskGraphAuthoringType, k_TaskGraphScaffoldNames,
+                    new[] { typeof(string), typeof(string) }) == null)
+            {
+                return MissingMethod(TaskGraphAuthoringTypeName, s_TaskGraphAuthoringType,
+                    k_TaskGraphScaffoldNames[0], "(string assetPath, string name)");
+            }
+
+            return null;
         }
 
         // --- create / open -------------------------------------------------------------------
@@ -481,8 +652,17 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private static string MissingAuthoringMethod(string name, string signature)
         {
-            return $"'{AuthoringTypeName}' has no public static {name}{signature}. It declares: "
-                + DescribeStaticMethods(s_AuthoringType);
+            return MissingMethod(AuthoringTypeName, s_AuthoringType, name, signature);
+        }
+
+        /// <summary>"The frontend is loaded but does not declare what this command calls", with the
+        /// list of what it DOES declare — the message that turns a mismatched contract into a
+        /// two-second fix instead of a reflection mystery.</summary>
+        private static string MissingMethod(string typeName, Type type, string name,
+            string signature)
+        {
+            return $"'{typeName}' has no public static {name}{signature}. It declares: "
+                + DescribeStaticMethods(type);
         }
 
         /// <summary>Normalise what an authoring call handed back into a project path, and refuse
@@ -618,14 +798,31 @@ namespace PowerOfFire.DrawToPlay.Editor
                        "even though the frontend assembly is present.";
             }
 
+            var error = ReadGraphExtension(s_GraphType, GraphTypeName, out var declared);
+            if (error != null)
+                return error;
+
+            s_Extension = declared;
+            return null;
+        }
+
+        /// <summary>The asset extension a <c>[Graph]</c> class declares, normalised (no leading
+        /// dot) — Graph Toolkit registers both spellings, so either form in the frontend works.
+        /// Shared by both graph kinds: each has its own class and its own extension, but "read the
+        /// attribute" is one piece of reflection and must not exist twice.</summary>
+        private static string ReadGraphExtension(Type graphType, string typeName,
+            out string extension)
+        {
+            extension = null;
+
             var attributeType = FindType(k_GraphAttributeTypeName);
             if (attributeType == null)
                 return $"'{k_GraphAttributeTypeName}' was not found.";
 
-            var attribute = Attribute.GetCustomAttribute(s_GraphType, attributeType, false);
+            var attribute = Attribute.GetCustomAttribute(graphType, attributeType, false);
             if (attribute == null)
             {
-                return $"'{GraphTypeName}' carries no [Graph] attribute, so it has no asset " +
+                return $"'{typeName}' carries no [Graph] attribute, so it has no asset " +
                        "extension and no importer.";
             }
 
@@ -635,9 +832,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 : null;
 
             if (string.IsNullOrEmpty(declared))
-                return $"'{GraphTypeName}' declares an empty [Graph] extension.";
+                return $"'{typeName}' declares an empty [Graph] extension.";
 
-            s_Extension = declared.TrimStart('.');
+            extension = declared.TrimStart('.');
             return null;
         }
 

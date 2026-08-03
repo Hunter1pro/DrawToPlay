@@ -8,7 +8,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     [Serializable]
     [UseWithGraph(typeof(StateTreeGraph))]
     [UseWithContext(typeof(StateNode))]
-    [Node("Tasks/Presentation", null, "Play Pose Clip")]
+    [Node("Tasks/Animation", null, "Play Pose Clip")]
     public class PlayPoseClipTaskNode : StateTaskBlockNode
     {
         /// <inheritdoc />

@@ -30,25 +30,27 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// not reachable, which is what "visible" has to mean for the highlight to be honest), and
     /// Enter commits. The mouse path (double-click) is the alternative, not the reverse.
     ///
-    /// TWO KINDS OF ITEM. A row is either a compiled type (TypeCache over the base type) or an
-    /// AUTHORED tree — a <see cref="StateTreeAsset"/> whose <c>treeKind</c> is "task", offered as
-    /// a composite task under "Authored/&lt;folder&gt;". That is what makes a saved tree usable as
-    /// a task in another tree without writing a class, so the two live in one list, one search
-    /// index and one favourites store: from the author's side "what can this state do?" has a
-    /// single answer, and where the behaviour came from is a detail of the row, not of the
-    /// window. Authored rows appear only when the caller passes an <c>onTreePicked</c> callback —
-    /// a picker whose owner cannot act on a tree must not offer one. Rows for trees that are
-    /// BAKED FROM A GRAPH carry a " (graph)" suffix, because "can I open this on a canvas?" is
-    /// the one thing about an authored task the row cannot otherwise show.
+    /// THREE KINDS OF ITEM. A row is a compiled type (TypeCache over the base type), an AUTHORED
+    /// SUB-TREE — a <see cref="StateTreeAsset"/> whose <c>treeKind</c> is "task", run as one task
+    /// — or an AUTHORED LOGIC GRAPH, a <see cref="GraphTaskAsset"/> baked from a
+    /// <c>.taskgraph</c> file, whose behaviour is a program of branches, blackboard reads and
+    /// node calls rather than a set of states. All three sit under "Authored/&lt;folder&gt;" in one
+    /// list, one search index and one favourites store: from the author's side "what can this
+    /// state do?" has a single answer, and where the behaviour came from is a detail of the row.
+    /// Which detail is carried by a SUFFIX — " (sub-tree)" or " (logic graph)" — because the two
+    /// authored kinds are edited in different windows, and that is the one thing about a row the
+    /// name cannot say. Each kind appears only when the caller passed the callback that can act on
+    /// it; a picker whose owner cannot wire a logic graph must not offer one.
     ///
-    /// PLUS ONE ACTION ROW. "+ New Graph Task…" is not an item, it is a command: it creates the
-    /// task that does not exist yet and drops the author on its canvas. It is pinned above the
-    /// list rather than filed under Authored, because it is needed MOST when there is nothing
-    /// authored — an empty category cannot hold the way out of being empty. It never takes the
-    /// default highlight (Enter after opening the picker must commit a node, never a modal file
-    /// dialog) and it sorts last in search results for the same reason; UpArrow from the top row
-    /// reaches it, which is what keyboard-reachable has to mean for a row that must not be
-    /// selected by accident.
+    /// PLUS TWO ACTION ROWS, one per authored kind: "+ New Task Graph…" (the logic-graph flavour,
+    /// listed first because it is the one that composes existing nodes) and "+ New Sub-Tree
+    /// Task…". They are not items, they are commands — each creates the task that does not exist
+    /// yet and drops the author on its canvas. They are pinned above the list rather than filed
+    /// under Authored, because they are needed MOST when there is nothing authored — an empty
+    /// category cannot hold the way out of being empty. Neither takes the default highlight (Enter
+    /// after opening the picker must commit a node, never a modal file dialog) and both sort last
+    /// in search results for the same reason; UpArrow from the top row reaches them, which is what
+    /// keyboard-reachable has to mean for a row that must not be selected by accident.
     /// </summary>
     internal sealed class StateTreeNodePicker : EditorWindow
     {
@@ -77,17 +79,27 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// folder the asset lives in, which is the taxonomy the author already maintains.</summary>
         private const string k_AuthoredCategory = "Authored";
 
-        /// <summary>Label of the pinned command row, and the text its search index is built
-        /// from.</summary>
-        private const string k_NewGraphTaskLabel = "+ New Graph Task…";
+        /// <summary>Labels of the two pinned command rows, and the text their search index is
+        /// built from. The logic-graph row is first: it is the flavour that composes the existing
+        /// node library, so it is the one an author reaching for "a new task" usually wants.
+        /// </summary>
+        private const string k_NewTaskGraphLabel = "+ New Task Graph…";
 
-        private const string k_NewGraphTaskDescription =
-            "Create a task as a graph and open it for editing";
+        private const string k_NewTaskGraphDescription =
+            "Author a task as a logic graph — branch, blackboard, node calls";
 
-        /// <summary>Appended to a row whose tree is baked from a graph file. A suffix rather than
-        /// part of the name so search, duplicate detection and the favourites key all keep working
-        /// on what the author actually called the tree.</summary>
-        private const string k_GraphSuffix = " (graph)";
+        private const string k_NewSubTreeTaskLabel = "+ New Sub-Tree Task…";
+
+        private const string k_NewSubTreeTaskDescription =
+            "Author a task by wiring states, run as one task";
+
+        /// <summary>Appended to an authored row to say WHICH KIND it is — and therefore which
+        /// window opens it. A suffix rather than part of the name so search, duplicate detection
+        /// and the favourites key all keep working on what the author actually called the
+        /// thing.</summary>
+        private const string k_LogicGraphSuffix = " (logic graph)";
+
+        private const string k_SubTreeSuffix = " (sub-tree)";
 
         /// <summary>Search rank of a command row: worse than every real tier (0-4), so a query
         /// that matches both a node and the command puts the node first and Enter commits it.
@@ -125,7 +137,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         private Type m_BaseType;
         private Action<Type> m_OnPicked;
         private Action<StateTreeAsset> m_OnTreePicked;
-        private Action m_OnNewGraphTask;
+        private Action<GraphTaskAsset> m_OnGraphTaskPicked;
+        private Action m_OnNewSubTreeTask;
+        private Action m_OnNewTaskGraph;
         private Predicate<StateTreeAsset> m_TreeFilter;
         private string m_Title = "Add Node";
         private string m_Kind = k_TasksKind;
@@ -151,15 +165,17 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <paramref name="onPicked"/> is invoked with the chosen concrete type AFTER the popup
         /// has closed, so the callback is free to rebuild the UI that owns the activator.
         ///
-        /// Pass <paramref name="onTreePicked"/> to also offer AUTHORED trees (composite tasks);
-        /// exactly one of the three callbacks fires per pick. <paramref name="treeFilter"/> vets
-        /// each candidate before it is listed — the inspector uses it to keep a tree from being
-        /// offered as a task inside itself. <paramref name="onNewGraphTask"/> adds the pinned
-        /// "+ New Graph Task…" command. All three are optional, so the four-argument call sites
+        /// Pass <paramref name="onTreePicked"/> to also offer AUTHORED SUB-TREES and
+        /// <paramref name="onGraphTaskPicked"/> to offer AUTHORED LOGIC GRAPHS; exactly one
+        /// callback fires per pick. <paramref name="treeFilter"/> vets each tree before it is
+        /// listed — the inspector uses it to keep a tree from being offered as a task inside
+        /// itself. <paramref name="onNewSubTreeTask"/> and <paramref name="onNewTaskGraph"/> add
+        /// the two pinned command rows. All of them are optional, so the four-argument call sites
         /// that only deal in types are unchanged.</summary>
         internal static StateTreeNodePicker Show(Rect activatorScreenRect, Type baseType,
             Action<Type> onPicked, string title, Action<StateTreeAsset> onTreePicked = null,
-            Predicate<StateTreeAsset> treeFilter = null, Action onNewGraphTask = null)
+            Predicate<StateTreeAsset> treeFilter = null, Action onNewSubTreeTask = null,
+            Action<GraphTaskAsset> onGraphTaskPicked = null, Action onNewTaskGraph = null)
         {
             if (baseType == null || onPicked == null)
                 return null;
@@ -171,7 +187,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             window.m_BaseType = baseType;
             window.m_OnPicked = onPicked;
             window.m_OnTreePicked = onTreePicked;
-            window.m_OnNewGraphTask = onNewGraphTask;
+            window.m_OnGraphTaskPicked = onGraphTaskPicked;
+            window.m_OnNewSubTreeTask = onNewSubTreeTask;
+            window.m_OnNewTaskGraph = onNewTaskGraph;
             window.m_TreeFilter = treeFilter;
             window.m_Title = string.IsNullOrEmpty(title) ? "Add Node" : title;
             window.m_Kind = KindOf(baseType);
@@ -235,6 +253,16 @@ namespace PowerOfFire.DrawToPlay.Editor
             return StateTreeEditorOps.TreeDisplayName(tree);
         }
 
+        /// <summary>The label a logic graph gets: its FILE name, not its object name. A
+        /// <c>.taskgraph</c> is an imported asset — the Project window shows it by file name, and
+        /// the main object's name is the importer's to set — so the file name is the only identity
+        /// the author and the tool are guaranteed to agree on.</summary>
+        internal static string DisplayNameOf(string taskGraphAssetPath)
+        {
+            var name = System.IO.Path.GetFileNameWithoutExtension(taskGraphAssetPath);
+            return string.IsNullOrEmpty(name) ? "(unnamed graph)" : name;
+        }
+
         // --- window lifecycle -------------------------------------------------------------
 
         private void CreateGUI()
@@ -281,20 +309,28 @@ namespace PowerOfFire.DrawToPlay.Editor
         // --- model ------------------------------------------------------------------------
 
         /// <summary>One pickable item. Exactly one of <see cref="type"/> (a compiled task or
-        /// condition class), <see cref="tree"/> (an authored composite) and <see cref="action"/>
-        /// (a command row) is set; everything below that line — search index, category, favourite
-        /// key, row — is identical for all three, which is the point of the item model.</summary>
+        /// condition class), <see cref="tree"/> (an authored sub-tree), <see cref="graphTask"/>
+        /// (an authored logic graph) and <see cref="action"/> (a command row) is set; everything
+        /// below that line — search index, category, favourite key, row — is identical for all
+        /// four, which is the point of the item model.</summary>
         private sealed class Entry
         {
             internal Type type;
             internal StateTreeAsset tree;
 
+            /// <summary>The main asset of a <c>.taskgraph</c> file.</summary>
+            internal GraphTaskAsset graphTask;
+
             /// <summary>Set on a command row: picking it runs this instead of reporting an item.
             /// </summary>
             internal Action action;
 
-            /// <summary>The tree is baked from a graph file, so its row gets
-            /// <see cref="k_GraphSuffix"/>.</summary>
+            /// <summary>Which authored kind this row is — <see cref="k_SubTreeSuffix"/> or
+            /// <see cref="k_LogicGraphSuffix"/>, empty for compiled types and commands.</summary>
+            internal string suffix;
+
+            /// <summary>A sub-tree row whose tree is baked from a <c>.statetree</c> graph, so its
+            /// tooltip can say the canvas is reachable.</summary>
             internal bool graphBacked;
 
             internal string displayName;
@@ -340,37 +376,68 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
 
             CollectTypeEntries();
-            CollectAuthoredEntries();
+            CollectAuthoredTreeEntries();
+            CollectGraphTaskEntries();
             CollectActionEntries();
             BuildSearchIndex();
             m_Entries.Sort(CompareEntries);
         }
 
-        /// <summary>The command rows. There is one, and it is offered on the same terms as the
-        /// authored rows: only over the task base type, and only when the caller passed a callback
-        /// — a picker whose owner has no state to attach a new task to must not offer to make
-        /// one.</summary>
+        /// <summary>The command rows, one per authored kind. Both are offered on the same terms as
+        /// the authored rows: only over the task base type, and only when the caller passed the
+        /// callback — a picker whose owner has no state to attach a new task to must not offer to
+        /// make one.</summary>
         private void CollectActionEntries()
         {
-            if (m_OnNewGraphTask == null || !typeof(StateTreeTaskAsset).IsAssignableFrom(m_BaseType))
+            if (!typeof(StateTreeTaskAsset).IsAssignableFrom(m_BaseType))
                 return;
 
-            m_Actions.Add(new Entry
+            if (m_OnNewTaskGraph != null)
             {
-                action = m_OnNewGraphTask,
-                displayName = k_NewGraphTaskLabel,
-                category = k_AuthoredCategory,
-                description = k_NewGraphTaskDescription,
-                persistKey = "action:new-graph-task",
-                identity = "Creates Assets/DrawToPlay/Tasks/<name>.statetree and opens it."
-            });
+                m_Actions.Add(new Entry
+                {
+                    action = m_OnNewTaskGraph,
+                    displayName = k_NewTaskGraphLabel,
+                    category = k_AuthoredCategory,
+                    description = k_NewTaskGraphDescription,
+                    persistKey = "action:new-task-graph",
+                    identity = "Creates " + StateTreeGraphBridge.TaskFolder + "/<name>."
+                        + StateTreeGraphBridge.taskGraphExtension + " and opens it."
+                });
+            }
+
+            if (m_OnNewSubTreeTask != null)
+            {
+                m_Actions.Add(new Entry
+                {
+                    action = m_OnNewSubTreeTask,
+                    displayName = k_NewSubTreeTaskLabel,
+                    category = k_AuthoredCategory,
+                    description = k_NewSubTreeTaskDescription,
+                    persistKey = "action:new-sub-tree-task",
+                    identity = "Creates " + StateTreeGraphBridge.TaskFolder + "/<name>."
+                        + StateTreeGraphBridge.graphExtension + " and opens it."
+                });
+            }
         }
 
         private void CollectTypeEntries()
         {
+            // A blank GraphTaskAsset is an empty PROGRAM: it returns Success, and NOTHING in this
+            // window can give it behaviour — a program is authored on a canvas and baked. Offering
+            // it as a type would be a row that looks like every other task and is a dead end, so
+            // it is left out wherever the two honest routes to a logic graph — pick an authored
+            // one, or create one — are on offer. The two WRAPPERS (RunSubTreeTask, RunGraphTask)
+            // are deliberately NOT filtered the same way: a blank one is unwired, not inert, and
+            // what it runs can be dropped straight onto the field the generic parameter block
+            // already draws.
+            var hideBlankGraphTask = m_OnGraphTaskPicked != null || m_OnNewTaskGraph != null;
+
             foreach (var type in TypeCache.GetTypesDerivedFrom(m_BaseType))
             {
                 if (type.IsAbstract || type.IsGenericTypeDefinition)
+                    continue;
+                if (hideBlankGraphTask && type == typeof(GraphTaskAsset))
                     continue;
 
                 var attribute = (StateTreeCategoryAttribute)Attribute.GetCustomAttribute(
@@ -399,11 +466,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
         }
 
-        /// <summary>The authored half of the library: every <see cref="StateTreeAsset"/> the
+        /// <summary>The first authored half of the library: every <see cref="StateTreeAsset"/> the
         /// author marked as a reusable task (<c>treeKind == "task"</c>). It is a project-wide
         /// asset scan run once per open — trees are small and the alternative (a registry asset)
         /// is one more thing to keep in sync with the file system.</summary>
-        private void CollectAuthoredEntries()
+        private void CollectAuthoredTreeEntries()
         {
             if (m_OnTreePicked == null || !typeof(StateTreeTaskAsset).IsAssignableFrom(m_BaseType))
                 return;
@@ -430,12 +497,54 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Entries.Add(new Entry
                 {
                     tree = tree,
+                    suffix = k_SubTreeSuffix,
                     graphBacked = StateTreeGraphBridge.IsGraphAssetPath(path),
                     displayName = DisplayNameOf(tree),
                     category = folder.Length > 0
                         ? k_AuthoredCategory + "/" + folder
                         : k_AuthoredCategory,
                     description = $"Composite: {states} states",
+                    persistKey = k_GuidKeyPrefix + guids[i],
+                    qualifier = folder,
+                    identity = path
+                });
+            }
+        }
+
+        /// <summary>The second authored half: every <c>.taskgraph</c> file, listed by the
+        /// <see cref="GraphTaskAsset"/> its importer bakes as the main asset. The type filter is
+        /// not enough on its own — a baked program can also live as a sub-asset inside a tree
+        /// (that is how a state holds one) and those are copies, not library entries — so the path
+        /// is what decides: only a file whose MAIN asset is a program is a task other states can
+        /// pick.</summary>
+        private void CollectGraphTaskEntries()
+        {
+            if (m_OnGraphTaskPicked == null || !typeof(StateTreeTaskAsset).IsAssignableFrom(m_BaseType))
+                return;
+
+            var guids = AssetDatabase.FindAssets("t:" + nameof(GraphTaskAsset));
+            for (var i = 0; i < guids.Length; ++i)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guids[i]);
+                if (!StateTreeGraphBridge.IsTaskGraphAssetPath(path))
+                    continue;
+
+                var graphTask = AssetDatabase.LoadMainAssetAtPath(path) as GraphTaskAsset;
+                if (graphTask == null)
+                    continue;
+
+                var folder = FolderNameOf(path);
+                var nodes = graphTask.nodes != null ? graphTask.nodes.Count : 0;
+
+                m_Entries.Add(new Entry
+                {
+                    graphTask = graphTask,
+                    suffix = k_LogicGraphSuffix,
+                    displayName = DisplayNameOf(path),
+                    category = folder.Length > 0
+                        ? k_AuthoredCategory + "/" + folder
+                        : k_AuthoredCategory,
+                    description = $"Logic graph: {nodes} nodes",
                     persistKey = k_GuidKeyPrefix + guids[i],
                     qualifier = folder,
                     identity = path
@@ -962,9 +1071,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             star.style.unityTextAlign = TextAnchor.MiddleCenter;
             element.Add(star);
 
-            var name = new Label(entry.graphBacked
-                ? entry.displayName + k_GraphSuffix
-                : entry.displayName);
+            var name = new Label(string.IsNullOrEmpty(entry.suffix)
+                ? entry.displayName
+                : entry.displayName + entry.suffix);
             name.style.flexGrow = 1f;
             name.style.flexShrink = 1f;
             name.style.overflow = Overflow.Hidden;
@@ -1026,6 +1135,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             var tooltip = string.IsNullOrEmpty(entry.description)
                 ? identity
                 : entry.description + "\n\n" + identity;
+
+            if (entry.graphTask != null)
+            {
+                return tooltip + "\n\nA logic graph: the state runs this program by reference, so "
+                    + "editing the graph changes every state that uses it.";
+            }
 
             return entry.graphBacked
                 ? tooltip + "\n\nBaked from a graph — 'Edit in Graph' opens its canvas."
@@ -1203,14 +1318,19 @@ namespace PowerOfFire.DrawToPlay.Editor
             // nothing of ours may be touched after Close destroys it.
             var typeCallback = m_OnPicked;
             var treeCallback = m_OnTreePicked;
+            var graphTaskCallback = m_OnGraphTaskPicked;
             var action = entry.action;
             m_OnPicked = null;
             m_OnTreePicked = null;
-            m_OnNewGraphTask = null;
+            m_OnGraphTaskPicked = null;
+            m_OnNewSubTreeTask = null;
+            m_OnNewTaskGraph = null;
             CloseSelf();
 
             if (action != null)
                 action.Invoke();
+            else if (entry.graphTask != null)
+                graphTaskCallback?.Invoke(entry.graphTask);
             else if (entry.tree != null)
                 treeCallback?.Invoke(entry.tree);
             else

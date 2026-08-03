@@ -18,10 +18,10 @@ namespace PowerOfFire.DrawToPlay.Editor
     ///
     /// Sub-asset names follow <c>StateTreePresets</c> verbatim ("Node {order} {id}",
     /// "Task {id} {Type}", "Cond {from}-&gt;{to} {Type}") so a hand-authored tree and a preset
-    /// tree are indistinguishable in the Project window — with one addition, "Task {id}
-    /// SubTree:{tree}" for composite tasks, because a class name is not what distinguishes those
-    /// from each other. <see cref="RefreshSubAssetNames"/> recomputes the whole set after any
-    /// structural edit; it is idempotent by construction.
+    /// tree are indistinguishable in the Project window — with two additions, "Task {id}
+    /// SubTree:{tree}" and "Task {id} Graph:{graph}", because a class name is not what
+    /// distinguishes one composite from another. <see cref="RefreshSubAssetNames"/> recomputes the
+    /// whole set after any structural edit; it is idempotent by construction.
     ///
     /// Composite tasks (<see cref="CreateSubTreeTask"/>) are also why this file knows about
     /// TREE-level state: whether a tree is a reusable task is one string field on the asset, and
@@ -299,6 +299,40 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             Undo.RecordObject(node, undoName);
             node.tasks.Add(task);
+            EditorUtility.SetDirty(node);
+            EditorUtility.SetDirty(tree);
+            return task;
+        }
+
+        /// <summary>Add a logic-graph task: the program a <c>.taskgraph</c> file bakes, run as one
+        /// task of <paramref name="node"/> through <see cref="RunGraphTask"/>. Same shape as
+        /// <see cref="CreateSubTreeTask"/> and for the same reason — the state holds a thin
+        /// wrapper that is a sub-asset of THIS tree, and the wrapper holds the reference — which is
+        /// what keeps "delete this state" from destroying a library asset other trees share, and
+        /// what makes editing the graph reach every state that uses it with nothing to re-sync.
+        ///
+        /// <paramref name="insertAt"/> below zero (or past the end) appends.</summary>
+        internal static StateTreeTaskAsset CreateGraphTaskReference(StateTreeAsset tree,
+            StateTreeNodeAsset node, GraphTaskAsset graph, int insertAt, string undoName)
+        {
+            if (tree == null || node == null || graph == null)
+                return null;
+
+            var task = ScriptableObject.CreateInstance<RunGraphTask>();
+            if (task == null)
+                return null;
+
+            task.graph = graph;
+            task.name = GraphTaskAssetName(node.nodeId, graph);
+            AssetDatabase.AddObjectToAsset(task, tree);
+            Undo.RegisterCreatedObjectUndo(task, undoName);
+
+            Undo.RecordObject(node, undoName);
+            if (insertAt >= 0 && insertAt <= node.tasks.Count)
+                node.tasks.Insert(insertAt, task);
+            else
+                node.tasks.Add(task);
+
             EditorUtility.SetDirty(node);
             EditorUtility.SetDirty(tree);
             return task;
@@ -653,10 +687,35 @@ namespace PowerOfFire.DrawToPlay.Editor
         internal static string SubTreeTaskAssetName(string nodeId, StateTreeAsset subTree)
             => $"Task {nodeId} SubTree:{TreeDisplayName(subTree)}";
 
+        /// <summary>The same rule for the other authored kind: a wrapper is named after the graph
+        /// it runs, because "Task x RunGraphTask" on five rows names nothing.</summary>
+        internal static string GraphTaskAssetName(string nodeId, GraphTaskAsset graph)
+            => $"Task {nodeId} Graph:{GraphTaskDisplayName(graph)}";
+
+        /// <summary>The name a baked program goes by in the editor: the FILE name of the
+        /// <c>.taskgraph</c> it is the main asset of — what the Project window shows and the only
+        /// identity the author and the tool are guaranteed to agree on — falling back to the object
+        /// name for a program that is not on disk.</summary>
+        internal static string GraphTaskDisplayName(GraphTaskAsset graph)
+        {
+            if (graph == null)
+                return "(none)";
+
+            var path = AssetDatabase.GetAssetPath(graph);
+            var file = string.IsNullOrEmpty(path)
+                ? null
+                : System.IO.Path.GetFileNameWithoutExtension(path);
+
+            return !string.IsNullOrEmpty(file) ? file : graph.name;
+        }
+
         private static string TaskAssetNameFor(string nodeId, StateTreeTaskAsset task)
         {
-            return task is RunSubTreeTask sub
-                ? SubTreeTaskAssetName(nodeId, sub.subTree)
+            if (task is RunSubTreeTask sub)
+                return SubTreeTaskAssetName(nodeId, sub.subTree);
+
+            return task is RunGraphTask program
+                ? GraphTaskAssetName(nodeId, program.graph)
                 : TaskAssetName(nodeId, task.GetType());
         }
 

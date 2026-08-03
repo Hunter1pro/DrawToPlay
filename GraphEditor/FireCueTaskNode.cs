@@ -8,7 +8,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     [Serializable]
     [UseWithGraph(typeof(StateTreeGraph))]
     [UseWithContext(typeof(StateNode))]
-    [Node("Tasks/Presentation", null, "Fire Cue")]
+    [Node("Tasks/Cues", null, "Fire Cue")]
     public class FireCueTaskNode : StateTaskBlockNode
     {
         /// <inheritdoc />

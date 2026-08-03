@@ -42,14 +42,28 @@ namespace PowerOfFire.DrawToPlay.Editor
     ///
     /// AND A TASK DOES NOT HAVE TO EXIST YET. "+ Graph Task" (beside Add Task, and pinned in the
     /// picker) is the authoring loop in one gesture: name it, and it becomes a scaffold GRAPH
-    /// under Assets/DrawToPlay/Tasks, a composite task on this state wired to the tree that graph
-    /// bakes, and an open canvas to extend. Composite rows carry the other half — "Edit in Graph"
-    /// when the tree came from a graph file, "Convert to Graph…" when it did not, which re-authors
-    /// a hand-built tree as a graph and re-points this task at it, leaving the original asset on
+    /// under Assets/DrawToPlay/Tasks, a task on this state, and an open canvas to extend. It has
+    /// two flavours, which is why the button is a menu: a TASK GRAPH is a logic program (branch,
+    /// blackboard, node calls — a <see cref="GraphTaskAsset"/> baked from a .taskgraph file), a
+    /// SUB-TREE TASK is states wired together (a <see cref="RunSubTreeTask"/> pointed at the tree
+    /// a .statetree file bakes). Composite rows carry the other half — "Edit in Graph" when the
+    /// tree came from a graph file, "Convert to Graph…" when it did not, which re-authors a
+    /// hand-built tree as a graph and re-points this task at it, leaving the original asset on
     /// disk for the author to delete once satisfied. Everything past that boundary is reached
     /// through <see cref="StateTreeGraphBridge"/>, and every one of these commands reports what
     /// stopped it: a frontend that will not compile must read as a message, never as a button that
     /// does nothing.
+    ///
+    /// BOTH AUTHORED KINDS ARE HELD BY REFERENCE, THROUGH A WRAPPER. A
+    /// <see cref="GraphTaskAsset"/> IS a task — the main asset of its .taskgraph file — so a state
+    /// could hold the imported object itself, and must not: everything in this window assumes a
+    /// task in <c>node.tasks</c> is a sub-asset of THIS tree (<c>RefreshSubAssetNames</c> renames
+    /// it, removing a state destroys it), so pointing at an imported main asset would let "delete
+    /// this state" destroy a library asset every other tree references. A state therefore holds a
+    /// <see cref="RunGraphTask"/> wrapper that POINTS at the graph, exactly as
+    /// <see cref="RunSubTreeTask"/> points at a tree. Editing the graph reaches every state that
+    /// runs it with nothing to re-sync, and the wrapper's own field is what the loop guard, the
+    /// "Open" button and the sub-asset name all read.
     ///
     /// With no state selected the pane edits the TREE: its name, its kind, and the toggle that
     /// makes it appear in every other tree's task picker. Those fields exist nowhere else in the
@@ -62,9 +76,18 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static readonly Color k_InterruptBackground = new Color(0.95f, 0.58f, 0.25f, 0.12f);
         private static readonly Color k_SubTreeBackground = new Color(0.55f, 0.40f, 0.92f, 0.14f);
 
+        /// <summary>The logic-graph tint. Deliberately not the sub-tree purple: the two authored
+        /// kinds are edited in different windows and fail in different ways, so a glance at a
+        /// state's task list has to separate them.</summary>
+        private static readonly Color k_GraphTaskBackground = new Color(0.20f, 0.72f, 0.62f, 0.14f);
+
         private const string k_NoConditionChoice = "None (always passes)";
         private const string k_NoTargetChoice = "<none>";
         private const string k_SubTreeProperty = "subTree";
+
+        /// <summary>The wrapper field an author can re-point by dropping a graph on it — the one
+        /// property change that has to rebuild the row, because the row is named after it.</summary>
+        private const string k_GraphProperty = "graph";
 
         /// <summary>Title shared by every dialog in the graph-task loop, so a failure is
         /// recognisable as "the graph side said no" wherever it comes from.</summary>
@@ -341,14 +364,28 @@ namespace PowerOfFire.DrawToPlay.Editor
                 var index = i;
                 var task = m_Node.tasks[index];
                 var composite = task as RunSubTreeTask;
+                var program = task as RunGraphTask;
 
-                var box = Box(composite != null ? k_SubTreeBackground : k_BoxBackground);
+                // The wrapper's field IS the origin, so this is a lookup, not a search.
+                var origin = program != null && program.graph != null
+                    ? AssetDatabase.GetAssetPath(program.graph)
+                    : null;
+
+                var tint = k_BoxBackground;
+                if (composite != null)
+                    tint = k_SubTreeBackground;
+                else if (program != null)
+                    tint = k_GraphTaskBackground;
+
+                var box = Box(tint);
 
                 var header = new VisualElement();
                 header.style.flexDirection = FlexDirection.Row;
                 header.style.alignItems = Align.Center;
 
-                var label = new Label(TaskLabel(task));
+                var label = new Label(program != null
+                    ? ProgramLabel(program.graph)
+                    : TaskLabel(task));
                 label.style.unityFontStyleAndWeight = FontStyle.Bold;
                 label.style.flexGrow = 1f;
                 label.style.overflow = Overflow.Hidden;
@@ -363,6 +400,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                     header.Add(open);
                     header.Add(BuildGraphButton(composite));
                 }
+                else if (program != null && !string.IsNullOrEmpty(origin))
+                {
+                    var open = new Button(() => OpenGraphOrReport(origin)) { text = "Open" };
+                    open.tooltip = $"Open '{origin}' on the graph canvas. Saving the graph changes "
+                        + "what this state runs — there is no copy.";
+                    header.Add(open);
+                }
 
                 var remove = new Button(() => RemoveTask(index)) { text = "✕" };
                 remove.tooltip = "Delete this task sub-asset.";
@@ -372,6 +416,9 @@ namespace PowerOfFire.DrawToPlay.Editor
 
                 if (composite != null)
                     box.Add(BuildSubTreeStatus(composite));
+
+                if (program != null)
+                    box.Add(BuildProgramStatus(program));
 
                 var fields = BuildParameterFields(task);
                 if (composite != null)
@@ -387,6 +434,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                             DeferStructuralChange();
                     });
                 }
+                else if (program != null)
+                {
+                    // Same reasoning for the wrapper's graph field: the row is named after it and
+                    // its Open button is built from it, so re-pointing it has to rebuild the row.
+                    fields.RegisterCallback<SerializedPropertyChangeEvent>(evt =>
+                    {
+                        if (evt.changedProperty != null
+                            && evt.changedProperty.propertyPath == k_GraphProperty)
+                            DeferStructuralChange();
+                    });
+                }
 
                 box.Add(fields);
                 m_Root.Add(box);
@@ -397,33 +455,71 @@ namespace PowerOfFire.DrawToPlay.Editor
             row.style.marginTop = 4f;
 
             var add = new Button { text = "Add Task…" };
-            add.tooltip = "Search every task type AND every tree marked as a reusable task, by "
-                + "name, category or description.";
+            add.tooltip = "Search every task type, every tree marked as a reusable task AND every "
+                + "logic graph, by name, category or description.";
             add.style.flexGrow = 1f;
             add.clicked += () => StateTreeNodePicker.Show(StateTreeNodePicker.ScreenRectOf(add),
                 typeof(StateTreeTaskAsset), AddTask, "Add Task", AddSubTreeTask, CanRunSubTree,
-                CreateGraphTask);
+                CreateSubTreeTaskGraph, AddGraphTask, CreateTaskGraph);
             row.Add(add);
 
-            // The same command as the picker's pinned row, one click closer. It is worth both
-            // places: from inside the picker it is the answer to "none of these is what I want",
-            // and out here it is the answer to "I already know I am writing a new one".
-            var graph = new Button(CreateGraphTask) { text = "+ Graph Task" };
+            // The same commands as the picker's pinned rows, one click closer. They are worth both
+            // places: from inside the picker they are the answer to "none of these is what I
+            // want", and out here they are the answer to "I already know I am writing a new one".
+            // A menu rather than two buttons because the choice is between two flavours of one
+            // decision, and naming it once ("+ Graph Task") is what makes that visible.
+            var graph = new Button { text = "+ Graph Task ▾" };
             graph.style.flexShrink = 0f;
             graph.tooltip = "Create a new task as a graph under " + StateTreeGraphBridge.TaskFolder
                 + ", add it to this state, and open its canvas.";
+            graph.clicked += () => ShowGraphTaskMenu(graph);
             row.Add(graph);
 
             m_Root.Add(row);
 
-            // Reported once, up front, rather than only on click: a button whose command cannot
-            // run should look like a button whose command cannot run.
-            if (!StateTreeGraphBridge.TryResolveAuthoring(out var unavailable))
+            // Reported once, up front, rather than only on click: a command that cannot run should
+            // look like a command that cannot run. The two flavours fail independently — one graph
+            // kind can be broken while the other is fine — so each is asked separately and the
+            // button only disappears as an option when BOTH are gone.
+            var hasTaskGraph = StateTreeGraphBridge.TryResolveTaskGraphAuthoring(out var noProgram);
+            var hasSubTree = StateTreeGraphBridge.TryResolveAuthoring(out var noSubTree);
+            graph.SetEnabled(hasTaskGraph || hasSubTree);
+
+            if (!hasTaskGraph)
             {
-                graph.tooltip = unavailable;
-                m_Root.Add(new HelpBox("Graph tasks are unavailable: " + unavailable,
+                m_Root.Add(new HelpBox("New task graphs are unavailable: " + noProgram,
                     HelpBoxMessageType.Warning));
             }
+
+            if (!hasSubTree)
+            {
+                m_Root.Add(new HelpBox("New sub-tree tasks are unavailable: " + noSubTree,
+                    HelpBoxMessageType.Warning));
+            }
+        }
+
+        /// <summary>The two authoring flavours, as a menu. Each item is disabled rather than
+        /// hidden when its half of the frontend is missing: an author who used it yesterday must
+        /// find out that it is broken, not that it never existed.</summary>
+        private void ShowGraphTaskMenu(VisualElement anchor)
+        {
+            var menu = new GenericMenu();
+
+            var program = new GUIContent("Task Graph… (logic nodes)");
+            if (StateTreeGraphBridge.TryResolveTaskGraphAuthoring(out _))
+                menu.AddItem(program, false, CreateTaskGraph);
+            else
+                menu.AddDisabledItem(program);
+
+            var subTree = new GUIContent("Sub-Tree Task… (wired states)");
+            if (StateTreeGraphBridge.TryResolveAuthoring(out _))
+                menu.AddItem(subTree, false, CreateSubTreeTaskGraph);
+            else
+                menu.AddDisabledItem(subTree);
+
+            // GenericMenu positions in the current window's GUI space, which for a UI Toolkit
+            // panel filling an EditorWindow is what worldBound already is.
+            menu.DropDown(anchor.worldBound);
         }
 
         /// <summary>The composite row's graph button, which is two commands wearing one slot
@@ -460,6 +556,44 @@ namespace PowerOfFire.DrawToPlay.Editor
             return task is RunSubTreeTask composite
                 ? $"Sub Tree · {StateTreeEditorOps.TreeDisplayName(composite.subTree)}"
                 : task.GetType().Name;
+        }
+
+        /// <summary>A logic-graph wrapper is labelled the same way — by the graph it runs, which is
+        /// the only thing that differs between two of them.</summary>
+        private static string ProgramLabel(GraphTaskAsset graph)
+        {
+            return $"Task Graph · {StateTreeEditorOps.GraphTaskDisplayName(graph)}";
+        }
+
+        /// <summary>What the box says under the title. The unassigned case is an error rather than
+        /// a note because the runtime treats it as one: <see cref="RunGraphTask"/> logs and the
+        /// task fails the moment the state is entered.</summary>
+        private VisualElement BuildProgramStatus(RunGraphTask program)
+        {
+            var container = new VisualElement();
+
+            if (program.graph == null)
+            {
+                container.Add(new HelpBox("No graph assigned — this task fails as soon as the "
+                    + "state is entered. Drop a .taskgraph asset on the field below, or add it "
+                    + "again with Add Task….", HelpBoxMessageType.Warning));
+                return container;
+            }
+
+            var nodes = program.graph.nodes != null ? program.graph.nodes.Count : 0;
+            if (nodes == 0)
+            {
+                container.Add(new HelpBox("This program is empty, so the task succeeds "
+                    + "immediately. Open the graph and wire On Tick to something.",
+                    HelpBoxMessageType.Info));
+                return container;
+            }
+
+            var hint = Hint($"{nodes} program nodes, run straight from the graph — editing the "
+                + "graph changes what this state does, with nothing to re-sync.");
+            hint.style.marginTop = 2f;
+            container.Add(hint);
+            return container;
         }
 
         /// <summary>The loop guard, and the one place an author can see it. The picker never
@@ -851,12 +985,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         // --- graph tasks ------------------------------------------------------------------
 
         /// <summary>Name a task, and get back a graph you are already editing and a state that
-        /// already runs it. The order is deliberate and each step guards the next: the frontend is
-        /// asked whether it can author BEFORE the author is asked for a name, the scaffold is
-        /// verified to have imported BEFORE anything is wired, and the wiring is one undo step
-        /// that leaves the file on disk if undone (asset creation is not undoable — established in
-        /// m7b, and the reason the dialog says "created" before it says "added").</summary>
-        private void CreateGraphTask()
+        /// already runs it — the SUB-TREE flavour, whose graph is states wired together. The order
+        /// is deliberate and each step guards the next: the frontend is asked whether it can
+        /// author BEFORE the author is asked for a name, the scaffold is verified to have imported
+        /// BEFORE anything is wired, and the wiring is one undo step that leaves the file on disk
+        /// if undone (asset creation is not undoable — established in m7b, and the reason the
+        /// dialog says "created" before it says "added").</summary>
+        private void CreateSubTreeTaskGraph()
         {
             if (m_Tree == null || m_Node == null)
                 return;
@@ -869,10 +1004,10 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             StateTreeGraphBridge.EnsureFolder(StateTreeGraphBridge.TaskFolder);
 
-            var path = EditorUtility.SaveFilePanelInProject("New Graph Task", SuggestedTaskName(),
-                StateTreeGraphBridge.graphExtension,
-                "Name the task. It is created as a graph you can extend on the canvas, and added "
-                + "to this state straight away.", StateTreeGraphBridge.TaskFolder);
+            var path = EditorUtility.SaveFilePanelInProject("New Sub-Tree Task",
+                SuggestedTaskName(), StateTreeGraphBridge.graphExtension,
+                "Name the task. It is created as a graph of STATES you can extend on the canvas, "
+                + "and added to this state straight away.", StateTreeGraphBridge.TaskFolder);
             if (string.IsNullOrEmpty(path))
                 return;
 
@@ -896,8 +1031,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             }
 
-            var group = StateTreeEditorOps.BeginUndoGroup("Add Graph Task");
-            var task = StateTreeEditorOps.CreateSubTreeTask(m_Tree, m_Node, tree, "Add Graph Task");
+            var group = StateTreeEditorOps.BeginUndoGroup("Add Sub-Tree Task");
+            var task = StateTreeEditorOps.CreateSubTreeTask(m_Tree, m_Node, tree,
+                "Add Sub-Tree Task");
             StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
             StateTreeEditorOps.EndUndoGroup(group);
 
@@ -920,6 +1056,92 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             OpenGraphOrReport(created);
+            DeferStructuralChange();
+        }
+
+        /// <summary>The other flavour: name a task, get a LOGIC graph you are already editing and a
+        /// state that already runs it. Same guard order as the sub-tree flavour — can the frontend
+        /// author, did the scaffold import, only then wire — because the failure everyone regrets
+        /// is a state left pointing at something that does not exist.</summary>
+        private void CreateTaskGraph()
+        {
+            if (m_Tree == null || m_Node == null)
+                return;
+
+            if (!StateTreeGraphBridge.TryResolveTaskGraphAuthoring(out var error))
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle, error, "OK");
+                return;
+            }
+
+            StateTreeGraphBridge.EnsureFolder(StateTreeGraphBridge.TaskFolder);
+
+            var path = EditorUtility.SaveFilePanelInProject("New Task Graph", SuggestedTaskName(),
+                StateTreeGraphBridge.taskGraphExtension,
+                "Name the task. It is created as a LOGIC graph you can extend on the canvas, and a "
+                + "copy of it is added to this state straight away.",
+                StateTreeGraphBridge.TaskFolder);
+            if (string.IsNullOrEmpty(path))
+                return;
+
+            var name = System.IO.Path.GetFileNameWithoutExtension(path);
+            var created = StateTreeGraphBridge.CreateTaskGraphScaffold(path, name, out error);
+            if (created == null)
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    "The task graph was not created, and nothing was added to this state.\n\n"
+                    + error, "OK");
+                return;
+            }
+
+            var program = AssetDatabase.LoadMainAssetAtPath(created) as GraphTaskAsset;
+            if (program == null)
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    $"'{created}' was created, but its main asset is not a "
+                    + $"{nameof(GraphTaskAsset)}, so there is no program for a task to run. "
+                    + "Nothing was added to this state — the Console will say why the import "
+                    + "failed.", "OK");
+                return;
+            }
+
+            var group = StateTreeEditorOps.BeginUndoGroup("Add Task Graph");
+            var task = StateTreeEditorOps.CreateGraphTaskReference(m_Tree, m_Node, program, -1,
+                "Add Task Graph");
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+
+            if (task == null)
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    $"'{created}' was created, but it could not be added to this state. Add it "
+                    + "with Add Task… once you have looked at it.", "OK");
+            }
+
+            OpenGraphOrReport(created);
+            DeferStructuralChange();
+        }
+
+        /// <summary>The picker handed over an authored LOGIC graph. The state gets a wrapper
+        /// pointing at it — same undo shape as <see cref="AddTask"/> and
+        /// <see cref="AddSubTreeTask"/>, one gesture, one step.</summary>
+        private void AddGraphTask(GraphTaskAsset graph)
+        {
+            if (graph == null || m_Tree == null || m_Node == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup("Add Task Graph");
+            var task = StateTreeEditorOps.CreateGraphTaskReference(m_Tree, m_Node, graph, -1,
+                "Add Task Graph");
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+
+            if (task == null)
+            {
+                EditorUtility.DisplayDialog(k_GraphDialogTitle,
+                    "That logic graph could not be added to this state.", "OK");
+            }
+
             DeferStructuralChange();
         }
 
