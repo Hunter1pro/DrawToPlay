@@ -65,6 +65,15 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// runs it with nothing to re-sync, and the wrapper's own field is what the loop guard, the
     /// "Open" button and the sub-asset name all read.
     ///
+    /// AND THE WRAPPER IS WHERE THE GRAPH GETS TUNED. A logic graph's variables are its PARAMETERS,
+    /// so the graph-task box grows a Parameters section: one row per variable, each an override
+    /// checkbox beside a value field that shows the graph's own default while unticked. That is the
+    /// Blueprint instance model — the graph is the class, this state's task is an instance — and it
+    /// is what stops "the same behaviour but faster" from meaning a second graph file. The override
+    /// list is stored on the wrapper (per state, per use), never on the shared graph, and the raw
+    /// list is hidden from the generic field block below because a nameless array of structs cannot
+    /// show a default, cannot catch a typo'd name, and would be a second way to edit the same data.
+    ///
     /// With no state selected the pane edits the TREE: its name, its kind, and the toggle that
     /// makes it appear in every other tree's task picker. Those fields exist nowhere else in the
     /// window, and "mark this tree as a task" is the whole entry point to composition.
@@ -88,6 +97,15 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>The wrapper field an author can re-point by dropping a graph on it — the one
         /// property change that has to rebuild the row, because the row is named after it.</summary>
         private const string k_GraphProperty = "graph";
+
+        /// <summary>The wrapper's per-state parameter overrides. Drawn by
+        /// <see cref="BuildProgramParameters"/> and hidden from the generic field block, which would
+        /// otherwise show the same data twice as a nameless array of structs.</summary>
+        private const string k_OverridesProperty = "overrides";
+
+        private const string k_SetOverrideUndo = "Override Task Parameter";
+        private const string k_ClearOverrideUndo = "Clear Task Parameter Override";
+        private const string k_EditOverrideUndo = "Set Task Parameter";
 
         /// <summary>Title shared by every dialog in the graph-task loop, so a failure is
         /// recognisable as "the graph side said no" wherever it comes from.</summary>
@@ -418,9 +436,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                     box.Add(BuildSubTreeStatus(composite));
 
                 if (program != null)
+                {
                     box.Add(BuildProgramStatus(program));
+                    box.Add(BuildProgramParameters(program));
+                }
 
-                var fields = BuildParameterFields(task);
+                // The override list is drawn as the Parameters section above — as checkboxes against
+                // the graph's own parameter list, which is the only place the NAMES are known — so
+                // the raw list is hidden rather than drawn twice with one of the two unable to show
+                // a default or catch a typo'd name.
+                var fields = BuildParameterFields(task,
+                    program != null ? k_OverridesProperty : null);
                 if (composite != null)
                 {
                     // The sub-tree can also be swapped by dropping an asset on the generic
@@ -594,6 +620,397 @@ namespace PowerOfFire.DrawToPlay.Editor
             hint.style.marginTop = 2f;
             container.Add(hint);
             return container;
+        }
+
+        // --- graph task parameters --------------------------------------------------------
+
+        /// <summary>
+        /// The per-state override list, drawn against the GRAPH's parameter list — the Blueprint
+        /// instance model: the graph declares the knobs and their defaults, and a state that runs it
+        /// changes the ones it cares about. Hence a checkbox per row rather than a plain value field:
+        /// "3" typed into an unchecked row and "3" typed into a checked one mean different things
+        /// (follow the graph vs pin this state to 3), and the difference must survive the graph
+        /// author changing their mind about the default.
+        ///
+        /// The section is built from <c>graph.parameters</c>, never from the override list, so a row
+        /// exists for every knob whether or not this state has touched it — a knob nobody knows about
+        /// is a knob nobody turns. Overrides naming something the graph no longer declares are the
+        /// exception, listed after the rows as warnings with a way to delete them: renaming a
+        /// variable in the graph strands them silently otherwise, and the runtime's answer is a
+        /// single log line nobody reads.
+        /// </summary>
+        private VisualElement BuildProgramParameters(RunGraphTask program)
+        {
+            var container = new VisualElement();
+
+            // No graph is already reported as an error above, and every override becomes valid again
+            // the moment one is assigned — calling them all stale would be noise AND wrong.
+            if (program.graph == null)
+                return container;
+
+            var parameters = program.graph.parameters;
+            var count = parameters != null ? parameters.Count : 0;
+            var stale = CollectStaleOverrides(program);
+
+            if (count == 0 && stale.Count == 0)
+                return container;
+
+            var title = new Label($"Parameters ({count})");
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            title.style.marginTop = 6f;
+            container.Add(title);
+
+            if (count > 0)
+            {
+                var hint = Hint("Tick a parameter to give this state its own value. Unticked rows "
+                    + "show what the graph itself uses, and follow it when the graph changes.");
+                hint.style.marginBottom = 2f;
+                container.Add(hint);
+
+                for (var i = 0; i < count; ++i)
+                {
+                    var parameter = parameters[i];
+                    if (parameter != null && !string.IsNullOrEmpty(parameter.name))
+                        container.Add(BuildParameterRow(program, parameter));
+                }
+            }
+
+            for (var i = 0; i < stale.Count; ++i)
+                container.Add(BuildStaleOverrideRow(program, stale[i]));
+
+            return container;
+        }
+
+        /// <summary>One knob: the override checkbox, the name, and the value field for its kind.
+        /// The field is disabled and dimmed while the checkbox is off, showing the graph's default —
+        /// which is what the state actually runs, so it is shown rather than blanked.</summary>
+        private VisualElement BuildParameterRow(RunGraphTask program, GraphTaskParameter parameter)
+        {
+            var row = new VisualElement();
+            row.AddToClassList("unity-base-field");
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+
+            var overridden = IsOverridden(program, parameter.name);
+
+            var toggle = new Toggle();
+            toggle.style.flexShrink = 0f;
+            toggle.style.marginRight = 2f;
+            toggle.tooltip = "Give this state its own value for this parameter. Off: the state uses "
+                + "whatever the graph is authored with.";
+            toggle.SetValueWithoutNotify(overridden);
+            row.Add(toggle);
+
+            var read = IsParameterRead(program.graph, parameter.name);
+            var label = new Label(read ? parameter.name : parameter.name + "  (unused)");
+            label.AddToClassList("unity-base-field__label");
+            label.style.overflow = Overflow.Hidden;
+            label.style.textOverflow = TextOverflow.Ellipsis;
+            label.tooltip = read
+                ? $"Graph variable '{parameter.name}' ({KindLabel(parameter.kind)}). Default: "
+                    + DefaultLabel(parameter)
+                : $"Graph variable '{parameter.name}' ({KindLabel(parameter.kind)}) is declared but "
+                    + "no node in the graph reads it, so overriding it changes nothing. A variable "
+                    + "used only on a library call's parameter port reads this way: those are baked "
+                    + "into the graph and cannot be overridden per state.";
+            row.Add(label);
+
+            var input = BuildParameterInput(program, parameter);
+            input.AddToClassList("unity-base-field__input");
+            input.style.flexGrow = 1f;
+            WriteParameterInput(input, program, parameter);
+            ApplyOverrideStyle(input, overridden);
+            row.Add(input);
+
+            toggle.RegisterValueChangedCallback(evt =>
+            {
+                SetOverride(program, parameter, evt.newValue);
+                WriteParameterInput(input, program, parameter);
+                ApplyOverrideStyle(input, evt.newValue);
+            });
+
+            return row;
+        }
+
+        /// <summary>The value editor for one parameter kind. Its callback writes straight into the
+        /// override entry, which exists whenever the field is editable — the field is disabled while
+        /// the row is not overridden, so there is no state where a keystroke has nowhere to go.
+        /// </summary>
+        private VisualElement BuildParameterInput(RunGraphTask program, GraphTaskParameter parameter)
+        {
+            switch (parameter.kind)
+            {
+                case GraphTaskParameterKind.String:
+                {
+                    var field = new TextField { isDelayed = true };
+                    field.RegisterValueChangedCallback(evt => CommitOverride(program, parameter,
+                        entry => entry.stringValue = evt.newValue ?? string.Empty));
+                    return field;
+                }
+
+                case GraphTaskParameterKind.Bool:
+                {
+                    var field = new Toggle();
+                    field.RegisterValueChangedCallback(evt => CommitOverride(program, parameter,
+                        entry => entry.floatValue = evt.newValue ? 1f : 0f));
+                    return field;
+                }
+
+                default:
+                {
+                    var field = new FloatField { isDelayed = true };
+                    field.RegisterValueChangedCallback(evt => CommitOverride(program, parameter,
+                        entry => entry.floatValue = evt.newValue));
+                    return field;
+                }
+            }
+        }
+
+        /// <summary>Push the EFFECTIVE value into the field: the override when there is one, the
+        /// graph's default when there is not. Without notify — this is the tool writing to itself,
+        /// not the author writing to the asset.</summary>
+        private static void WriteParameterInput(VisualElement input, RunGraphTask program,
+            GraphTaskParameter parameter)
+        {
+            var entry = ActiveOverride(program, parameter.name);
+
+            switch (parameter.kind)
+            {
+                case GraphTaskParameterKind.String:
+                    ((TextField)input).SetValueWithoutNotify(entry != null
+                        ? entry.stringValue ?? string.Empty
+                        : parameter.stringValue ?? string.Empty);
+                    break;
+
+                case GraphTaskParameterKind.Bool:
+                    ((Toggle)input).SetValueWithoutNotify(
+                        (entry != null ? entry.floatValue : parameter.floatValue) != 0f);
+                    break;
+
+                default:
+                    ((FloatField)input).SetValueWithoutNotify(
+                        entry != null ? entry.floatValue : parameter.floatValue);
+                    break;
+            }
+        }
+
+        private static void ApplyOverrideStyle(VisualElement input, bool overridden)
+        {
+            input.SetEnabled(overridden);
+            input.style.opacity = overridden ? 1f : 0.55f;
+        }
+
+        /// <summary>Turn an override on or off. On seeds the entry from the graph's current default,
+        /// so ticking the box and typing nothing pins the value the author was already looking at;
+        /// off DELETES the entry, because an override that exists but does nothing is the state this
+        /// UI cannot show and the runtime would still carry.</summary>
+        private void SetOverride(RunGraphTask program, GraphTaskParameter parameter, bool on)
+        {
+            var undoName = on ? k_SetOverrideUndo : k_ClearOverrideUndo;
+            var group = StateTreeEditorOps.BeginUndoGroup(undoName);
+            Undo.RecordObject(program, undoName);
+
+            if (program.overrides == null)
+                program.overrides = new List<GraphTaskParameterOverride>();
+
+            var index = IndexOfOverride(program, parameter.name);
+            if (on && index < 0)
+            {
+                program.overrides.Add(new GraphTaskParameterOverride
+                {
+                    name = parameter.name,
+                    enabled = true,
+                    floatValue = parameter.floatValue,
+                    stringValue = parameter.stringValue ?? string.Empty
+                });
+            }
+            else if (on)
+            {
+                // An entry left behind switched off — hand-edited YAML, or a merge. Re-arm it in
+                // place rather than adding a second entry with the same name, which the runtime
+                // would resolve by an order nothing here controls.
+                program.overrides[index].enabled = true;
+            }
+            else if (index >= 0)
+            {
+                program.overrides.RemoveAt(index);
+            }
+
+            EditorUtility.SetDirty(program);
+            StateTreeEditorOps.EndUndoGroup(group);
+            m_Edited?.Invoke();
+        }
+
+        private void CommitOverride(RunGraphTask program, GraphTaskParameter parameter,
+            Action<GraphTaskParameterOverride> write)
+        {
+            var entry = ActiveOverride(program, parameter.name);
+            if (entry == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_EditOverrideUndo);
+            Undo.RecordObject(program, k_EditOverrideUndo);
+            write(entry);
+            EditorUtility.SetDirty(program);
+            StateTreeEditorOps.EndUndoGroup(group);
+            m_Edited?.Invoke();
+        }
+
+        /// <summary>An override naming a parameter the graph no longer declares — almost always a
+        /// variable renamed or deleted on the canvas. It is dead weight the runtime warns about
+        /// once, so it is surfaced where it can be deleted instead.</summary>
+        private VisualElement BuildStaleOverrideRow(RunGraphTask program, string name)
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.marginTop = 2f;
+
+            var help = new HelpBox($"'{name}' is overridden here, but the graph has no parameter by "
+                + "that name — it was probably renamed or deleted. The override does nothing.",
+                HelpBoxMessageType.Warning);
+            help.style.flexGrow = 1f;
+            row.Add(help);
+
+            var remove = new Button { text = "Remove" };
+            remove.style.flexShrink = 0f;
+            remove.tooltip = $"Delete the '{name}' override from this task.";
+            remove.clicked += () =>
+            {
+                RemoveOverride(program, name);
+                row.RemoveFromHierarchy();
+            };
+            row.Add(remove);
+
+            return row;
+        }
+
+        private void RemoveOverride(RunGraphTask program, string name)
+        {
+            var index = IndexOfOverride(program, name);
+            if (index < 0)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_ClearOverrideUndo);
+            Undo.RecordObject(program, k_ClearOverrideUndo);
+            program.overrides.RemoveAt(index);
+            EditorUtility.SetDirty(program);
+            StateTreeEditorOps.EndUndoGroup(group);
+            m_Edited?.Invoke();
+        }
+
+        /// <summary>Override names this task carries that the graph does not declare, in list order
+        /// and without repeats.</summary>
+        private static List<string> CollectStaleOverrides(RunGraphTask program)
+        {
+            var stale = new List<string>();
+            if (program.overrides == null)
+                return stale;
+
+            var declared = new HashSet<string>(StringComparer.Ordinal);
+            var parameters = program.graph != null ? program.graph.parameters : null;
+            if (parameters != null)
+            {
+                for (var i = 0; i < parameters.Count; ++i)
+                {
+                    if (parameters[i] != null && parameters[i].name != null)
+                        declared.Add(parameters[i].name);
+                }
+            }
+
+            for (var i = 0; i < program.overrides.Count; ++i)
+            {
+                var entry = program.overrides[i];
+                if (entry == null || string.IsNullOrEmpty(entry.name))
+                    continue;
+                if (declared.Contains(entry.name) || stale.Contains(entry.name))
+                    continue;
+                stale.Add(entry.name);
+            }
+
+            return stale;
+        }
+
+        private static int IndexOfOverride(RunGraphTask program, string name)
+        {
+            if (program.overrides == null)
+                return -1;
+
+            for (var i = 0; i < program.overrides.Count; ++i)
+            {
+                var entry = program.overrides[i];
+                if (entry != null && string.Equals(entry.name, name, StringComparison.Ordinal))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        /// <summary>The override entry that is actually in force for a parameter — present AND
+        /// switched on, which is what the runtime applies.</summary>
+        private static GraphTaskParameterOverride ActiveOverride(RunGraphTask program, string name)
+        {
+            var index = IndexOfOverride(program, name);
+            if (index < 0)
+                return null;
+
+            var entry = program.overrides[index];
+            return entry != null && entry.enabled ? entry : null;
+        }
+
+        private static bool IsOverridden(RunGraphTask program, string name)
+            => ActiveOverride(program, name) != null;
+
+        /// <summary>Whether any instruction in the baked program pulls this parameter. A declared
+        /// variable no node reads produces a knob that does nothing, which the row says out loud
+        /// rather than leaving the author to test it.</summary>
+        private static bool IsParameterRead(GraphTaskAsset graph, string name)
+        {
+            var nodes = graph.nodes;
+            if (nodes == null)
+                return false;
+
+            for (var i = 0; i < nodes.Count; ++i)
+            {
+                var node = nodes[i];
+                if (node == null)
+                    continue;
+                if (node.kind != GraphTaskNodeKind.GetParamFloat
+                    && node.kind != GraphTaskNodeKind.GetParamString
+                    && node.kind != GraphTaskNodeKind.GetParamBool)
+                    continue;
+                if (string.Equals(node.stringValue, name, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static string KindLabel(GraphTaskParameterKind kind)
+        {
+            switch (kind)
+            {
+                case GraphTaskParameterKind.String:
+                    return "text";
+                case GraphTaskParameterKind.Bool:
+                    return "checkbox";
+                default:
+                    return "number";
+            }
+        }
+
+        private static string DefaultLabel(GraphTaskParameter parameter)
+        {
+            switch (parameter.kind)
+            {
+                case GraphTaskParameterKind.String:
+                    return $"\"{parameter.stringValue ?? string.Empty}\"";
+                case GraphTaskParameterKind.Bool:
+                    return parameter.floatValue != 0f ? "on" : "off";
+                default:
+                    return parameter.floatValue.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture);
+            }
         }
 
         /// <summary>The loop guard, and the one place an author can see it. The picker never
@@ -857,7 +1274,12 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>Generic parameter block for one task/condition sub-asset. Nothing here knows
         /// any component type: whatever the class serialises is what the author sees.</summary>
-        private VisualElement BuildParameterFields(UnityEngine.Object target)
+        /// <param name="target">The sub-asset to draw.</param>
+        /// <param name="hiddenProperty">One property to leave out, for the single case where a
+        /// purpose-built control above already edits it. Named rather than inferred, so a field only
+        /// disappears where something visibly replaced it.</param>
+        private VisualElement BuildParameterFields(UnityEngine.Object target,
+            string hiddenProperty = null)
         {
             var container = new VisualElement();
             container.style.marginTop = 2f;
@@ -874,6 +1296,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 enterChildren = false;
                 if (iterator.propertyPath == "m_Script")
+                    continue;
+                if (hiddenProperty != null && iterator.propertyPath == hiddenProperty)
                     continue;
 
                 container.Add(new PropertyField(iterator.Copy()));

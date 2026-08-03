@@ -681,6 +681,214 @@ namespace PowerOfFire.DrawToPlay.Tests
             LogAssert.NoUnexpectedReceived();
         }
 
+        // ------------------------------------------------------------------ parameters (M7f)
+
+        /// <summary>THE parameter rule: the graph carries the default, the state that runs it may
+        /// say otherwise, and an override row only counts while it is ENABLED. Unchecking a row must
+        /// fall back to the graph default rather than freeze the value that was last typed into it
+        /// — otherwise re-tuning a graph would silently miss every state that had ever overridden
+        /// the parameter.</summary>
+        [TestCase(true, 9f, TestName = "Parameters_EnabledOverrideWins")]
+        [TestCase(false, 3f, TestName = "Parameters_DisabledOverrideKeepsTheGraphDefault")]
+        public void Parameters_OverrideAppliesOnlyWhenItIsEnabled(bool enabled, float expected)
+        {
+            GraphTaskAsset graph = MakeGraph(
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.SetBlackboardFloat, stringValue = "usedSpeed",
+                    data = new[] { 1 }, exec = new[] { -1 }
+                },
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.GetParamFloat, stringValue = "speed"
+                });
+            graph.tickEntry = 0;
+            graph.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 3f));
+
+            StateTreeContext context = MakeContext();
+            graph.ApplyOverrides(Overrides(Override("speed", enabled, 9f)));
+
+            graph.OnEnter(context);
+            graph.OnTick(context, 0.1f);
+
+            Assert.AreEqual(expected, Float(context, "usedSpeed"));
+            graph.OnExit(context, StateTreeStatus.Cancelled);
+        }
+
+        /// <summary>The other two kinds, and each through its own pull path: a String parameter read
+        /// as a string, a Bool parameter read as the bool a Branch routes on. Both are exercised
+        /// twice on ONE instance — defaults first, then with overrides applied — which also pins
+        /// down that a second ApplyOverrides re-derives everything from the defaults instead of
+        /// layering onto whatever the last call left behind.</summary>
+        [Test]
+        public void Parameters_StringAndBoolResolveThroughTheirOwnKinds()
+        {
+            GraphTaskAsset graph = MakeGraph(
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.SetBlackboardString, stringValue = "moodOut",
+                    data = new[] { 1 }, exec = new[] { 2 }
+                },
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.GetParamString, stringValue = "mood"
+                },
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.Branch, data = new[] { 5 }, exec = new[] { 3, 4 }
+                },
+                SetFloat("route", 1f, -1),
+                SetFloat("route", 2f, -1),
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.GetParamBool, stringValue = "angry"
+                });
+            graph.tickEntry = 0;
+            graph.parameters = Params(
+                Param("mood", GraphTaskParameterKind.String, 0f, "calm"),
+                Param("angry", GraphTaskParameterKind.Bool));
+
+            StateTreeContext context = MakeContext();
+
+            // No ApplyOverrides at all: the defaults must still resolve, because a graph reached as
+            // a DoTask child is never handed overrides.
+            graph.OnEnter(context);
+            graph.OnTick(context, 0.1f);
+            Assert.AreEqual("calm", context.blackboard["moodOut"]);
+            Assert.AreEqual(2f, Float(context, "route"), "the Bool default is false");
+            graph.OnExit(context, StateTreeStatus.Cancelled);
+
+            graph.ApplyOverrides(Overrides(
+                Override("mood", true, 0f, "furious"),
+                Override("angry", true, 1f)));
+            graph.OnEnter(context);
+            graph.OnTick(context, 0.1f);
+
+            Assert.AreEqual("furious", context.blackboard["moodOut"]);
+            Assert.AreEqual(1f, Float(context, "route"), "a Bool override routes the Branch");
+            graph.OnExit(context, StateTreeStatus.Cancelled);
+        }
+
+        /// <summary>A graph gets re-authored long after the states that use it were configured, so
+        /// an override naming a renamed (or deleted) parameter is normal wear, not a crash: the row
+        /// is ignored, the surviving overrides still apply, and it is a WARNING said once — a state
+        /// re-entered every second must not turn a stale row into a console flood.</summary>
+        [Test]
+        public void Parameters_StaleOverrideNameWarnsOnceAndLeavesTheRestApplied()
+        {
+            GraphTaskAsset graph = MakeGraph(
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.SetBlackboardFloat, stringValue = "usedSpeed",
+                    data = new[] { 1 }, exec = new[] { -1 }
+                },
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.GetParamFloat, stringValue = "speed"
+                });
+            graph.tickEntry = 0;
+            graph.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 3f));
+
+            List<GraphTaskParameterOverride> overrides = Overrides(
+                Override("spede", true, 99f),
+                Override("speed", true, 7f));
+
+            LogAssert.Expect(LogType.Warning, new Regex("'spede'"));
+            graph.ApplyOverrides(overrides);
+
+            StateTreeContext context = MakeContext();
+            graph.OnEnter(context);
+            graph.OnTick(context, 0.1f);
+            Assert.AreEqual(7f, Float(context, "usedSpeed"),
+                "the stale row is dropped, the good one still applies");
+            graph.OnExit(context, StateTreeStatus.Cancelled);
+
+            graph.ApplyOverrides(overrides);
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        /// <summary>A GetParam node naming a parameter the program does not declare can only come
+        /// from a baker that emitted the node and the parameter list out of step, so it is an ERROR
+        /// (not the author's mistake to fix) — and it reads the type default rather than throwing,
+        /// so the rest of the graph still runs and the console says what is wrong exactly once.</summary>
+        [Test]
+        public void Parameters_UndeclaredParameterErrorsOnceAndReadsTheTypeDefault()
+        {
+            GraphTaskAsset graph = MakeGraph(
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.SetBlackboardFloat, stringValue = "usedSpeed",
+                    data = new[] { 1 }, exec = new[] { 2 }
+                },
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.GetParamFloat, stringValue = "ghost"
+                },
+                SetFloat("past", 1f, -1));
+            graph.tickEntry = 0;
+
+            StateTreeContext context = MakeContext();
+            graph.OnEnter(context);
+
+            LogAssert.Expect(LogType.Error, new Regex("does not declare"));
+            Assert.AreEqual(StateTreeStatus.Running, graph.OnTick(context, 0.1f));
+            Assert.AreEqual(0f, Float(context, "usedSpeed"), "the float type default");
+            Assert.AreEqual(1f, Float(context, "past"), "and the chain carried on");
+
+            graph.OnTick(context, 0.1f);
+            LogAssert.NoUnexpectedReceived();
+            graph.OnExit(context, StateTreeStatus.Cancelled);
+        }
+
+        /// <summary>The point of putting the overrides on the WRAPPER and applying them to a fresh
+        /// copy: two states (or two runners) using one authored graph at different settings must not
+        /// see each other's values, and neither may write back into the asset on disk. Interleaved
+        /// on purpose — a shared effective set would show up on the second instance's first
+        /// tick.</summary>
+        [Test]
+        public void Parameters_AreIsolatedBetweenInstancesOfOneAuthoredGraph()
+        {
+            GraphTaskAsset authored = MakeGraph(
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.SetBlackboardFloat, stringValue = "usedSpeed",
+                    data = new[] { 1 }, exec = new[] { -1 }
+                },
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.GetParamFloat, stringValue = "speed"
+                });
+            authored.tickEntry = 0;
+            authored.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 3f));
+
+            GraphTaskAsset fast = Track(Object.Instantiate(authored));
+            GraphTaskAsset slow = Track(Object.Instantiate(authored));
+            fast.ApplyOverrides(Overrides(Override("speed", true, 9f)));
+            slow.ApplyOverrides(Overrides(Override("speed", true, 1f)));
+
+            StateTreeContext fastContext = MakeContext("Fast");
+            StateTreeContext slowContext = MakeContext("Slow");
+
+            fast.OnEnter(fastContext);
+            fast.OnTick(fastContext, 0.1f);
+            Assert.AreEqual(9f, Float(fastContext, "usedSpeed"));
+
+            slow.OnEnter(slowContext);
+            slow.OnTick(slowContext, 0.1f);
+            Assert.AreEqual(1f, Float(slowContext, "usedSpeed"),
+                "the second instance must not inherit the first's override");
+
+            fast.OnTick(fastContext, 0.1f);
+            Assert.AreEqual(9f, Float(fastContext, "usedSpeed"),
+                "nor the first the second's");
+
+            Assert.AreEqual(3f, authored.parameters[0].floatValue,
+                "an override must never reach the authored asset");
+
+            fast.OnExit(fastContext, StateTreeStatus.Cancelled);
+            slow.OnExit(slowContext, StateTreeStatus.Cancelled);
+        }
+
         // ------------------------------------------------------------------ fixture helpers
 
         private GraphTaskAsset MakeGraph(params GraphTaskNode[] program)
@@ -703,6 +911,31 @@ namespace PowerOfFire.DrawToPlay.Tests
                 exec = new[] { next }
             };
         }
+
+        private static GraphTaskParameter Param(string name, GraphTaskParameterKind kind,
+            float floatValue = 0f, string stringValue = null)
+        {
+            return new GraphTaskParameter
+            {
+                name = name, kind = kind, floatValue = floatValue, stringValue = stringValue
+            };
+        }
+
+        private static List<GraphTaskParameter> Params(params GraphTaskParameter[] declared)
+            => new List<GraphTaskParameter>(declared);
+
+        private static GraphTaskParameterOverride Override(string name, bool enabled,
+            float floatValue = 0f, string stringValue = null)
+        {
+            return new GraphTaskParameterOverride
+            {
+                name = name, enabled = enabled, floatValue = floatValue, stringValue = stringValue
+            };
+        }
+
+        private static List<GraphTaskParameterOverride> Overrides(
+            params GraphTaskParameterOverride[] rows)
+            => new List<GraphTaskParameterOverride>(rows);
 
         private StubRecordingTask MakeTask(string id, int finishOnTick = 0,
             StateTreeStatus finishStatus = StateTreeStatus.Success)

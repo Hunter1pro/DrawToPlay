@@ -10,7 +10,7 @@ namespace PowerOfFire.DrawToPlay
     /// <list type="bullet">
     /// <item>EXEC nodes (<see cref="Branch"/>..<see cref="FireCue"/>) sit on the control-flow chain.
     /// <c>GraphTaskNode.exec</c> holds their out-pin targets as node indices, -1 = end of chain.</item>
-    /// <item>DATA nodes (<see cref="ConstFloat"/>..<see cref="ExitStatus"/>) are never stepped: they
+    /// <item>DATA nodes (<see cref="ConstFloat"/>..<see cref="GetParamBool"/>) are never stepped: they
     /// are PULLED by whichever exec node names them in <c>GraphTaskNode.data</c>, and re-evaluated
     /// fresh on every pull (no caching — a blackboard read must see the write an earlier node in the
     /// same chain just made).</item>
@@ -85,7 +85,82 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Valid inside the OnExit chain: 0 Success, 1 Failure, 2 Cancelled, as a
         /// float.</summary>
-        ExitStatus
+        ExitStatus,
+
+        // ---- appended in M7f (graph variables as overridable task parameters). New kinds go
+        // BELOW this line, never between the ones above: the ints are already in baked assets.
+
+        /// <summary>stringValue = parameter name; reads the override if the state that runs this
+        /// graph set one, otherwise the graph's own default.</summary>
+        GetParamFloat,
+
+        /// <summary>stringValue = parameter name; the override-or-default string.</summary>
+        GetParamString,
+
+        /// <summary>stringValue = parameter name; the override-or-default bool (the parameter's
+        /// float value != 0).</summary>
+        GetParamBool
+    }
+
+    /// <summary>Value kinds a <see cref="GraphTaskParameter"/> can carry. Order is serialized —
+    /// append only, like <see cref="GraphTaskNodeKind"/>.</summary>
+    public enum GraphTaskParameterKind
+    {
+        Float,
+        String,
+        Bool
+    }
+
+    /// <summary>
+    /// One authored variable of a logic graph, surfaced as a PARAMETER of the task that runs it.
+    /// The graph carries the default; the state that uses the graph may override it
+    /// (<see cref="GraphTaskParameterOverride"/>) — the Blueprint instance model, which is what
+    /// makes one authored "chase" graph usable at three different speeds without three graphs.
+    ///
+    /// Flat record for the same reason <see cref="GraphTaskNode"/> is one: it serializes into the
+    /// baked asset with no polymorphism. A Bool parameter rides in <see cref="floatValue"/>
+    /// (!= 0), so the override rows need no third field and a variable retyped between Float and
+    /// Bool keeps its value.
+    /// </summary>
+    [Serializable]
+    public sealed class GraphTaskParameter
+    {
+        /// <summary>The graph variable's name — unique per graph, and the key both the
+        /// <c>GetParam*</c> nodes and the override rows resolve against.</summary>
+        public string name;
+
+        public GraphTaskParameterKind kind;
+
+        /// <summary>Default for Float, and for Bool (!= 0).</summary>
+        public float floatValue;
+
+        /// <summary>Default for String.</summary>
+        public string stringValue;
+    }
+
+    /// <summary>
+    /// One state's override of one graph parameter. Declared here rather than beside
+    /// <see cref="RunGraphTask"/> (which carries the list) so the interpreter's whole contract —
+    /// program, parameters, overrides — lives in one file and compiles on its own.
+    ///
+    /// <see cref="enabled"/> is the override itself, not a value: an unchecked row means "use the
+    /// graph default", which keeps a state that only overrides one of five parameters from freezing
+    /// the other four at whatever they happened to be when it was configured.
+    /// </summary>
+    [Serializable]
+    public sealed class GraphTaskParameterOverride
+    {
+        /// <summary>Name of the <see cref="GraphTaskParameter"/> this row overrides.</summary>
+        public string name;
+
+        /// <summary>False = fall through to the graph default.</summary>
+        public bool enabled;
+
+        /// <summary>Value for a Float parameter, and for a Bool one (!= 0).</summary>
+        public float floatValue;
+
+        /// <summary>Value for a String parameter.</summary>
+        public string stringValue;
     }
 
     /// <summary>
@@ -154,6 +229,12 @@ namespace PowerOfFire.DrawToPlay
     /// chains (there is no tick to resume into): one error, then they pass through on exec[0].</item>
     /// </list>
     ///
+    /// PARAMETERS (M7f): the graph's authored variables bake into <see cref="parameters"/> and
+    /// become the knobs of the task, read by the <c>GetParam*</c> data nodes. The graph holds the
+    /// default and each state that runs it may override any of them
+    /// (<see cref="ApplyOverrides"/>) — one authored graph, many tunings, which is the whole
+    /// point of a graph being a reusable asset rather than a copy per user.
+    ///
     /// CANCELLED PROPAGATION, the reason this is not a script node: <see cref="OnExit"/> runs the
     /// exit chain and THEN hands its own status to whatever latent task is mid-flight, so an
     /// interrupt in the owning tree reaches a library task running three composition levels down as
@@ -201,6 +282,11 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Node index the OnExit chain starts at, -1 for none.</summary>
         public int exitEntry = -1;
 
+        /// <summary>The graph's variables, baked as the task's parameters with their authored
+        /// defaults. Empty for every program baked before M7f, which is exactly what "no
+        /// parameters" means — the extension is additive by design.</summary>
+        public List<GraphTaskParameter> parameters = new List<GraphTaskParameter>();
+
         // ---------------------------------------------------------------- instance state
         // None of it is serialized, so Object.Instantiate (the runner's DeepCopy) hands every copy
         // a clean slate — the same guarantee every other task relies on.
@@ -225,6 +311,14 @@ namespace PowerOfFire.DrawToPlay
 
         private StateTreeConditionAsset[] m_ConditionCopies;
 
+        /// <summary>The values the <c>GetParam*</c> nodes read: the graph defaults with this
+        /// activation's enabled overrides copied over them, keyed by parameter name. Built lazily,
+        /// so a graph reached as a DoTask child — which nobody hands overrides to — still reads its
+        /// own defaults, and deliberately NOT cleared by <see cref="ResetActivation"/>:
+        /// <see cref="ApplyOverrides"/> runs BEFORE OnEnter, and a reset that threw the overrides
+        /// away would silently run every graph at its defaults.</summary>
+        private Dictionary<string, GraphTaskParameter> m_Parameters;
+
         private bool m_Aborted;
         private bool m_DepthPushed;
         private int m_PreviousDepth;
@@ -235,6 +329,128 @@ namespace PowerOfFire.DrawToPlay
         private bool m_BudgetLogged;
         private bool m_DataDepthLogged;
         private bool m_BadIndexLogged;
+        private bool m_UnknownOverrideLogged;
+        private bool m_MissingParameterLogged;
+
+        // ---------------------------------------------------------------- parameters
+
+        /// <summary>
+        /// Establishes what the <c>GetParam*</c> nodes read for this activation: every parameter at
+        /// its graph default, with each ENABLED override copied over the top. Called by the wrapper
+        /// that owns this instance (<see cref="RunGraphTask"/>) after the per-activation copy is
+        /// made and before <see cref="OnEnter"/>, so the enter chain already sees the state's
+        /// values.
+        ///
+        /// The effective values are private COPIES of the parameters, never the parameter objects
+        /// themselves, so two states overriding one authored graph can never write into each
+        /// other's values — or into the asset on disk — however shallow the copy that produced
+        /// this instance was.
+        ///
+        /// Calling it again re-derives everything from the defaults first: applying a second set of
+        /// overrides must not leave the first set's values standing.
+        /// </summary>
+        /// <param name="overrides">The owning state's override rows; null, empty, or all-disabled
+        /// means "the graph defaults". A row naming a parameter this graph no longer has is
+        /// reported once and ignored — a graph gets re-authored long after the states that use it
+        /// were configured, and that must not stop them running.</param>
+        public void ApplyOverrides(List<GraphTaskParameterOverride> overrides)
+        {
+            m_Parameters = null;
+            Dictionary<string, GraphTaskParameter> effective = EffectiveParameters();
+            if (overrides == null)
+                return;
+
+            string unknown = null;
+            for (int i = 0; i < overrides.Count; i++)
+            {
+                GraphTaskParameterOverride row = overrides[i];
+                if (row == null || !row.enabled || string.IsNullOrEmpty(row.name))
+                    continue;
+
+                GraphTaskParameter parameter;
+                if (!effective.TryGetValue(row.name, out parameter))
+                {
+                    unknown = unknown == null
+                        ? "'" + row.name + "'"
+                        : unknown + ", '" + row.name + "'";
+                    continue;
+                }
+
+                // Only the field the parameter's KIND actually shows: a row left over from when the
+                // variable was a float must not smuggle a number into a string parameter.
+                if (parameter.kind == GraphTaskParameterKind.String)
+                    parameter.stringValue = row.stringValue;
+                else
+                    parameter.floatValue = row.floatValue;
+            }
+
+            if (unknown == null || m_UnknownOverrideLogged)
+                return;
+            m_UnknownOverrideLogged = true;
+            Debug.LogWarning($"GraphTaskAsset '{name}': override for {unknown} — the graph has " +
+                "no such parameter (renamed or removed?). Using the graph default.", this);
+        }
+
+        /// <summary>The effective set, built from the authored defaults on first use.</summary>
+        private Dictionary<string, GraphTaskParameter> EffectiveParameters()
+        {
+            if (m_Parameters != null)
+                return m_Parameters;
+
+            m_Parameters = new Dictionary<string, GraphTaskParameter>();
+            if (parameters == null)
+                return m_Parameters;
+
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                GraphTaskParameter authored = parameters[i];
+                if (authored == null || string.IsNullOrEmpty(authored.name))
+                    continue;
+                m_Parameters[authored.name] = new GraphTaskParameter
+                {
+                    name = authored.name,
+                    kind = authored.kind,
+                    floatValue = authored.floatValue,
+                    stringValue = authored.stringValue
+                };
+            }
+            return m_Parameters;
+        }
+
+        /// <summary>The effective parameter a <c>GetParam*</c> node names, or null when the program
+        /// declares no such parameter. That can only be a BAKER bug — the node and the parameter
+        /// list come out of the same graph — so it is an error rather than a warning, reported once
+        /// and read as the type default.</summary>
+        private GraphTaskParameter Parameter(string parameterName)
+        {
+            GraphTaskParameter parameter;
+            if (!string.IsNullOrEmpty(parameterName)
+                && EffectiveParameters().TryGetValue(parameterName, out parameter))
+                return parameter;
+
+            if (!m_MissingParameterLogged)
+            {
+                m_MissingParameterLogged = true;
+                Debug.LogError($"GraphTaskAsset '{name}': a GetParam node reads parameter " +
+                    $"'{parameterName}', which this program does not declare. Reading the type " +
+                    "default.", this);
+            }
+            return null;
+        }
+
+        private float ParameterFloat(string parameterName)
+        {
+            GraphTaskParameter parameter = Parameter(parameterName);
+            return parameter == null ? 0f : parameter.floatValue;
+        }
+
+        private string ParameterString(string parameterName)
+        {
+            GraphTaskParameter parameter = Parameter(parameterName);
+            return parameter == null || parameter.stringValue == null
+                ? string.Empty
+                : parameter.stringValue;
+        }
 
         // ---------------------------------------------------------------- task lifecycle
 
@@ -589,10 +805,13 @@ namespace PowerOfFire.DrawToPlay
                     return node.floatValue;
                 case GraphTaskNodeKind.GetBlackboardFloat:
                     return ReadBlackboardFloat(context, node.stringValue);
+                case GraphTaskNodeKind.GetParamFloat:
+                    return ParameterFloat(node.stringValue);
                 case GraphTaskNodeKind.ExitStatus:
                     return m_ExitStatusValue;
                 case GraphTaskNodeKind.ConstString:
                 case GraphTaskNodeKind.GetBlackboardString:
+                case GraphTaskNodeKind.GetParamString:
                     // A string has no numeric reading here; parsing it would make a typo silently
                     // mean zero either way, so it means zero loudly and consistently.
                     return 0f;
@@ -603,6 +822,7 @@ namespace PowerOfFire.DrawToPlay
                 case GraphTaskNodeKind.BoolAnd:
                 case GraphTaskNodeKind.BoolOr:
                 case GraphTaskNodeKind.BoolNot:
+                case GraphTaskNodeKind.GetParamBool:
                     return EvalBool(context, index, node, depth) ? 1f : 0f;
                 default:
                     return 0f;
@@ -622,6 +842,13 @@ namespace PowerOfFire.DrawToPlay
                     return ReadBlackboardFloat(context, node.stringValue) != 0f;
                 case GraphTaskNodeKind.GetBlackboardString:
                     return !string.IsNullOrEmpty(ReadBlackboardString(context, node.stringValue));
+                // A Bool parameter IS its float (!= 0), so both kinds read the same way — which is
+                // also what lets a variable be retyped between them without breaking a graph.
+                case GraphTaskNodeKind.GetParamBool:
+                case GraphTaskNodeKind.GetParamFloat:
+                    return ParameterFloat(node.stringValue) != 0f;
+                case GraphTaskNodeKind.GetParamString:
+                    return !string.IsNullOrEmpty(ParameterString(node.stringValue));
                 case GraphTaskNodeKind.HasBlackboardKey:
                     return context != null && !string.IsNullOrEmpty(node.stringValue)
                         && context.blackboard.ContainsKey(node.stringValue);
@@ -669,8 +896,11 @@ namespace PowerOfFire.DrawToPlay
                     return node.stringValue ?? string.Empty;
                 case GraphTaskNodeKind.GetBlackboardString:
                     return ReadBlackboardString(context, node.stringValue);
+                case GraphTaskNodeKind.GetParamString:
+                    return ParameterString(node.stringValue);
                 case GraphTaskNodeKind.ConstFloat:
                 case GraphTaskNodeKind.GetBlackboardFloat:
+                case GraphTaskNodeKind.GetParamFloat:
                 case GraphTaskNodeKind.ExitStatus:
                     return EvalFloat(context, index, node, depth)
                         .ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -681,6 +911,7 @@ namespace PowerOfFire.DrawToPlay
                 case GraphTaskNodeKind.BoolAnd:
                 case GraphTaskNodeKind.BoolOr:
                 case GraphTaskNodeKind.BoolNot:
+                case GraphTaskNodeKind.GetParamBool:
                     return EvalBool(context, index, node, depth) ? "true" : "false";
                 default:
                     return string.Empty;

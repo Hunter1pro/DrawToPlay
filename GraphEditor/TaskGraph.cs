@@ -68,13 +68,24 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     ///    graph that shows no errors is a graph that bakes.
     ///
     /// ====================================================================================
-    /// GRAPH VARIABLES ARE CONSTANTS IN v1
+    /// GRAPH VARIABLES ARE THE TASK'S PARAMETERS
     /// ====================================================================================
-    /// Graph Toolkit's own variable panel works, and a variable node wired into a data pin bakes as
-    /// the variable's DEFAULT VALUE — a constant. The runtime program has no per-graph variable
-    /// storage; the blackboard is the shared mutable state and it has real nodes
-    /// (<see cref="SetBlackboardFloatNode"/>, <see cref="GetBlackboardFloatNode"/>, …). The bake says
-    /// so with a warning every time it flattens one, so nobody discovers this at runtime.
+    /// Graph Toolkit's variable panel is the parameter list. Every float/string/bool variable bakes
+    /// into <c>GraphTaskAsset.parameters</c> with the default typed into the panel, and a variable
+    /// node wired into a data pin bakes to a PULL of that parameter — so the state that runs this
+    /// task can override any of them from its inspector and leave the rest at the graph's defaults.
+    /// This is the UE Blueprint-instance model: the graph is the class, a state's task is an
+    /// instance, and one variable wired into three places re-tunes all three from one field.
+    ///
+    /// Two things stay bake-time, and the bake says which route a variable got:
+    /// <list type="bullet">
+    /// <item>A variable on a LIBRARY CALL's parameter port (a Chase node's <c>moveSpeed</c>) is baked
+    /// into that call's own configured copy, so an override does not reach it — a canvas note per
+    /// use. Values that must change while the task runs belong on the blackboard, which has real
+    /// nodes (<see cref="SetBlackboardFloatNode"/>, <see cref="GetBlackboardFloatNode"/>, …).</item>
+    /// <item>A variable of any OTHER type is not a parameter at all, and its nodes still flatten to
+    /// constants taken from the default — with the warning that behaviour has always carried.</item>
+    /// </list>
     /// </summary>
     [Serializable]
     [Graph(Extension, GraphOptions.DisableAutoInclusionOfNodesFromGraphAssembly)]

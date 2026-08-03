@@ -44,6 +44,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     /// <c>stringValue</c> the operator symbol.</item>
     /// <item>BoolAnd / BoolOr — <c>data[0]</c>, <c>data[1]</c>. BoolNot — <c>data[0]</c>.</item>
     /// <item>ExitStatus — no slots.</item>
+    /// <item>GetParamFloat / GetParamString / GetParamBool — <c>stringValue</c> parameter name.</item>
     /// </list>
     ///
     /// ====================================================================================
@@ -57,25 +58,33 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     ///    interpreter needs no special case, and the appended instructions are deterministic because
     ///    they are created in the order the pins are visited. A literal equal to the type's default
     ///    is skipped: "unwired" and "false" mean the same thing to the interpreter.
-    /// 2. GRAPH VARIABLES ARE FLATTENED TO THEIR DEFAULTS, LOUDLY. Graph Toolkit's variable panel
-    ///    works and a variable node connects like anything else, but the runtime program has no
-    ///    per-graph variable storage — the blackboard is the shared mutable state. So a variable
-    ///    reads as a constant taken from its default value, and every single one gets a warning
-    ///    naming it. This is the v1 behaviour and the warning is how nobody finds out at runtime.
+    /// 2. GRAPH VARIABLES ARE PARAMETERS, AND THE STATE THAT RUNS THE TASK OVERRIDES THEM. Every
+    ///    float/string/bool variable in Graph Toolkit's variable panel bakes into
+    ///    <c>GraphTaskAsset.parameters</c> carrying its DEFAULT value, and a variable NODE on the
+    ///    canvas bakes to a GetParam pull naming it — so the number typed in the graph is what runs
+    ///    unless the state overrides it, which is the UE Blueprint-instance model. Wiring the SAME
+    ///    variable into three Waits and re-tuning all three from one inspector field is the point.
+    ///    Variables of any other type keep the old behaviour (flattened to a constant, with a warning
+    ///    naming the variable), because the parameter model has three kinds and no fourth.
     /// 3. LIBRARY PARAMETERS ARE CONSTANTS, AND A WIRE INTO ONE IS AN ERROR. A task call bakes a
     ///    CONFIGURED COPY of the library task, so its parameters are baked values, not pins. Wiring a
     ///    computed number into a Chase node's <c>moveSpeed</c> would silently bake the typed-in value
-    ///    instead; the bake refuses rather than lying. (The blackboard is the way to drive a library
-    ///    task from graph logic: several of them read one — <c>useBlackboardSpeed</c>,
-    ///    <c>useBlackboardRange</c>.)
+    ///    instead; the bake refuses rather than lying. A graph VARIABLE is the one thing accepted
+    ///    there, and it takes the BAKE-TIME route: the embedded sub-asset's field gets the variable's
+    ///    default and a per-state override never reaches it. That is a real difference from every
+    ///    other use of the same variable, so the bake says which route was taken, once per use, as a
+    ///    canvas note. (The blackboard is the way to drive a library task from graph logic: several of
+    ///    them read one — <c>useBlackboardSpeed</c>, <c>useBlackboardRange</c>.)
     ///
     /// DETERMINISM. Instruction indices are <see cref="Graph.GetNodes"/> order (creation order),
-    /// appended constants follow in pin-visit order, and sub-asset identifiers are derived from those
-    /// indices — never from hash codes or dictionary iteration — so two bakes of an unchanged graph
-    /// produce identical output and the importer's artifacts stay stable. The cost of index-keyed
-    /// sub-asset identifiers is that inserting a node re-keys the ones after it; the alternative
-    /// (authored ids, as the state-tree bake uses) needs an id on every node, which is a lot of
-    /// typing for a graph whose nodes are mostly nameless arithmetic.
+    /// appended constants follow in pin-visit order, parameters are
+    /// <see cref="Graph.GetVariables()"/> order (also creation order — the no-argument overload is
+    /// <c>SortMethod.Creation</c>, not the panel's display sort), and sub-asset identifiers are
+    /// derived from those indices — never from hash codes or dictionary iteration — so two bakes of
+    /// an unchanged graph produce identical output and the importer's artifacts stay stable. The cost
+    /// of index-keyed sub-asset identifiers is that inserting a node re-keys the ones after it; the
+    /// alternative (authored ids, as the state-tree bake uses) needs an id on every node, which is a
+    /// lot of typing for a graph whose nodes are mostly nameless arithmetic.
     /// </summary>
     public static class TaskGraphBaker
     {
@@ -119,6 +128,10 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             /// <summary>Warnings reported during the walk.</summary>
             public int warningCount;
 
+            /// <summary>Informational notes reported during the walk. Never affects
+            /// <see cref="succeeded"/> — a note says which of two legal routes was taken.</summary>
+            public int noteCount;
+
             /// <summary>Whether the program is complete and correct.</summary>
             public bool succeeded => program != null && errorCount == 0;
 
@@ -145,9 +158,28 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             }
         }
 
+        /// <summary>
+        /// The third severity, which <see cref="StateTreeGraphBaker.IBakeLog"/> does not have: a NOTE
+        /// is "this is legal, it did what you asked, and here is which of two routes you got". It
+        /// exists for exactly one thing — a graph variable on a library call's parameter port, which
+        /// bakes at BAKE TIME while the same variable anywhere else is a live parameter — and a
+        /// warning would be wrong for it (nothing is wrong) while silence would be worse (the author
+        /// would find out when a per-state override did nothing).
+        ///
+        /// A sink opts in by implementing it; <see cref="BakeContext.Note"/> drops the message when it
+        /// does not. That is not a shortcut, it is the routing: notes belong on the CANVAS, where the
+        /// author is editing and can see which node they attach to, and nowhere near the console,
+        /// where the importer would re-emit one per variable use on every reimport of every graph.
+        /// </summary>
+        private interface IBakeNote
+        {
+            void Note(string message, object nodeContext);
+        }
+
         /// <summary>Adapter putting bake diagnostics on the graph's own nodes. Used from
-        /// <see cref="TaskGraph.OnGraphChanged"/> through <see cref="Validate"/>.</summary>
-        private sealed class GraphLoggerBakeLog : StateTreeGraphBaker.IBakeLog
+        /// <see cref="TaskGraph.OnGraphChanged"/> through <see cref="Validate"/>. The only sink that
+        /// carries notes — see <see cref="IBakeNote"/>.</summary>
+        private sealed class GraphLoggerBakeLog : StateTreeGraphBaker.IBakeLog, IBakeNote
         {
             private readonly GraphLogger m_Logger;
             private readonly object m_GraphContext;
@@ -163,12 +195,17 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
             public void Warning(string message, object nodeContext)
                 => m_Logger.LogWarning(message, nodeContext ?? m_GraphContext);
+
+            public void Note(string message, object nodeContext)
+                => m_Logger.Log(message, nodeContext ?? m_GraphContext);
         }
 
         /// <summary>Console adapter for the importer and the menu. Graph Toolkit's node markers are
         /// unavailable outside <c>OnGraphChanged</c> (the <see cref="GraphLogger"/> instance is created
         /// and owned by the framework), so the node is named in the message text and the ASSET is the
-        /// Unity context object, which makes the console line click-to-ping.</summary>
+        /// Unity context object, which makes the console line click-to-ping. Deliberately NOT an
+        /// <see cref="IBakeNote"/>: an import is not an authoring session and has no one to tell.
+        /// </summary>
         private sealed class ConsoleBakeLog : StateTreeGraphBaker.IBakeLog
         {
             private readonly string m_AssetPath;
@@ -235,6 +272,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             var program = ScriptableObject.CreateInstance<GraphTaskAsset>();
             program.name = ReadProgramName(graph);
             program.nodes = context.program;
+            program.parameters = context.parameters;
             program.enterEntry = ResolveEntry(context, graph, typeof(OnEnterNode));
             program.tickEntry = ResolveEntry(context, graph, typeof(OnTickNode));
             program.exitEntry = ResolveEntry(context, graph, typeof(OnExitNode));
@@ -386,6 +424,17 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             public readonly List<INode> sources = new List<INode>();
             public readonly Dictionary<INode, int> indexByNode =
                 new Dictionary<INode, int>(NodeIdentity.comparer);
+
+            /// <summary>The baked parameter list, in graph-variable order.</summary>
+            public readonly List<GraphTaskParameter> parameters = new List<GraphTaskParameter>();
+
+            /// <summary>Name → kind for the parameters that MADE IT INTO <see cref="parameters"/>.
+            /// A variable node only bakes to a GetParam pull when its name is in here, which is what
+            /// makes a dangling pull (a name the interpreter cannot resolve) unrepresentable rather
+            /// than merely unlikely.</summary>
+            public readonly Dictionary<string, GraphTaskParameterKind> parameterKinds =
+                new Dictionary<string, GraphTaskParameterKind>(StringComparer.Ordinal);
+
             public readonly BakeResult result;
 
             private readonly StateTreeGraphBaker.IBakeLog m_Log;
@@ -407,6 +456,14 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 m_Log?.Warning(message, node);
                 result.warningCount++;
             }
+
+            /// <summary>An informational note on a node. Counted but never fatal, and dropped
+            /// entirely by a sink that does not carry notes — see <see cref="IBakeNote"/>.</summary>
+            public void Note(string message, INode node)
+            {
+                (m_Log as IBakeNote)?.Note(message, node);
+                result.noteCount++;
+            }
         }
 
         /// <summary>Graph nodes are compared by IDENTITY: two nodes of the same class with the same
@@ -422,9 +479,13 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         }
 
         /// <summary>Pass one: every <see cref="ITaskGraphNode"/> becomes an instruction, in graph
-        /// order, so that pass two can resolve a wire to an index that already exists.</summary>
+        /// order, so that pass two can resolve a wire to an index that already exists. Variable
+        /// nodes join them as parameter pulls, which is why the variable TABLE is built first —
+        /// a pull is only emitted for a name the table has.</summary>
         private static void Collect(BakeContext context, Graph graph)
         {
+            CollectParameters(context, graph);
+
             foreach (INode node in graph.GetNodes())
             {
                 if (node is ITaskGraphNode instruction)
@@ -435,18 +496,132 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     continue;
                 }
 
-                // Entry nodes are not instructions (they name where a chain starts), and Graph
-                // Toolkit's own constant and variable nodes are read as literals wherever they are
-                // wired. Anything else is something this graph cannot execute.
+                // Entry nodes are not instructions (they name where a chain starts) and Graph
+                // Toolkit's own constant nodes are read as literals wherever they are wired.
+                // Anything else is something this graph cannot execute.
                 if (node is OnEnterNode || node is OnTickNode || node is OnExitNode)
                     continue;
-                if (node is IConstantNode || node is IVariableNode)
+                if (node is IVariableNode variableNode)
+                {
+                    CollectVariableNode(context, variableNode);
+                    continue;
+                }
+                if (node is IConstantNode)
                     continue;
 
                 context.Warning($"'{Describe(node)}' is not a task-graph instruction, so the bake "
                     + "ignores it. Delete it, or replace it with a node from the task graph palette.",
                     node);
             }
+        }
+
+        /// <summary>
+        /// Graph Toolkit's variable panel → <see cref="GraphTaskAsset.parameters"/>: the knobs the
+        /// state that runs this task can override, each carrying the default typed into the panel.
+        /// Float, string and bool are the whole set, because they are the whole set the program model
+        /// can pull (<see cref="GraphTaskNodeKind.GetParamFloat"/> and its two siblings). A variable
+        /// of any other type is named in a warning and left to the old constant-flattening path,
+        /// which still works and is still what its wires get.
+        /// </summary>
+        private static void CollectParameters(BakeContext context, Graph graph)
+        {
+            IEnumerable<IVariable> variables = SafeVariables(graph);
+            if (variables == null)
+                return;
+
+            foreach (IVariable variable in variables)
+            {
+                if (variable == null)
+                    continue;
+
+                string name = SafeVariableName(variable);
+                if (string.IsNullOrEmpty(name))
+                {
+                    context.Warning("A graph variable has no name, so nothing could refer to it. It "
+                        + "is not a parameter of this task; give it a name.", null);
+                    continue;
+                }
+
+                Type type = SafeVariableType(variable);
+                if (!TryParameterKind(type, out GraphTaskParameterKind kind))
+                {
+                    context.Warning($"Graph variable '{name}' is a "
+                        + $"{(type != null ? type.Name : "unknown type")}, and a task parameter is a "
+                        + "number, a piece of text or a checkbox. It is not offered on the state that "
+                        + "runs this task, and its nodes bake as constants taken from its default.",
+                        null);
+                    continue;
+                }
+
+                if (context.parameterKinds.ContainsKey(name))
+                {
+                    context.Warning($"Two graph variables are called '{name}'. The first one is the "
+                        + "parameter; the second is ignored, because an override names a parameter by "
+                        + "its name and there would be no way to say which.", null);
+                    continue;
+                }
+
+                context.parameterKinds[name] = kind;
+                context.parameters.Add(ReadParameter(variable, name, kind));
+            }
+        }
+
+        /// <summary>One parameter record: name, kind, and the variable's default in whichever of the
+        /// two value slots its kind uses (bool rides in <c>floatValue</c> as non-zero, the same
+        /// encoding <see cref="GraphTaskNodeKind.ConstBool"/> uses).</summary>
+        private static GraphTaskParameter ReadParameter(IVariable variable, string name,
+            GraphTaskParameterKind kind)
+        {
+            var parameter = new GraphTaskParameter
+            {
+                name = name,
+                kind = kind,
+                stringValue = string.Empty
+            };
+
+            switch (kind)
+            {
+                case GraphTaskParameterKind.Float:
+                    if (TryReadDefault(variable, out float number))
+                        parameter.floatValue = number;
+                    break;
+
+                case GraphTaskParameterKind.String:
+                    if (TryReadDefault(variable, out string text))
+                        parameter.stringValue = text ?? string.Empty;
+                    break;
+
+                case GraphTaskParameterKind.Bool:
+                    if (TryReadDefault(variable, out bool flag))
+                        parameter.floatValue = flag ? 1f : 0f;
+                    break;
+            }
+
+            return parameter;
+        }
+
+        /// <summary>
+        /// A variable node on the canvas becomes a PARAMETER PULL — the instruction that reads the
+        /// effective value (override, else default) every time it is pulled. Only for a variable that
+        /// became a parameter: anything else is left unregistered, and <see cref="ResolveData"/> then
+        /// takes the constant-flattening path for it, which is the pre-M7f behaviour and the only
+        /// thing the program model can express for an unsupported type.
+        /// </summary>
+        private static void CollectVariableNode(BakeContext context, IVariableNode variableNode)
+        {
+            // The RAW name, not the diagnostic one: a table lookup must not match on the "(unnamed)"
+            // placeholder a message would print.
+            string name = SafeVariableName(SafeVariableOf(variableNode));
+            if (name.Length == 0
+                || !context.parameterKinds.TryGetValue(name, out GraphTaskParameterKind kind))
+                return;
+
+            GraphTaskNode pull = NewInstruction(ParameterNodeKind(kind));
+            pull.stringValue = name;
+
+            context.indexByNode[variableNode] = context.program.Count;
+            context.sources.Add(variableNode);
+            context.program.Add(pull);
         }
 
         /// <summary>An instruction with its wire slots allocated and every one of them UNWIRED. The
@@ -626,6 +801,13 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 case GraphTaskNodeKind.ExitStatus:
                     break;
 
+                case GraphTaskNodeKind.GetParamFloat:
+                case GraphTaskNodeKind.GetParamString:
+                case GraphTaskNodeKind.GetParamBool:
+                    // Fully built by CollectVariableNode: a variable node has no pins to resolve —
+                    // its one output IS the pull, and the parameter name is its only payload.
+                    break;
+
                 default:
                     context.Error($"'{Describe(source)}' bakes to {node.kind}, which this baker does "
                         + "not know how to wire. The node class and the baker are out of step.", source);
@@ -742,6 +924,24 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
                 if (producer is IVariableNode variableNode)
                 {
+                    // A parameter pull, when the variable became a parameter. Graph Toolkit's typed
+                    // pins already stop a bool reaching a float pin, so the type check below can only
+                    // fire if that guarantee ever changes — and it costs one comparison to find out
+                    // here rather than as a wrong number at runtime.
+                    if (context.indexByNode.TryGetValue(producer, out int pull))
+                    {
+                        GraphTaskNodeKind pullKind = context.program[pull].kind;
+                        if (TryParameterKind(valueType, out GraphTaskParameterKind expected)
+                            && ParameterNodeKind(expected) == pullKind)
+                            return pull;
+
+                        context.Error($"Graph variable '{SafeVariableName(variableNode)}' does not "
+                            + $"fit the '{portName}' pin of '{Describe(owner)}': the pin carries a "
+                            + $"{(valueType != null ? valueType.Name : "?")} and the variable does "
+                            + "not. Use a variable of the pin's type.", owner);
+                        return -1;
+                    }
+
                     WarnFlattenedVariable(context, owner, portName, variableNode);
                 }
                 else if (!(producer is IConstantNode))
@@ -869,34 +1069,192 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     return null;
                 }
                 if (producer is IVariableNode variableNode)
-                    WarnFlattenedVariable(context, owner, portName, variableNode);
+                    WarnBakedConstantVariable(context, owner, portName, variableNode);
             }
 
             return LibraryParameterPorts.TryReadValue(port, valueType, out object value) ? value : null;
         }
 
+        /// <summary>A variable on a field the program model has no pin for — a blackboard key, a cue
+        /// name, a compare operator. Those are baked strings, so the variable's default is all there
+        /// is and a per-state override can never reach them.</summary>
+        private static void WarnBakedConstantVariable(BakeContext context, INode owner, string portName,
+            IVariableNode variableNode)
+        {
+            context.Warning($"Graph variable '{SafeVariableName(variableNode)}' feeds the "
+                + $"'{portName}' of '{Describe(owner)}', which is baked into the program as a fixed "
+                + "value. The variable's default is what gets baked, and overriding the parameter on "
+                + "a state changes nothing here. Type the value in instead.", owner);
+        }
+
+        /// <summary>A variable that did NOT become a parameter — an unsupported type, no name, or a
+        /// duplicate of one already taken. <see cref="CollectParameters"/> has already said which, so
+        /// this says only what happens instead: the pre-M7f flattening, unchanged.</summary>
         private static void WarnFlattenedVariable(BakeContext context, INode owner, string portName,
             IVariableNode variableNode)
         {
-            string name = SafeVariableName(variableNode);
-            context.Warning($"Graph variable '{name}' feeds the '{portName}' of "
-                + $"'{Describe(owner)}'. It is baked as a CONSTANT taken from the variable's default "
-                + "value — a task graph has no live variable storage. Use the blackboard nodes for a "
-                + "value that has to change while the task runs.", owner);
+            context.Warning($"Graph variable '{SafeVariableName(variableNode)}' is not a parameter of "
+                + "this task (see the variable's own warning for why), so on the "
+                + $"'{portName}' of '{Describe(owner)}' it is baked as a CONSTANT taken from its "
+                + "default value and no state can override it. Use the blackboard nodes for a value "
+                + "that has to change while the task runs.", owner);
         }
 
+        /// <summary>
+        /// A variable on a library call's parameter port. This is LEGAL and it works — the embedded
+        /// sub-asset's field gets the variable's default — but it is the BAKE-TIME route, so it is the
+        /// one use of a variable a per-state override does not reach, which an author who overrode it
+        /// elsewhere in the same graph would otherwise have to discover by experiment.
+        /// </summary>
+        private static void NoteBakedCallParameter(BakeContext context, INode owner, string portName,
+            IVariableNode variableNode)
+        {
+            context.Note($"Graph variable '{SafeVariableName(variableNode)}' sets '{portName}' on "
+                + $"'{Describe(owner)}' at BAKE TIME: a library call's parameters are baked into its "
+                + "own copy, so this one keeps the variable's default even when a state overrides the "
+                + "parameter. Wire the variable into a graph node's pin for the overridable route, or "
+                + "put the value on the blackboard where the task reads one.", owner);
+        }
+
+        /// <summary>The name of the variable a variable node reads, for a diagnostic. Never empty:
+        /// a message that names nothing is worse than one that says so.</summary>
         private static string SafeVariableName(IVariableNode variableNode)
+        {
+            string name = SafeVariableName(SafeVariableOf(variableNode));
+            return name.Length > 0 ? name : "(unnamed)";
+        }
+
+        /// <summary>The variable a variable node reads, or null when it has none or refuses to
+        /// answer.</summary>
+        private static IVariable SafeVariableOf(IVariableNode variableNode)
         {
             try
             {
-                IVariable variable = variableNode?.Variable;
-                return variable != null && !string.IsNullOrEmpty(variable.Name) ? variable.Name : "(unnamed)";
+                return variableNode?.Variable;
             }
             catch (Exception)
             {
-                return "(unnamed)";
+                return null;
             }
         }
+
+        /// <summary>A variable's name, or empty when it has none or refuses to answer. Graph Toolkit
+        /// builds these models lazily, so a half-built one throws rather than returning null.</summary>
+        private static string SafeVariableName(IVariable variable)
+        {
+            try
+            {
+                return variable != null ? variable.Name ?? string.Empty : string.Empty;
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
+        }
+
+        /// <summary>A variable's declared type, or null when it has none or refuses to answer.</summary>
+        private static Type SafeVariableType(IVariable variable)
+        {
+            try
+            {
+                return variable?.DataType;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>The graph's variables in creation order, or null when the graph has none or
+        /// cannot answer.</summary>
+        private static IEnumerable<IVariable> SafeVariables(Graph graph)
+        {
+            try
+            {
+                return graph.GetVariables();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>A variable's default value as <typeparamref name="T"/>. Wrapped because
+        /// <c>IVariable.TryGetDefaultValue</c> reaches into the variable's serialized model, which a
+        /// variable mid-edit can throw from — and one bad variable must not take down the bake.
+        /// </summary>
+        /// <typeparam name="T">The value type to read.</typeparam>
+        /// <param name="variable">The variable to read.</param>
+        /// <param name="value">Receives the default on success, the type's own default otherwise.</param>
+        /// <returns>True when a default of that type was read.</returns>
+        private static bool TryReadDefault<T>(IVariable variable, out T value)
+        {
+            try
+            {
+                return variable.TryGetDefaultValue(out value);
+            }
+            catch (Exception)
+            {
+                value = default;
+                return false;
+            }
+        }
+
+        /// <summary>The parameter kind a value type maps to. The three are the whole set the program
+        /// model can pull, so this doubles as "can this be a parameter at all".</summary>
+        /// <param name="valueType">The variable's or pin's type.</param>
+        /// <param name="kind">Receives the matching kind.</param>
+        /// <returns>True for float, string and bool.</returns>
+        private static bool TryParameterKind(Type valueType, out GraphTaskParameterKind kind)
+        {
+            if (valueType == typeof(float))
+            {
+                kind = GraphTaskParameterKind.Float;
+                return true;
+            }
+            if (valueType == typeof(string))
+            {
+                kind = GraphTaskParameterKind.String;
+                return true;
+            }
+            if (valueType == typeof(bool))
+            {
+                kind = GraphTaskParameterKind.Bool;
+                return true;
+            }
+
+            kind = default;
+            return false;
+        }
+
+        /// <summary>The pull instruction that reads a parameter of this kind.</summary>
+        /// <param name="kind">The parameter kind.</param>
+        /// <returns>The matching <see cref="GraphTaskNodeKind"/>.</returns>
+        private static GraphTaskNodeKind ParameterNodeKind(GraphTaskParameterKind kind)
+        {
+            switch (kind)
+            {
+                case GraphTaskParameterKind.String:
+                    return GraphTaskNodeKind.GetParamString;
+                case GraphTaskParameterKind.Bool:
+                    return GraphTaskNodeKind.GetParamBool;
+                default:
+                    return GraphTaskNodeKind.GetParamFloat;
+            }
+        }
+
+        /// <summary>Whether an instruction reads a task parameter.</summary>
+        private static bool IsParameterKind(GraphTaskNodeKind kind)
+            => kind == GraphTaskNodeKind.GetParamFloat || kind == GraphTaskNodeKind.GetParamString
+                || kind == GraphTaskNodeKind.GetParamBool;
+
+        /// <summary>Whether an instruction is PULLED rather than stepped — the classification
+        /// <see cref="Diagnose"/> needs. <see cref="TaskGraphPorts.IsDataKind"/> is the shared
+        /// version and predates the parameter pulls; it is not this file's to extend, and a pull
+        /// misread as an exec node would be reported as "nothing runs this" on every variable node
+        /// in the graph.</summary>
+        private static bool IsPullKind(GraphTaskNodeKind kind)
+            => TaskGraphPorts.IsDataKind(kind) || IsParameterKind(kind);
 
         // ------------------------------------------------------------------ library sub-assets
 
@@ -972,7 +1330,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                         continue;
                     }
                     if (producer is IVariableNode variableNode)
-                        WarnFlattenedVariable(context, source, field.Name, variableNode);
+                        NoteBakedCallParameter(context, source, field.Name, variableNode);
                 }
 
                 if (!LibraryParameterPorts.TryReadValue(port, field.FieldType, out object value))
@@ -1036,7 +1394,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 if (source == null)
                     continue; // an appended constant: it exists because a pin asked for it.
 
-                if (TaskGraphPorts.IsDataKind(node.kind))
+                if (IsPullKind(node.kind))
                 {
                     if (!allPulled.Contains(i))
                     {
