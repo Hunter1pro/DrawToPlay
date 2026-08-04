@@ -37,6 +37,13 @@ namespace PowerOfFire.DrawToPlay
     /// where each one is written. It has to be here for the same reason the parameters are: only the
     /// machine sees the completion, holds the copy the values live on, and knows which transition
     /// fired.
+    ///
+    /// ENTRY-TIME BINDINGS (M7k) are the last stretch of that loop. A routed output is on the
+    /// blackboard by the time the next state is entered, but only a graph or a condition could read
+    /// it there; a binding row sourced from a KEY rather than from a parameter carries it the rest of
+    /// the way, into the field of a plain C# task, in <see cref="EnterNode"/> and before that task's
+    /// OnEnter. Parameters are still bound once at <see cref="StartTree"/>, because an argument does
+    /// not change during a call — the two sources differ in WHEN, and that is the whole difference.
     /// </summary>
     public sealed class StateTreeExecutor
     {
@@ -122,6 +129,14 @@ namespace PowerOfFire.DrawToPlay
         /// copy's own object) rather than on a flag keeps every OTHER broken row still able to say
         /// so once.</summary>
         private HashSet<TransitionOutputRoute> m_WarnedRoutes;
+
+        /// <summary>Blackboard-sourced binding rows already reported this run, or null until one is —
+        /// the same once-per-row discipline as <see cref="m_WarnedRoutes"/> and needed more acutely,
+        /// because these rows are re-applied on EVERY entry: a state re-entered sixty times a second
+        /// would otherwise report one stale field name sixty times a second. Keyed on the row object
+        /// (the copy's own, so it dies with the run) rather than on a flag, so one broken row never
+        /// silences the next.</summary>
+        private HashSet<StateTreeFieldBinding> m_WarnedBindings;
 
         /// <summary>This run's effective parameters, keyed by identity — the value published as the
         /// scope and the value the bindings write. Null while stopped.</summary>
@@ -212,6 +227,7 @@ namespace PowerOfFire.DrawToPlay
             // keyed on rows that no longer exist.
             m_TaskOutputs.Clear();
             m_WarnedRoutes = null;
+            m_WarnedBindings = null;
         }
 
         /// <summary>One tick — the _process body, callable headless.</summary>
@@ -286,6 +302,12 @@ namespace PowerOfFire.DrawToPlay
             // is not what this one is returning, and a route firing on stale values would be worse
             // than one firing on none.
             m_TaskOutputs.Clear();
+            // BEFORE the OnEnter loop, and that is the whole contract of a blackboard-sourced
+            // binding: a task that acts in OnEnter — which is most of them — must act on the value
+            // the transition just routed, not on the one the previous activation left in the field.
+            // It is also after RouteOutputs, which TransitionTo ran on the way here, so the keys this
+            // reads are the ones the fired transition wrote.
+            ApplyEntryBindings(node);
             for (int i = 0; i < node.tasks.Count; i++)
             {
                 var task = node.tasks[i];
@@ -823,10 +845,15 @@ namespace PowerOfFire.DrawToPlay
 
         // ---------------------------------------------------------------- field bindings (M7i)
 
-        /// <summary>Applies every node's binding rows to the COPY this run owns, depth-first over
-        /// the same nodes <see cref="BuildIndex"/> walks (children included, whether or not they
-        /// carry an id — an unreachable state is an authoring mistake, not a reason to leave its
-        /// fields unbound and its binding errors unreported).</summary>
+        /// <summary>Applies every node's PARAMETER-sourced binding rows to the COPY this run owns,
+        /// depth-first over the same nodes <see cref="BuildIndex"/> walks (children included, whether
+        /// or not they carry an id — an unreachable state is an authoring mistake, not a reason to
+        /// leave its fields unbound and its binding errors unreported).
+        ///
+        /// Blackboard-sourced rows are NOT start-time rows and are skipped here: their value does not
+        /// exist yet when the tree starts, and re-reading it is the point of them. They belong to
+        /// <see cref="ApplyEntryBindings"/>, which runs on every entry of the state that owns
+        /// them.</summary>
         private void ApplyBindings(StateTreeNodeAsset node, int depth)
         {
             // 256 matches the authored-children guard in StateTreeAsset.DeepCopyNode.
@@ -837,7 +864,13 @@ namespace PowerOfFire.DrawToPlay
             if (bindings != null)
             {
                 for (int i = 0; i < bindings.Count; i++)
-                    ApplyBinding(node, bindings[i]);
+                {
+                    StateTreeFieldBinding binding = bindings[i];
+                    if (binding == null
+                        || binding.sourceKind != StateTreeFieldBinding.SourceKind.Parameter)
+                        continue;
+                    ApplyBinding(node, binding);
+                }
             }
             for (int i = 0; i < node.children.Count; i++)
                 ApplyBindings(node.children[i], depth + 1);
@@ -981,6 +1014,206 @@ namespace PowerOfFire.DrawToPlay
         {
             Debug.LogError($"{logLabel}: tree '{TreeLabel()}' state '{node.nodeId}' binds field " +
                 $"'{binding.fieldName}' — {reason}. The binding is skipped.", logContext);
+        }
+
+        // ------------------------------------------------------ blackboard-sourced bindings (M7k)
+
+        /// <summary>
+        /// Reads the BLACKBOARD-sourced binding rows of the state being entered into the fields they
+        /// name. Called from <see cref="EnterNode"/> before the tasks are entered, and therefore
+        /// after <see cref="RouteOutputs"/> has written whatever the fired transition routed: that
+        /// ordering is what makes "the previous state computed a number and this state's task starts
+        /// with it" a single hop rather than something a task has to go and fetch.
+        ///
+        /// EVERY ENTRY, not once per run. A parameter is an argument and cannot change during a call;
+        /// a key is a value the run produces, so a re-entered state must see what is there NOW. It
+        /// also means the cost is per entry rather than per tick, which is the right side of that
+        /// trade — entries are rare, ticks are not.
+        ///
+        /// CONDITIONS ARE INCLUDED. A transition's condition is evaluated while the state runs, so a
+        /// value routed into the state is exactly as relevant to the edges leaving it as to the tasks
+        /// inside it — a threshold carried in and compared against is the ordinary shape of that.
+        /// </summary>
+        private void ApplyEntryBindings(StateTreeNodeAsset node)
+        {
+            List<StateTreeFieldBinding> bindings = node != null ? node.bindings : null;
+            if (bindings == null || context == null)
+                return;
+
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                StateTreeFieldBinding binding = bindings[i];
+                if (binding == null
+                    || binding.sourceKind != StateTreeFieldBinding.SourceKind.BlackboardKey)
+                    continue;
+                ApplyEntryBinding(node, binding);
+            }
+        }
+
+        /// <summary>
+        /// One blackboard-sourced row, on one entry. Three outcomes, and which one a failure gets is
+        /// the whole diagnostic design here:
+        ///
+        /// SILENT — an unfinished row (no key or no field named) and, above all, a key that is not on
+        /// the blackboard. The missing key is the case that had to be silent: several transitions
+        /// normally lead into one state and only some of them route anything, so entering through an
+        /// unrouted edge is the ordinary path, not a fault. The field keeps what it holds, which on
+        /// the first entry is its authored value.
+        ///
+        /// ERROR — the row names a target or a field that is not there. That is the same structural
+        /// mistake <see cref="ApplyBinding"/> reports for a parameter row, it cannot come right by
+        /// itself, and it is reported whether or not the key happens to be present: waiting for the
+        /// key would hide a broken row until the day something routes into it.
+        ///
+        /// WARNING — the key holds a value the field cannot take. Not an error, because the
+        /// blackboard is shared and untyped: another producer writing a string where this row expects
+        /// a number is a collision between two authored things, both of which may be individually
+        /// right, and the tree keeps running with the field at its previous value.
+        ///
+        /// Both reports are ONCE PER ROW PER RUN (<see cref="m_WarnedBindings"/>) — this path runs on
+        /// every entry, so anything else would turn one mistake into a console flood.
+        /// </summary>
+        private void ApplyEntryBinding(StateTreeNodeAsset node, StateTreeFieldBinding binding)
+        {
+            if (string.IsNullOrEmpty(binding.blackboardKey)
+                || string.IsNullOrEmpty(binding.fieldName))
+                return;
+
+            UnityEngine.Object target = BindingTarget(node, binding);
+            if (target == null)
+            {
+                EntryBindingReport(node, binding, true,
+                    "its target (" + TargetLabel(binding) + ") does not exist");
+                return;
+            }
+
+            FieldInfo field = Field(target.GetType(), binding.fieldName);
+            if (field == null)
+            {
+                EntryBindingReport(node, binding, true, TargetLabel(binding) + " ("
+                    + target.GetType().Name + ") has no public field of that name");
+                return;
+            }
+
+            object value;
+            if (!context.blackboard.TryGetValue(binding.blackboardKey, out value) || value == null)
+                return;
+
+            if (!TryWriteBoxed(field, target, value))
+            {
+                EntryBindingReport(node, binding, false, "the key holds a " + value.GetType().Name
+                    + " and the field is a " + field.FieldType.Name
+                    + " — the value cannot be carried across");
+            }
+        }
+
+        /// <summary>
+        /// Writes a blackboard value into a field, or refuses — the reverse of the boxing rule in
+        /// <see cref="BoxedValue(GraphTaskParameterKind, float, string)"/>, and NOT the same table as
+        /// the parameter bindings' <see cref="TryWrite"/>. The difference is real rather than an
+        /// oversight: a parameter arrives with a declared KIND, so a Bool driving a float field is an
+        /// author confusing two types and is refused. A blackboard entry arrives with nothing but a
+        /// boxed CLR type, and this model deliberately stores a bool AS a float 1/0 (see the boxing
+        /// rule for why — <c>StateTreeLibraryUtil.TryGetFloat</c> reads numbers and nothing else), so
+        /// refusing float→bool here would make it impossible to bind the one thing most likely to be
+        /// routed: a Bool task output. Numbers and flags are therefore interchangeable in this
+        /// direction, and only string is kept apart, because there is no reading of "3" as a number
+        /// that is not a guess about what the author meant.
+        ///
+        /// <c>int</c> and <c>double</c> are accepted as numbers alongside <c>float</c> for the reason
+        /// <c>StateTreeLibraryUtil.TryGetFloat</c> accepts them (StateTreeLibraryUtil.cs:164-177): a
+        /// hand-written task or an authored preset that stores <c>3</c> rather than <c>3f</c> is
+        /// common enough that the codebase's own reader already tolerates it, and a binding that
+        /// warned where a <c>Get Blackboard</c> node succeeds would be reporting a difference the
+        /// author cannot see.
+        /// </summary>
+        private static bool TryWriteBoxed(FieldInfo field, object target, object value)
+        {
+            Type type = field.FieldType;
+
+            if (value is string text)
+            {
+                if (type != typeof(string))
+                    return false;
+                field.SetValue(target, text);
+                return true;
+            }
+
+            if (value is bool flag)
+            {
+                if (type == typeof(bool))
+                {
+                    field.SetValue(target, flag);
+                    return true;
+                }
+                if (type == typeof(float))
+                {
+                    field.SetValue(target, flag ? 1f : 0f);
+                    return true;
+                }
+                if (type == typeof(int))
+                {
+                    field.SetValue(target, flag ? 1 : 0);
+                    return true;
+                }
+                return false;
+            }
+
+            float number;
+            switch (value)
+            {
+                case float f:
+                    number = f;
+                    break;
+                case int i:
+                    number = i;
+                    break;
+                case double d:
+                    number = (float)d;
+                    break;
+                default:
+                    return false;
+            }
+
+            if (type == typeof(float))
+            {
+                field.SetValue(target, number);
+                return true;
+            }
+            if (type == typeof(int))
+            {
+                field.SetValue(target, (int)number);
+                return true;
+            }
+            if (type == typeof(bool))
+            {
+                field.SetValue(target, number != 0f);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>One report per row per run, as an error or a warning — see
+        /// <see cref="ApplyEntryBinding"/> for which failure gets which.</summary>
+        private void EntryBindingReport(StateTreeNodeAsset node, StateTreeFieldBinding binding,
+            bool fatal, string reason)
+        {
+            if (m_WarnedBindings == null)
+                m_WarnedBindings = new HashSet<StateTreeFieldBinding>();
+            if (!m_WarnedBindings.Add(binding))
+                return;
+
+            string message = $"{logLabel}: tree '{TreeLabel()}' state '{node.nodeId}' binds field "
+                + $"'{binding.fieldName}' to blackboard key '{binding.blackboardKey}' — {reason}. ";
+            if (fatal)
+            {
+                // Nothing to keep: there is no field to have kept anything.
+                Debug.LogError(message + "The binding is skipped.", logContext);
+            }
+            else
+            {
+                Debug.LogWarning(message + "The field keeps its current value.", logContext);
+            }
         }
 
         private string TreeLabel()

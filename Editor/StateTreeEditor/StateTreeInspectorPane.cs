@@ -153,6 +153,24 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// Routes address their source task by POSITION, exactly like the parameter links, and are
     /// renumbered by the same file for the same reason — with a shorter list of sites, because a
     /// route rides on the transition it belongs to and only the TASK list can move beneath it.
+    ///
+    /// AND THE VALUE THAT CAME BACK REACHES A FIELD. A route leaves its value on the blackboard, which
+    /// the graph and the conditions can read and a plain <c>public float damage</c> cannot — so the
+    /// return flow stopped one step short of the thing it was for. The field link therefore has a
+    /// SECOND source (M7k): a blackboard KEY, read at every ENTRY of the state rather than once at
+    /// tree start, which is what makes "attack routes damage, the next state's task takes damage"
+    /// one wiring job instead of two halves that never met. The popup shows the two sources in one
+    /// list, with the keys THIS state's incoming transitions actually route listed by name
+    /// (<see cref="StateTreeEditorOps.CollectIncomingRouteKeys"/>) — the tree's own wiring read
+    /// backwards, so the key is picked rather than remembered — and a free-form entry beneath them,
+    /// because a key can equally be written by a graph or a distant state.
+    ///
+    /// The two sources read differently on purpose: "← name" for a parameter, "⚑ key" for a
+    /// blackboard key, and the key stays editable in place because it is authored text rather than a
+    /// pick from a list. So does their failure language — an unresolvable PARAMETER is a warning
+    /// (nothing can ever fix it but the author), while a key nothing routes is INFORMATION, because
+    /// entering a state through a path that routes nothing is the normal case the runtime is
+    /// deliberately silent about, and only an EMPTY key is a fault.
     /// </summary>
     internal sealed class StateTreeInspectorPane
     {
@@ -196,6 +214,16 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const string k_LinkFieldUndo = "Link Field To Parameter";
 
         private const string k_UnlinkFieldUndo = "Unlink Field";
+
+        /// <summary>Its own label rather than <see cref="k_LinkFieldUndo"/>: the two sources are
+        /// applied at different times and an author undoing "link to a parameter" when they linked
+        /// a key would be told the wrong story about what is coming back.</summary>
+        private const string k_LinkFieldKeyUndo = "Link Field To Blackboard Key";
+
+        /// <summary>Retyping the key of an existing link goes through the same Ops writer as making
+        /// one, so it gets a label that says which of the two happened.</summary>
+        private const string k_EditFieldKeyUndo = "Set Field Blackboard Key";
+
         private const string k_LinkSourceUndo = "Link Parameter To Tree Parameter";
         private const string k_UnlinkSourceUndo = "Unlink Parameter";
 
@@ -212,10 +240,32 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// where it is decided.</summary>
         private const string k_BoundPrefix = "← ";
 
+        /// <summary>What a row bound to a BLACKBOARD KEY shows instead of <see cref="k_BoundPrefix"/>
+        /// — a flag rather than an arrow, because the two sources are not the same promise and must
+        /// not read as the same one. An arrow points at a declaration that is definitely there; a flag
+        /// marks a key that may or may not have been written by the time the state is entered, and the
+        /// key itself is the editable field immediately to its right (the row reads "⚑ key").</summary>
+        private const string k_KeyBoundGlyph = "⚑";
+
         /// <summary>Text of the control that opens the parameter popup. Not a glyph: every other
         /// symbol button in this window (✕, ▲, ▼) means something an author can guess, and "bind
         /// this to a parameter" is not one of those.</summary>
         private const string k_LinkLabel = "Link";
+
+        /// <summary>The popup's heading over the keys this state's incoming transitions route. A
+        /// disabled item rather than a submenu: these are suggestions among the parameters, not a
+        /// separate mode, and burying them one level down would hide the one list that makes routed
+        /// values discoverable at all.</summary>
+        private const string k_RoutedHeading = "Routed into this state:";
+
+        /// <summary>The escape hatch under the suggestions — any key at all, typed in place. The
+        /// ellipsis is Unity's own convention for "this asks you for something", and what it asks for
+        /// is the inline field the row grows.</summary>
+        private const string k_KeyPickLabel = "Blackboard key…";
+
+        /// <summary>Indent for the suggestion items, so the heading above them reads as a heading.
+        /// Spaces rather than a submenu, for the reason <see cref="k_RoutedHeading"/> gives.</summary>
+        private const string k_MenuIndent = "    ";
 
         /// <summary>Click ergonomics for the override/link rows (user feedback: the bare
         /// checkbox and glyph buttons were hard to hit). One place sets the minimum
@@ -224,6 +274,15 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const float k_RowMinHeight = 22f;
         private const float k_ControlMinHeight = 20f;
         private const float k_LinkMinWidth = 52f;
+
+        /// <summary>Hit area for a one-glyph button, matching the ✕ buttons beside it — a word-sized
+        /// minimum on a single character would just be a button with a lot of air in it.</summary>
+        private const float k_GlyphMinWidth = 26f;
+
+        /// <summary>Room for a readable key beside the value it feeds. Wide enough that the common
+        /// keys ("damage", "target") are not ellipsed into uselessness, small enough that the value
+        /// field it shares the row with is still editable.</summary>
+        private const float k_KeyFieldMinWidth = 84f;
 
         private static void EnlargeToggle(Toggle toggle)
         {
@@ -316,6 +375,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// that already routes something shows it without being asked.</summary>
         private readonly HashSet<int> m_OpenRouteFoldouts = new HashSet<int>();
 
+        /// <summary>The keys this state's incoming transitions route, computed at most once per
+        /// rebuild and thrown away with it. Every bindable field of every task asks the same question
+        /// — "is my key one of the ones that arrive here?" — and the answer costs a walk of the whole
+        /// tree, so it is asked once for a state with forty fields rather than forty times. Cleared
+        /// at the top of <see cref="Rebuild"/>, because the answer changes when any transition
+        /// anywhere in the tree does.</summary>
+        private List<string> m_IncomingRouteKeys;
+
         internal StateTreeInspectorPane(ScrollView root, Action structuralChanged, Action edited)
         {
             m_Root = root;
@@ -327,6 +394,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             m_Tree = tree;
             m_Node = node;
+            m_IncomingRouteKeys = null;
 
             m_Root.Clear();
 
@@ -1118,6 +1186,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// first thing reported: target, field, parameter, kind. Every one of them is the id-only
         /// staleness of M7h — a link never breaks because something was renamed, only because
         /// something was deleted or retyped.
+        ///
+        /// The first two tests are about the ROW's target and are asked of both sources; the ones
+        /// after them are not, and a key row must never be run through the parameter path — it has no
+        /// id, so every one of those tests would report the same non-problem on every key binding in
+        /// the tree. A key row has exactly one authoring fault this box can name: no key. That its key
+        /// might not be written is NOT reported here — that is information, it is answered beside the
+        /// field (<see cref="BuildKeyBindingNote"/>), and putting a maybe in a box of definite
+        /// problems is how a validation box stops being read.
         /// </summary>
         private string DescribeBindingProblem(StateTreeFieldBinding row)
         {
@@ -1148,6 +1224,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 return $"'{field}' is linked on {slot}, but {target.GetType().Name} has no "
                     + "bindable field by that name. The runner skips it.";
+            }
+
+            if (row.sourceKind == StateTreeFieldBinding.SourceKind.BlackboardKey)
+            {
+                return string.IsNullOrEmpty(row.blackboardKey)
+                    ? $"'{field}' on {slot} reads a blackboard key, but no key is typed. Nothing is "
+                    + "read on entry and the field's own value runs."
+                    : null;
             }
 
             var source = StateTreeEditorOps.FindParameterById(m_Tree.parameters, row.parameterId);
@@ -2936,17 +3020,26 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// the answer to "I declared 'speed', now what reads it?" for every task that is not one of
         /// the handful whose fields happen to be blackboard keys.
         ///
-        /// The control appears only where it can do something: the field has to be one the executor
-        /// can write (<see cref="StateTreeEditorOps.TryGetBindableKind"/> asks by reflection, so a
-        /// <c>[SerializeField]</c> private is drawn and not offered), and the tree has to declare at
-        /// least one parameter of the matching kind. A field with nothing to bind to is left exactly
-        /// as it was drawn before this existed, because a Link button that opens an empty popup is a
-        /// worse answer than no button.
+        /// The control appears wherever it can do something, which since M7k is every field the
+        /// executor can write (<see cref="StateTreeEditorOps.TryGetBindableKind"/> asks by reflection,
+        /// so a <c>[SerializeField]</c> private is drawn and not offered). It used to also require the
+        /// tree to declare a parameter of the matching kind — a popup with nothing in it being worse
+        /// than no button — and that condition is gone because the popup is never empty any more: a
+        /// BLACKBOARD KEY is always an option, and on a tree with no declarations at all it is the
+        /// only one that matters.
         ///
-        /// A BOUND FIELD IS DISABLED, and says where its value comes from. That is the whole point of
-        /// the control: the literal underneath is still in the asset and is still what a reader of the
-        /// YAML sees, so leaving it editable would leave the author tuning a number that the tree
-        /// start overwrites — the failure this window exists to prevent, one level down.
+        /// A PARAMETER-BOUND FIELD IS DISABLED, and says where its value comes from. That is the whole
+        /// point of the control: the literal underneath is still in the asset and is still what a
+        /// reader of the YAML sees, so leaving it editable would leave the author tuning a number that
+        /// the tree start overwrites — the failure this window exists to prevent, one level down.
+        ///
+        /// A KEY-BOUND FIELD IS NOT DISABLED, and the difference is the runtime rule rather than a
+        /// styling choice: a missing key at entry is skipped SILENTLY and the field keeps the value it
+        /// has (entering through a path that routes nothing is normal, not an error), so the literal is
+        /// this binding's default rather than dead weight. Greying it out would hide the value that
+        /// actually runs on every unrouted entry. What the row shows instead is the flag glyph and the
+        /// key beside it, editable in place, because a key is authored text that gets retyped — while
+        /// a parameter link is picked once from a list and never edited as a string.
         ///
         /// A link whose parameter is GONE leaves the field enabled, because the literal is what runs
         /// again, and says so in the same warning-plus-remove shape a stale override gets
@@ -2961,11 +3054,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return field;
 
             var binding = StateTreeEditorOps.FindFieldBinding(m_Node, kind, targetIndex, fieldName);
+            var keyBound = binding != null
+                && binding.sourceKind == StateTreeFieldBinding.SourceKind.BlackboardKey;
             var compatible = CompatibleParameters(fieldKind);
-            if (binding == null && compatible.Count == 0)
-                return field;
 
-            var source = binding != null
+            var source = binding != null && !keyBound
                 ? StateTreeEditorOps.FindParameterById(m_Tree.parameters, binding.parameterId)
                 : null;
             var live = IsLiveLink(source, fieldKind);
@@ -2975,36 +3068,47 @@ namespace PowerOfFire.DrawToPlay.Editor
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Center;
+            row.style.minHeight = k_RowMinHeight;
             container.Add(row);
 
             field.style.flexGrow = 1f;
             field.style.flexShrink = 1f;
 
             // The same disabled-and-dimmed the override rows use, and it means the same thing in
-            // both places: what you are looking at is not what runs.
+            // both places: what you are looking at is not what runs. A key binding is the exception
+            // the class note explains — its literal IS what runs whenever the key is absent.
             ApplyOverrideStyle(field, !live);
             row.Add(field);
 
-            if (compatible.Count > 0 || live)
+            var pick = new Button
             {
-                var pick = new Button { text = live ? k_BoundPrefix + source.name : k_LinkLabel };
-                pick.style.flexShrink = 0f;
-                EnlargeRowButton(pick, k_LinkMinWidth);
-                pick.style.maxWidth = 140f;
-                pick.style.overflow = Overflow.Hidden;
-                pick.style.textOverflow = TextOverflow.Ellipsis;
-                pick.style.whiteSpace = WhiteSpace.NoWrap;
-                pick.tooltip = live
+                text = keyBound ? k_KeyBoundGlyph : live ? k_BoundPrefix + source.name : k_LinkLabel
+            };
+            pick.style.flexShrink = 0f;
+            EnlargeRowButton(pick, keyBound ? k_GlyphMinWidth : k_LinkMinWidth);
+            pick.style.maxWidth = 140f;
+            pick.style.overflow = Overflow.Hidden;
+            pick.style.textOverflow = TextOverflow.Ellipsis;
+            pick.style.whiteSpace = WhiteSpace.NoWrap;
+            pick.tooltip = keyBound
+                ? $"'{fieldName}' is read from the blackboard key beside it every time this state is "
+                + "entered, before its tasks start — so a transition that routes a finished task's "
+                + "output into this state feeds it. When nothing has written that key, the value on "
+                + "the left is what runs. Click to change the source."
+                : live
                     ? $"'{fieldName}' is written from the tree parameter '{source.name}' "
                     + $"({KindLabel(source.kind)}) every time this tree starts, so the value beside "
-                    + "it is not what runs. Click to bind it to a different parameter."
+                    + "it is not what runs. Click to bind it to a different parameter or to a "
+                    + "blackboard key."
                     : $"Write this field from one of this tree's {KindLabel(fieldKind)} parameters "
-                    + "when the tree starts, instead of the value typed here.";
-                pick.clicked += () => ShowParameterMenu(pick, compatible,
-                    binding != null ? binding.parameterId : null,
-                    id => SetFieldLink(kind, targetIndex, fieldName, id));
-                row.Add(pick);
-            }
+                    + "when the tree starts, or from a blackboard key every time this state is "
+                    + "entered, instead of the value typed here.";
+            pick.clicked += () => ShowFieldSourceMenu(pick, compatible, fieldName, fieldKind,
+                binding, kind, targetIndex);
+            row.Add(pick);
+
+            if (keyBound)
+                row.Add(BuildBindingKeyField(fieldName, binding, kind, targetIndex));
 
             if (binding != null)
             {
@@ -3012,13 +3116,22 @@ namespace PowerOfFire.DrawToPlay.Editor
                 unlink.style.width = 26f;
                 unlink.style.minHeight = k_ControlMinHeight;
                 unlink.style.flexShrink = 0f;
-                unlink.tooltip = $"Stop writing '{fieldName}' from a parameter — the value in the "
+                unlink.tooltip = keyBound
+                    ? $"Stop reading '{fieldName}' from the blackboard — the value in the field runs "
+                    + "on every entry again."
+                    : $"Stop writing '{fieldName}' from a parameter — the value in the "
                     + "field runs again.";
                 unlink.clicked += () => ClearFieldLink(kind, targetIndex, fieldName);
                 row.Add(unlink);
             }
 
-            if (binding != null && !live)
+            if (keyBound)
+            {
+                var note = BuildKeyBindingNote(fieldName, binding.blackboardKey);
+                if (note != null)
+                    container.Add(note);
+            }
+            else if (binding != null && !live)
             {
                 var help = new HelpBox(StaleBindingMessage(fieldName, source, fieldKind),
                     HelpBoxMessageType.Warning);
@@ -3027,6 +3140,81 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             return container;
+        }
+
+        /// <summary>The key itself, edited where it is read. Delayed like every other committing text
+        /// field in this window (a node id, a route's key): each commit rewrites the row through Ops
+        /// and rebuilds the pane, and doing that per keystroke would fill the undo stack with
+        /// half-typed keys.</summary>
+        private VisualElement BuildBindingKeyField(string fieldName, StateTreeFieldBinding binding,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex)
+        {
+            var key = new TextField
+            {
+                value = binding.blackboardKey ?? string.Empty,
+                isDelayed = true
+            };
+            key.style.flexGrow = 1f;
+            key.style.flexBasis = 0f;
+            key.style.minWidth = k_KeyFieldMinWidth;
+            key.style.minHeight = k_ControlMinHeight;
+            key.style.marginLeft = 2f;
+            key.textEdition.placeholder = "blackboard key";
+            key.tooltip = $"The blackboard key '{fieldName}' takes its value from at entry. Type the "
+                + "key a transition routes into this state — or any key the tree writes; matching is "
+                + "by exact text.";
+            key.RegisterValueChangedCallback(evt => SetFieldKeyLink(kind, targetIndex, fieldName,
+                evt.newValue, k_EditFieldKeyUndo));
+            return key;
+        }
+
+        /// <summary>
+        /// What a key binding has to say about itself, or null when it is unremarkable.
+        ///
+        /// Two outcomes and two severities, and the split is the M7k rule made visible. An EMPTY key
+        /// is a warning: the row cannot read anything, ever, and the author is looking at a link that
+        /// is doing nothing. A key NO INCOMING ROUTE WRITES is only information — a value can reach the
+        /// blackboard from a graph's Set Blackboard node, from a task, or from a state three
+        /// transitions away, none of which this scan can see — so it says what it knows ("nothing
+        /// routes it here") and what happens if that is the whole story, rather than claiming a fault
+        /// it cannot establish.
+        /// </summary>
+        private HelpBox BuildKeyBindingNote(string fieldName, string blackboardKey)
+        {
+            HelpBox help;
+            if (string.IsNullOrEmpty(blackboardKey))
+            {
+                help = new HelpBox($"'{fieldName}' is bound to a blackboard key, but no key is typed "
+                    + "— nothing is read and the value in the field runs.",
+                    HelpBoxMessageType.Warning);
+            }
+            else if (!IncomingRouteKeys().Contains(blackboardKey))
+            {
+                help = new HelpBox($"No transition into this state routes '{blackboardKey}'. That is "
+                    + "fine if something else writes it — a graph, a task, or an earlier state — but "
+                    + "on any entry where the key is missing the value in the field is kept.",
+                    HelpBoxMessageType.Info);
+            }
+            else
+            {
+                return null;
+            }
+
+            help.style.marginTop = 2f;
+            return help;
+        }
+
+        /// <summary>The keys routed into the selected state, computed once per pane rebuild. See
+        /// <see cref="m_IncomingRouteKeys"/> for why it is cached rather than asked per field.</summary>
+        private List<string> IncomingRouteKeys()
+        {
+            if (m_IncomingRouteKeys == null)
+            {
+                m_IncomingRouteKeys = StateTreeEditorOps.CollectIncomingRouteKeys(m_Tree,
+                    m_Node != null ? m_Node.nodeId : null);
+            }
+
+            return m_IncomingRouteKeys;
         }
 
         /// <summary>Whether a link actually feeds its target: the parameter is still declared, and
@@ -3096,6 +3284,101 @@ namespace PowerOfFire.DrawToPlay.Editor
             menu.DropDown(anchor.worldBound);
         }
 
+        /// <summary>
+        /// The field link popup: the tree's parameters, then the keys that ARRIVE at this state, then
+        /// any key at all — one menu, because they are answers to one question ("where does this
+        /// field's value come from?") and a mode switch between them would make the author decide
+        /// before they can see the options.
+        ///
+        /// THE MIDDLE SECTION IS THE POINT OF M7k. A transition routes a finished task's output onto
+        /// the blackboard under a key; until now nothing in this window connected that key back to the
+        /// field that wants it, so the author had to remember the key and know that a plain
+        /// <c>public float</c> could not read it anyway. Listing the keys the tree's own wiring
+        /// delivers HERE turns that into a pick — and the list is honest about being incomplete, which
+        /// is what "Blackboard key…" underneath it is for: a key can also be written by a graph, by a
+        /// task, or by a state that is not adjacent, and refusing to let the author type one would
+        /// make those cases unreachable.
+        ///
+        /// The parameter section is unchanged and comes FIRST because it is the stronger guarantee —
+        /// a declared parameter is definitely there when the tree starts, a routed key only if the
+        /// path that writes it was taken.
+        /// </summary>
+        /// <param name="compatible">Declared parameters of the field's kind, possibly none — the
+        /// section is then skipped and replaced by the one line that explains why.</param>
+        /// <param name="binding">The row in force, so the current source can be ticked. Null when the
+        /// field is unbound.</param>
+        private void ShowFieldSourceMenu(VisualElement anchor, List<GraphTaskParameter> compatible,
+            string fieldName, GraphTaskParameterKind fieldKind, StateTreeFieldBinding binding,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex)
+        {
+            var keyBound = binding != null
+                && binding.sourceKind == StateTreeFieldBinding.SourceKind.BlackboardKey;
+            var boundId = binding != null && !keyBound ? binding.parameterId : null;
+            var boundKey = keyBound ? binding.blackboardKey ?? string.Empty : null;
+            var routed = IncomingRouteKeys();
+
+            var menu = new GenericMenu();
+            for (var i = 0; i < compatible.Count; ++i)
+            {
+                var entry = compatible[i];
+                var id = entry.id;
+                var label = (entry.name ?? string.Empty).Replace('/', k_MenuSeparatorStandIn);
+                menu.AddItem(new GUIContent(label),
+                    string.Equals(id, boundId, StringComparison.Ordinal),
+                    () => SetFieldLink(kind, targetIndex, fieldName, id));
+            }
+
+            if (compatible.Count > 0)
+            {
+                menu.AddSeparator(string.Empty);
+            }
+            else
+            {
+                // Not an error and not silence: the popup opens on trees with no declarations at all
+                // now, and an author who expected a parameter here needs to know none is declared
+                // rather than to wonder whether the list failed to build.
+                menu.AddDisabledItem(new GUIContent(
+                    $"This tree declares no {KindLabel(fieldKind)} parameters"));
+                menu.AddSeparator(string.Empty);
+            }
+
+            menu.AddDisabledItem(new GUIContent(k_RoutedHeading));
+
+            if (routed.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent(k_MenuIndent
+                    + "nothing is routed into this state"));
+            }
+            else
+            {
+                for (var i = 0; i < routed.Count; ++i)
+                {
+                    // The LABEL is escaped and the closure carries the real key — same rule as the
+                    // parameter names above, and it matters more here because a key is free text.
+                    var key = routed[i];
+                    var label = k_MenuIndent + key.Replace('/', k_MenuSeparatorStandIn);
+                    menu.AddItem(new GUIContent(label),
+                        string.Equals(key, boundKey, StringComparison.Ordinal),
+                        () => SetFieldKeyLink(kind, targetIndex, fieldName, key,
+                            k_LinkFieldKeyUndo));
+                }
+            }
+
+            menu.AddSeparator(string.Empty);
+
+            // Seeded with the FIELD NAME, which is the key an author who is naming both sides would
+            // have typed anyway — and with the CURRENT key when there already is one, so re-picking
+            // the source the row already has cannot throw away what was typed into it.
+            //
+            // Ticked only for a key that is NOT in the list above, so exactly one item in the menu is
+            // ever ticked: two ticks would read as two sources, and a row has one.
+            var seed = string.IsNullOrEmpty(boundKey) ? fieldName : boundKey;
+            menu.AddItem(new GUIContent(k_KeyPickLabel), keyBound && !routed.Contains(boundKey),
+                () => SetFieldKeyLink(kind, targetIndex, fieldName, seed, k_LinkFieldKeyUndo));
+
+            menu.DropDown(anchor.worldBound);
+        }
+
         /// <summary>Bind a field, through the Ops helper that owns the row list — so the link is
         /// undone in one step and is renumbered by the same file that renumbers everything else when
         /// a task or transition moves.</summary>
@@ -3108,6 +3391,25 @@ namespace PowerOfFire.DrawToPlay.Editor
             var group = StateTreeEditorOps.BeginUndoGroup(k_LinkFieldUndo);
             StateTreeEditorOps.SetFieldBinding(m_Node, kind, targetIndex, fieldName, parameterId,
                 k_LinkFieldUndo);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        /// <summary>Point a field at a blackboard key — the same one gesture, one undo step, one Ops
+        /// writer as <see cref="SetFieldLink"/>, differing only in which source the row records.
+        ///
+        /// Used by BOTH the popup and the inline editor, which is why the undo label is a parameter:
+        /// picking a source and retyping a key are different edits to undo, and the row they produce
+        /// is identical.</summary>
+        private void SetFieldKeyLink(StateTreeFieldBinding.TargetKind kind, int targetIndex,
+            string fieldName, string blackboardKey, string undoName)
+        {
+            if (m_Node == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(undoName);
+            StateTreeEditorOps.SetFieldBindingKey(m_Node, kind, targetIndex, fieldName,
+                blackboardKey, undoName);
             StateTreeEditorOps.EndUndoGroup(group);
             RebuildPane();
         }

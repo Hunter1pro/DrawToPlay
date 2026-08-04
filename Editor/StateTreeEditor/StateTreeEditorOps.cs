@@ -375,6 +375,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// list that already carried duplicates (hand-edited YAML, a merge) comes out of this with
         /// one. The binding is by parameter ID only — the M7h rule — so renaming the parameter it
         /// points at keeps the link.
+        ///
+        /// A PARAMETER IS ONE OF TWO SOURCES a field can have (M7k), and this writes the other one's
+        /// slot empty rather than leaving it: a row that still carried a blackboard key would read as
+        /// a key binding in a YAML diff, and the day some future reader looks at the wrong field
+        /// first is the day the link silently changes meaning. <see cref="SetFieldBindingKey"/> is
+        /// the mirror of this and does the same in reverse.
         /// </summary>
         /// <param name="node">The state that owns the link rows.</param>
         /// <param name="kind">Whether the target is a task or a transition's condition.</param>
@@ -392,6 +398,51 @@ namespace PowerOfFire.DrawToPlay.Editor
                 || string.IsNullOrEmpty(parameterId))
                 return false;
 
+            WriteFieldBinding(node, kind, targetIndex, fieldName,
+                StateTreeFieldBinding.SourceKind.Parameter, parameterId, string.Empty, undoName);
+            return true;
+        }
+
+        /// <summary>
+        /// Bind the same kind of field to a BLACKBOARD KEY instead of to a declared parameter — the
+        /// M7k source, and the half that closes the loop a transition's output routes opened: a route
+        /// writes a finished task's return under a key as the tree leaves a state, and this is how the
+        /// state it arrives at gets that value into a plain <c>public float</c> nobody can otherwise
+        /// reach.
+        ///
+        /// The two sources differ in WHEN, which is why they are not one field with a nullable id: a
+        /// parameter is written once at tree start (its value is fixed for the call), a key is read at
+        /// every ENTRY of the state, so re-entering after a different transition picks up a different
+        /// value. That is also why an empty key is accepted here where an empty parameter id is
+        /// refused: the author picks "blackboard key" first and types the key second, and a helper that
+        /// rejected the intermediate state would make the row impossible to create from a menu. An
+        /// empty key is an inert row and the inspector says so.
+        /// </summary>
+        /// <param name="blackboardKey">Key to read at entry. Null is stored as empty — the row exists,
+        /// reads nothing, and is reported rather than silently dropped.</param>
+        /// <returns>False when the arguments describe no row at all, same contract as
+        /// <see cref="SetFieldBinding"/>.</returns>
+        internal static bool SetFieldBindingKey(StateTreeNodeAsset node,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName,
+            string blackboardKey, string undoName)
+        {
+            if (node == null || targetIndex < 0 || string.IsNullOrEmpty(fieldName))
+                return false;
+
+            WriteFieldBinding(node, kind, targetIndex, fieldName,
+                StateTreeFieldBinding.SourceKind.BlackboardKey, string.Empty,
+                blackboardKey ?? string.Empty, undoName);
+            return true;
+        }
+
+        /// <summary>The one writer both link helpers go through, so "one row per slot" and "the
+        /// unused source slot is cleared" are single facts rather than two copies that drift. The
+        /// caller has already refused the arguments that describe no row.</summary>
+        private static void WriteFieldBinding(StateTreeNodeAsset node,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName,
+            StateTreeFieldBinding.SourceKind sourceKind, string parameterId, string blackboardKey,
+            string undoName)
+        {
             Undo.RecordObject(node, undoName);
 
             if (node.bindings == null)
@@ -403,11 +454,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 targetKind = kind,
                 targetIndex = targetIndex,
                 fieldName = fieldName,
-                parameterId = parameterId
+                sourceKind = sourceKind,
+                parameterId = parameterId,
+                blackboardKey = blackboardKey
             });
 
             EditorUtility.SetDirty(node);
-            return true;
         }
 
         /// <summary>Drop the link on one field, so the field's own authored value is what runs
@@ -808,6 +860,65 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             return found;
+        }
+
+        /// <summary>
+        /// The blackboard keys that are written ON THE WAY INTO one state — every output route
+        /// carried by every transition anywhere in the tree whose target is this state's id.
+        ///
+        /// This is what makes the M7k key binding pickable rather than typed from memory. A route
+        /// writes its key as the transition fires and BEFORE the target state is entered, so these
+        /// are exactly the keys a field on that state can expect to find at entry: the suggestion list
+        /// is the tree's own wiring read backwards, not a guess.
+        ///
+        /// Scanned by TARGET ID rather than by object, because a transition names a state by id and
+        /// two states may share one (the window reports that separately) — and self-transitions count,
+        /// since a state that re-enters itself reads what its own exit routed. The keys come back
+        /// DISTINCT, ordinal, in the order the tree's traversal meets them, so a menu built from them
+        /// is stable across rebuilds instead of reshuffling under the cursor.
+        ///
+        /// The key asked for is <see cref="TransitionOutputRoute.ResolvedKey"/>, never the raw field:
+        /// an empty <c>blackboardKey</c> means "under the output's own name", and a suggestion list
+        /// that showed blanks where the executor writes names would be a list of the wrong thing.
+        /// </summary>
+        /// <returns>A fresh list, never null. Empty means nothing routes into the state — which is
+        /// not an error: a key can also be written by a graph, by a task, or by a state further
+        /// away, which is why the inspector treats an unrouted key as information, not a fault.
+        /// </returns>
+        internal static List<string> CollectIncomingRouteKeys(StateTreeAsset tree, string nodeId)
+        {
+            var keys = new List<string>();
+            if (tree == null || string.IsNullOrEmpty(nodeId))
+                return keys;
+
+            var nodes = CollectNodes(tree);
+            for (var i = 0; i < nodes.Count; ++i)
+            {
+                var transitions = nodes[i].transitions;
+                for (var t = 0; t < transitions.Count; ++t)
+                {
+                    var transition = transitions[t];
+                    if (transition == null || !string.Equals(transition.targetNodeId, nodeId,
+                        StringComparison.Ordinal))
+                        continue;
+
+                    var routes = transition.outputRoutes;
+                    for (var r = 0; routes != null && r < routes.Count; ++r)
+                    {
+                        var row = routes[r];
+                        if (row == null)
+                            continue;
+
+                        // Ordinal by construction: List<string>.Contains uses the default string
+                        // comparer, which is what every other key comparison in this toolset uses.
+                        var key = row.ResolvedKey();
+                        if (!string.IsNullOrEmpty(key) && !keys.Contains(key))
+                            keys.Add(key);
+                    }
+                }
+            }
+
+            return keys;
         }
 
         /// <summary>The route half of the index remap for a task REMOVAL: rows that read the removed

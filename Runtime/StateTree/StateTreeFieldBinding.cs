@@ -27,9 +27,21 @@ namespace PowerOfFire.DrawToPlay
     /// <see cref="StateTreeExecutor.StartTree"/> writing it directly, not by the task reading the
     /// blackboard.
     ///
-    /// Bindings are applied ONCE per tree start, onto the deep copy the executor owns, because a
-    /// parameter's effective value is fixed for the duration of a call: a sub-tree activation
-    /// re-copies and re-binds, which is exactly how a re-entered state picks up a changed override.
+    /// A row has TWO POSSIBLE SOURCES since M7k, and the difference between them is WHEN the value
+    /// exists rather than where it comes from. A parameter is an argument of the call: fixed for the
+    /// whole run, so its rows are applied ONCE per tree start onto the deep copy the executor owns
+    /// (a sub-tree activation re-copies and re-binds, which is exactly how a re-entered state picks
+    /// up a changed override). A blackboard key is a value the run PRODUCES — most often a task
+    /// output a transition routed on the way in — so its rows are applied on every ENTRY of the
+    /// state that owns them, immediately before the tasks are entered, and re-read on every
+    /// re-entry.
+    ///
+    /// THAT SECOND SOURCE IS WHAT CLOSES THE LOOP M7j OPENED. A routed output lands on the
+    /// blackboard, where a graph program and a condition can already read it by key — but a plain C#
+    /// task with a <c>public float damage</c> cannot, which left "the state before me computed this"
+    /// unable to reach the one surface most tasks are written against. route → key → field is that
+    /// path, and the key is the joint: the producing transition and the consuming state name it
+    /// independently, so neither has to know the other exists.
     /// </summary>
     [Serializable]
     public sealed class StateTreeFieldBinding
@@ -59,8 +71,47 @@ namespace PowerOfFire.DrawToPlay
         public string fieldName;
 
         /// <summary><see cref="GraphTaskParameter.id"/> of the tree parameter that supplies the
-        /// value. Empty or unmatched = one error, row skipped: a field silently left at its
-        /// authored value would look exactly like a binding that worked.</summary>
+        /// value when <see cref="sourceKind"/> is <see cref="SourceKind.Parameter"/>. Empty or
+        /// unmatched = one error, row skipped: a field silently left at its authored value would
+        /// look exactly like a binding that worked.</summary>
         public string parameterId;
+
+        /// <summary>Where a row takes its value from. Serialized as an int — append only, and
+        /// <see cref="Parameter"/> is 0 so every row authored before M7k keeps meaning exactly what
+        /// it meant.</summary>
+        public enum SourceKind
+        {
+            /// <summary>A parameter of the tree, named by <see cref="parameterId"/>. Written ONCE,
+            /// when the tree starts.</summary>
+            Parameter = 0,
+
+            /// <summary>A blackboard entry, named by <see cref="blackboardKey"/>. Written on every
+            /// ENTRY of the owning state, before its tasks are entered.</summary>
+            BlackboardKey = 1
+        }
+
+        /// <summary>Which of the two sources feeds this row. Default <see cref="SourceKind.Parameter"/>
+        /// — the M7i behaviour, unchanged.</summary>
+        public SourceKind sourceKind;
+
+        /// <summary>
+        /// Blackboard entry read when <see cref="sourceKind"/> is
+        /// <see cref="SourceKind.BlackboardKey"/>; ignored otherwise. A NAME, not an id, and
+        /// deliberately so: it is the same kind of name a transition's output route writes and a
+        /// <c>Get Blackboard</c> node reads, and those cannot be identity-bound to anything — the
+        /// blackboard is a dictionary shared by every producer on the entity, which is what makes it
+        /// usable as a meeting point in the first place (the M7j note on name-keyed contracts).
+        ///
+        /// A key that is NOT PRESENT when the state is entered leaves the field alone, silently. That
+        /// is not leniency: several transitions normally lead into one state, only some of them
+        /// routing anything, and a state entered through an unrouted edge is the ordinary case rather
+        /// than a fault. The field then holds whatever it last held — its authored value on the first
+        /// entry, the previous entry's value afterwards.
+        ///
+        /// Empty here (with this source kind) is an INERT row: nothing to read, nothing written,
+        /// nothing said at runtime. The inspector is where an unfinished row is visible and where it
+        /// can be finished.
+        /// </summary>
+        public string blackboardKey;
     }
 }

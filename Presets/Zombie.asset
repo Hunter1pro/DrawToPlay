@@ -68,6 +68,7 @@ MonoBehaviour:
   - targetNodeId: idle
     condition: {fileID: 0}
     checkWhileRunning: 0
+    outputRoutes: []
   bindings: []
 --- !u!114 &-3443045938502097728
 MonoBehaviour:
@@ -103,12 +104,15 @@ MonoBehaviour:
   - targetNodeId: windup
     condition: {fileID: 6370879403659551023}
     checkWhileRunning: 1
+    outputRoutes: []
   - targetNodeId: windup
     condition: {fileID: -8325386638463371431}
     checkWhileRunning: 0
+    outputRoutes: []
   - targetNodeId: idle
     condition: {fileID: 0}
     checkWhileRunning: 0
+    outputRoutes: []
   bindings: []
 --- !u!114 &-808449643597999803
 MonoBehaviour:
@@ -234,6 +238,7 @@ MonoBehaviour:
   useWeaponCooldown: 1
   cooldownKey: 
   faceTarget: 1
+  lastDamageDealt: 0
 --- !u!114 &3517853751818656525
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -257,6 +262,7 @@ MonoBehaviour:
   - targetNodeId: slash
     condition: {fileID: 0}
     checkWhileRunning: 0
+    outputRoutes: []
   bindings: []
 --- !u!114 &4241487732345088177
 MonoBehaviour:
@@ -294,6 +300,7 @@ MonoBehaviour:
   - targetNodeId: recover
     condition: {fileID: 0}
     checkWhileRunning: 0
+    outputRoutes: []
   bindings: []
 --- !u!114 &5518421945841141213
 MonoBehaviour:
@@ -317,9 +324,14 @@ MonoBehaviour:
   - targetNodeId: chase
     condition: {fileID: -8820200083383772058}
     checkWhileRunning: 1
+    outputRoutes: []
   - targetNodeId: idle
     condition: {fileID: 0}
     checkWhileRunning: 0
+    outputRoutes:
+    - taskIndex: 1
+      outputName: OutputFlow
+      blackboardKey: 
   bindings: []
 --- !u!114 &6370879403659551023
 MonoBehaviour:
