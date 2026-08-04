@@ -20,6 +20,13 @@ namespace PowerOfFire.DrawToPlay
     /// state owns, because that is what makes them per-use — the same live graph reference at two
     /// different speeds — and it is why they are applied to the fresh instance rather than to the
     /// referenced asset.
+    ///
+    /// PASS-THROUGH (M7i): an override row may take its value from a parameter of the TREE this
+    /// state lives in (<see cref="GraphTaskParameterOverride.sourceParameterId"/>) rather than from
+    /// a literal, so a graph reused by three states can be driven by each state's tree rather than
+    /// re-tuned by hand in each. Resolved per activation against the running tree's parameter scope
+    /// and into a COPY of the row list — the serialized rows are authored data, and burning this
+    /// frame's value into them would turn a wire back into a constant.
     /// </summary>
     [StateTreeCategory("Tasks/Composite", "Run a logic-graph task by live reference")]
     public sealed class RunGraphTask : StateTreeTaskAsset
@@ -36,6 +43,10 @@ namespace PowerOfFire.DrawToPlay
         [System.NonSerialized] private GraphTaskAsset m_Instance;
         [System.NonSerialized] private bool m_WarnedNull;
 
+        /// <summary>One report per instance for rows whose pass-through source is gone or retyped:
+        /// a state re-entered every second must not flood the console with the same wear.</summary>
+        [System.NonSerialized] private bool m_UnresolvedSourceLogged;
+
         public override void OnEnter(StateTreeContext context)
         {
             if (graph == null)
@@ -50,8 +61,30 @@ namespace PowerOfFire.DrawToPlay
             m_Instance = Instantiate(graph);
             // Before OnEnter, so the enter chain already reads this state's values — and on the
             // INSTANCE, so the authored graph asset is never written to.
-            m_Instance.ApplyOverrides(overrides);
+            m_Instance.ApplyOverrides(ResolvedOverrides(context));
             m_Instance.OnEnter(context);
+        }
+
+        /// <summary>The rows as the graph should see them THIS activation: every pass-through row
+        /// resolved against the scope of the tree this state is running in, which is why it is read
+        /// here (per activation, on the caller's context) rather than baked anywhere. Rows without a
+        /// source are the list itself, unchanged and uncopied — the overwhelmingly common case.
+        /// A source that no longer exists, or one whose kind no longer matches the parameter the row
+        /// overrides, drops the row so the GRAPH's own default stands, and says so once.</summary>
+        private List<GraphTaskParameterOverride> ResolvedOverrides(StateTreeContext context)
+        {
+            string unresolved;
+            List<GraphTaskParameterOverride> rows = StateTreeExecutor.ResolveSourceValues(
+                context, overrides, graph.parameters, out unresolved);
+
+            if (unresolved != null && !m_UnresolvedSourceLogged)
+            {
+                m_UnresolvedSourceLogged = true;
+                Debug.LogWarning($"RunGraphTask '{name}': override for {unresolved} reads a " +
+                    "parameter of the calling tree that no longer exists or no longer has the same " +
+                    $"kind. The row is ignored and '{graph.name}' uses its graph default.", this);
+            }
+            return rows;
         }
 
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)

@@ -20,6 +20,12 @@ namespace PowerOfFire.DrawToPlay
     public sealed class StateTreeRunner : MonoBehaviour
     {
         public StateTreeAsset data;
+
+        /// <summary>Overrides for the tree's declared parameters (M7h id-bound rows) —
+        /// how a scene or a mounting context parameterises a ROOT tree, mirroring what
+        /// RunSubTreeTask does for nested ones. Applied on every StartTree.</summary>
+        public System.Collections.Generic.List<GraphTaskParameterOverride> parameterOverrides =
+            new System.Collections.Generic.List<GraphTaskParameterOverride>();
         /// <summary>Owner the context wraps; null = this GameObject's parent (or itself
         /// at the hierarchy root) — the owner_path default of the Godot runner.</summary>
         public GameObject ownerObject;
@@ -54,6 +60,7 @@ namespace PowerOfFire.DrawToPlay
         {
             StateTreeExecutor executor = EnsureExecutor();
             executor.data = data;
+            executor.parameterOverrides = parameterOverrides;
             executor.context = context;
             executor.owner = ownerObject != null
                 ? ownerObject

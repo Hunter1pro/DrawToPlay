@@ -978,6 +978,64 @@ namespace PowerOfFire.DrawToPlay.Tests
             LogAssert.NoUnexpectedReceived();
         }
 
+        // ------------------------------------------------------------------ pass-through (M7i)
+
+        /// <summary>
+        /// A graph parameter fed by a parameter of the TREE the state lives in
+        /// (<see cref="GraphTaskParameterOverride.sourceParameterId"/>) instead of a literal — the
+        /// second half of M7i, and what lets one authored graph be driven by three trees rather than
+        /// re-tuned by hand in each state that runs it.
+        ///
+        /// Driven through a real <see cref="StateTreeExecutor"/> because the scope the row reads is
+        /// something only a running tree publishes: the assertion is that the value the executor
+        /// established for its own parameter came out the other end of the graph, so both halves
+        /// have to be real.
+        /// </summary>
+        [Test]
+        public void PassThrough_TreeParameterFeedsAGraphParameter()
+        {
+            GraphTaskAsset graph = ParamGraph("speed", 3f, Id("speed"));
+            RunGraphTask wrapper = MakeGraphTask(graph);
+            wrapper.overrides = Overrides(
+                Override("speed", true, -1f, null, Id("speed"), Id("treeSpeed")));
+
+            StateTreeAsset tree = MakeTree(MakeNode("run", wrapper), "CallerTree");
+            tree.parameters = Params(Param("treeSpeed", GraphTaskParameterKind.Float, 7f));
+
+            StateTreeContext context = MakeContext();
+            var executor = new StateTreeExecutor { data = tree, context = context };
+            executor.StartTree();
+            executor.TickTree(0.1f);
+
+            Assert.AreEqual(7f, Float(context, k_ParamOut),
+                "the graph ran at the TREE's value, not at its own 3 and not at the row's -1");
+            executor.StopTree();
+        }
+
+        /// <summary>A source that is gone (or was retyped) drops the row, so the GRAPH's own default
+        /// stands — the same fallback an unchecked row gives — and says so once per instance rather
+        /// than once per activation.</summary>
+        [Test]
+        public void PassThrough_UnknownSourceWarnsOnceAndKeepsTheGraphDefault()
+        {
+            GraphTaskAsset graph = ParamGraph("speed", 3f, Id("speed"));
+            RunGraphTask wrapper = MakeGraphTask(graph);
+            wrapper.overrides = Overrides(
+                Override("speed", true, -1f, null, Id("speed"), "pid-gone"));
+
+            StateTreeContext context = MakeContext();
+
+            LogAssert.Expect(LogType.Warning, new Regex("'speed'"));
+            wrapper.OnEnter(context);
+            wrapper.OnTick(context, 0.1f);
+            Assert.AreEqual(3f, Float(context, k_ParamOut), "the graph default, never the row's -1");
+            wrapper.OnExit(context, StateTreeStatus.Cancelled);
+
+            wrapper.OnEnter(context);
+            wrapper.OnExit(context, StateTreeStatus.Cancelled);
+            LogAssert.NoUnexpectedReceived();
+        }
+
         // ------------------------------------------------------------------ fixture helpers
 
         /// <summary>Blackboard key the identity fixture reports its parameter under. Deliberately
@@ -1063,15 +1121,49 @@ namespace PowerOfFire.DrawToPlay.Tests
 
         /// <summary>An override row. <paramref name="id"/> is what it BINDS by;
         /// <paramref name="name"/> is only what the inspector would show — the identity cases pass
-        /// the two deliberately out of step.</summary>
+        /// the two deliberately out of step. <paramref name="sourceParameterId"/> makes it a
+        /// PASS-THROUGH row: the value then comes from the calling tree's parameter of that id and
+        /// <paramref name="floatValue"/> is the literal it must NOT use.</summary>
         private static GraphTaskParameterOverride Override(string name, bool enabled,
-            float floatValue = 0f, string stringValue = null, string id = null)
+            float floatValue = 0f, string stringValue = null, string id = null,
+            string sourceParameterId = null)
         {
             return new GraphTaskParameterOverride
             {
                 name = name, enabled = enabled, floatValue = floatValue, stringValue = stringValue,
-                id = id ?? Id(name)
+                id = id ?? Id(name), sourceParameterId = sourceParameterId
             };
+        }
+
+        /// <summary>The wrapper a state holds: the live graph reference plus this state's override
+        /// rows. The pass-through cases need it because the rows live on the WRAPPER, not on the
+        /// graph.</summary>
+        private RunGraphTask MakeGraphTask(GraphTaskAsset graph)
+        {
+            var task = ScriptableObject.CreateInstance<RunGraphTask>();
+            task.name = "RunGraph";
+            task.graph = graph;
+            return Track(task);
+        }
+
+        private StateTreeNodeAsset MakeNode(string nodeId, params StateTreeTaskAsset[] tasks)
+        {
+            var node = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
+            node.name = nodeId;
+            node.nodeId = nodeId;
+            node.displayName = nodeId;
+            if (tasks != null)
+                node.tasks.AddRange(tasks);
+            return Track(node);
+        }
+
+        private StateTreeAsset MakeTree(StateTreeNodeAsset root, string treeName)
+        {
+            var tree = ScriptableObject.CreateInstance<StateTreeAsset>();
+            tree.name = treeName;
+            tree.treeName = treeName;
+            tree.root = root;
+            return Track(tree);
         }
 
         private static List<GraphTaskParameterOverride> Overrides(

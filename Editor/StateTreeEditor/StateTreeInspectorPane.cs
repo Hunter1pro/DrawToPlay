@@ -110,6 +110,28 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// and drawing an override with an empty id adopts the id of the one declaration that carries its
     /// name. Both write without an undo entry, because neither is something the author did — it is the
     /// asset catching up with the model the first time it is opened, after which the name is decoration.
+    ///
+    /// AND A DECLARED PARAMETER CAN BE WIRED TO A FIELD. Declaring "speed" is only half the story: the
+    /// tasks that should USE it are edited two sections below, and until M7i the only way to connect
+    /// the two was to type the parameter's name into whichever field happened to be a blackboard key —
+    /// which works for the handful of library components that read the blackboard and not at all for
+    /// the plain <c>float damage</c> of everything else. So every bindable field of a task or condition
+    /// grows a LINK control (<see cref="BuildBindableField"/>): pick a parameter and the field is
+    /// written from it when the tree starts, the literal beside it disabled and replaced by
+    /// "← &lt;name&gt;" so what actually runs is never ambiguous. The popup lists NAMES and stores IDS,
+    /// same as everything else here, which is why renaming a parameter leaves every link intact.
+    ///
+    /// A link is a row on the STATE, addressed by the target's position in the task or transition list,
+    /// and that is the one thing this window cannot let drift: the rows are renumbered by
+    /// <see cref="StateTreeEditorOps"/> inside the same mutations that move those positions, so
+    /// deleting a task takes its links with it rather than handing them to the next task along.
+    ///
+    /// THE OVERRIDE ROWS TAKE THE SAME CONTROL, one level up. A state that runs a sub-tree or a graph
+    /// can pin a parameter to a literal (the checkbox) or PASS ITS OWN THROUGH — this tree declares
+    /// "speed", the callee declares "speed", and the link says they are the same knob rather than two
+    /// numbers that have to be kept equal by hand. Stale links on either control read exactly like a
+    /// stale override: a warning that says what broke, what runs instead, and offers the one gesture
+    /// that clears it.
     /// </summary>
     internal sealed class StateTreeInspectorPane
     {
@@ -140,6 +162,31 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const string k_SetOverrideUndo = "Override Task Parameter";
         private const string k_ClearOverrideUndo = "Clear Task Parameter Override";
         private const string k_EditOverrideUndo = "Set Task Parameter";
+
+        /// <summary>Linking a field and linking an override row are separate gestures on separate
+        /// assets — the node for one, the task wrapper for the other — so they get separate undo
+        /// labels rather than one "Link Parameter" that says nothing about what comes back.</summary>
+        private const string k_LinkFieldUndo = "Link Field To Parameter";
+
+        private const string k_UnlinkFieldUndo = "Unlink Field";
+        private const string k_LinkSourceUndo = "Link Parameter To Tree Parameter";
+        private const string k_UnlinkSourceUndo = "Unlink Parameter";
+
+        /// <summary>What a bound row shows in place of its value. An arrow rather than a word
+        /// because it says the direction: the value comes FROM there, and this field is no longer
+        /// where it is decided.</summary>
+        private const string k_BoundPrefix = "← ";
+
+        /// <summary>Text of the control that opens the parameter popup. Not a glyph: every other
+        /// symbol button in this window (✕, ▲, ▼) means something an author can guess, and "bind
+        /// this to a parameter" is not one of those.</summary>
+        private const string k_LinkLabel = "Link";
+
+        /// <summary><see cref="GenericMenu"/> reads '/' as a submenu separator with no way to
+        /// escape it, so a parameter named "move/speed" would silently become a submenu called
+        /// "move" — this is substituted into the LABEL only (the id is what gets stored), which
+        /// keeps the row pickable and readable.</summary>
+        private const char k_MenuSeparatorStandIn = '∕';
 
         private const string k_AddParameterUndo = "Declare Tree Parameter";
         private const string k_RemoveParameterUndo = "Remove Tree Parameter";
@@ -716,7 +763,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             EditorUtility.SetDirty(m_Tree);
             StateTreeEditorOps.EndUndoGroup(group);
-            RebuildParameters();
+            RebuildPane();
         }
 
         /// <summary>A declaration's identity, minted once when the row is created and never again —
@@ -770,7 +817,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Tree.parameters.RemoveAt(index);
             EditorUtility.SetDirty(m_Tree);
             StateTreeEditorOps.EndUndoGroup(group);
-            RebuildParameters();
+            RebuildPane();
         }
 
         /// <summary>Every write to one declared row, in one place: record the TREE (the list lives
@@ -819,12 +866,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             return stem + Guid.NewGuid().ToString("N").Substring(0, 6);
         }
 
-        /// <summary>Adding or removing a row changes the list the whole section is built from, so
-        /// the pane is rebuilt — deferred, because the button that asked for it is a child of what
-        /// is about to be cleared. Whatever is selected stays selected: the declaration is edited
-        /// from both views now, and an add that bounced the author back to the tree view would be a
-        /// worse surprise than the one row it saves redrawing.</summary>
-        private void RebuildParameters()
+        /// <summary>Redraw the pane in place — for every edit that changes the SHAPE of a section
+        /// rather than a value in it: adding or removing a declared parameter, and linking or
+        /// unlinking, which turns a plain field into a bound one and back. Deferred, because the
+        /// button that asked for it is a child of what is about to be cleared. Whatever is selected
+        /// stays selected: these edits are made from both views now, and one that bounced the author
+        /// back to the tree view would be a worse surprise than the rows it saves redrawing.
+        /// </summary>
+        private void RebuildPane()
         {
             m_Edited?.Invoke();
             m_Root.schedule.Execute(() =>
@@ -944,10 +993,79 @@ namespace PowerOfFire.DrawToPlay.Editor
                     problems.Add($"Task slot {i + 1} is empty.");
             }
 
+            var bindings = m_Node.bindings;
+            for (var i = 0; bindings != null && i < bindings.Count; ++i)
+            {
+                var problem = DescribeBindingProblem(bindings[i]);
+                if (problem != null)
+                    problems.Add(problem);
+            }
+
             if (problems.Count == 0)
                 return;
 
             m_Root.Add(new HelpBox(string.Join("\n", problems), HelpBoxMessageType.Warning));
+        }
+
+        /// <summary>
+        /// What is wrong with one parameter link, or null when nothing is. Reported up here as well
+        /// as beside the field because the two questions are different: the row beside the field
+        /// answers "why is this one not taking my parameter", and this answers "is anything on this
+        /// state quietly not running" — which includes the links whose FIELD is gone, and which
+        /// therefore have no row to sit beside any more.
+        ///
+        /// The tests are in the executor's own order, so the first thing that stops the write is the
+        /// first thing reported: target, field, parameter, kind. Every one of them is the id-only
+        /// staleness of M7h — a link never breaks because something was renamed, only because
+        /// something was deleted or retyped.
+        /// </summary>
+        private string DescribeBindingProblem(StateTreeFieldBinding row)
+        {
+            if (row == null)
+                return "A parameter link row is empty. The runner skips it.";
+
+            var isTask = row.targetKind == StateTreeFieldBinding.TargetKind.Task;
+            var slot = isTask
+                ? $"task {row.targetIndex + 1}"
+                : $"transition {row.targetIndex + 1}'s condition";
+            var count = isTask ? m_Node.tasks.Count : m_Node.transitions.Count;
+            var field = string.IsNullOrEmpty(row.fieldName) ? "(unnamed field)" : row.fieldName;
+
+            if (row.targetIndex < 0 || row.targetIndex >= count)
+            {
+                return $"A parameter link targets {slot}, which this state does not have — the "
+                    + "task or transition it was made on was deleted. The runner skips it.";
+            }
+
+            var target = StateTreeEditorOps.ResolveBindingTarget(m_Node, row.targetKind,
+                row.targetIndex);
+            if (target == null)
+            {
+                return $"'{field}' is linked on {slot}, which is empty. The runner skips it.";
+            }
+
+            if (!StateTreeEditorOps.TryGetBindableKind(target, field, out var fieldKind))
+            {
+                return $"'{field}' is linked on {slot}, but {target.GetType().Name} has no "
+                    + "bindable field by that name. The runner skips it.";
+            }
+
+            var source = StateTreeEditorOps.FindParameterById(m_Tree.parameters, row.parameterId);
+            if (source == null)
+            {
+                return $"'{field}' on {slot} is linked to a parameter this tree no longer declares "
+                    + "— it was deleted (a rename would have kept the link). The field's own value "
+                    + "runs instead.";
+            }
+
+            if (source.kind != fieldKind)
+            {
+                return $"'{field}' on {slot} is linked to '{source.name}', which is a "
+                    + $"{KindLabel(source.kind)} where the field takes a {KindLabel(fieldKind)}. "
+                    + "The runner skips it and the field's own value runs instead.";
+            }
+
+            return null;
         }
 
         private void BuildTasks()
@@ -1037,7 +1155,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 // raw list is hidden rather than drawn twice with one of the two unable to show a
                 // default or catch a typo'd name.
                 var fields = BuildParameterFields(task,
-                    program != null || composite != null ? k_OverridesProperty : null);
+                    program != null || composite != null ? k_OverridesProperty : null,
+                    StateTreeFieldBinding.TargetKind.Task, index);
                 if (composite != null)
                 {
                     // The sub-tree can also be swapped by dropping an asset on the generic
@@ -1470,16 +1589,29 @@ namespace PowerOfFire.DrawToPlay.Editor
             return found;
         }
 
-        /// <summary>One knob: the override checkbox, the name, and the value field for its kind.
+        /// <summary>
+        /// One knob: the override checkbox, the name, the value field for its kind, and the control
+        /// that hands the knob to one of THIS tree's own parameters instead of a literal.
+        ///
         /// The field is disabled and dimmed while the checkbox is off, showing the callee's default —
-        /// which is what the state actually runs, so it is shown rather than blanked.</summary>
+        /// which is what the state actually runs, so it is shown rather than blanked — and disabled
+        /// again, for the opposite reason, when the row is linked: the value then comes from the
+        /// parent tree at run time and the literal is a leftover.
+        ///
+        /// LINKING IMPLIES OVERRIDING. "Take this from my 'speed'" is an override — of course it is —
+        /// so the control ticks the checkbox itself rather than being greyed out until the author
+        /// ticks it first, which would be asking them to answer a question they already answered.
+        /// </summary>
         private VisualElement BuildParameterRow(ParameterSurface surface,
             GraphTaskParameter parameter)
         {
+            var container = new VisualElement();
+
             var row = new VisualElement();
             row.AddToClassList("unity-base-field");
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Center;
+            container.Add(row);
 
             var overridden = IsOverridden(surface, parameter);
 
@@ -1503,21 +1635,167 @@ namespace PowerOfFire.DrawToPlay.Editor
                 : identity + ". Default: " + DefaultLabel(parameter);
             row.Add(label);
 
+            var entry = ActiveOverride(surface, parameter);
+            var sourceId = entry != null ? entry.sourceParameterId : null;
+            var linked = !string.IsNullOrEmpty(sourceId);
+            var source = StateTreeEditorOps.FindParameterById(
+                m_Tree != null ? m_Tree.parameters : null, sourceId);
+            var live = IsLiveLink(source, parameter.kind);
+
             var input = BuildParameterInput(surface, parameter);
             input.AddToClassList("unity-base-field__input");
             input.style.flexGrow = 1f;
             WriteParameterInput(input, surface, parameter);
-            ApplyOverrideStyle(input, overridden);
+
+            // Disabled for a STALE link too, not only a live one: the runtime drops an unresolvable
+            // pass-through row rather than falling back to its literal
+            // (StateTreeExecutor.ResolveSourceValues), so the number in the field is not what runs
+            // either way, and an editable field that does nothing is the lie this control exists to
+            // stop being told one level down.
+            ApplyOverrideStyle(input, overridden && !linked);
             row.Add(input);
+
+            var compatible = CompatibleParameters(parameter.kind);
+            if (compatible.Count > 0 || live)
+            {
+                var pick = new Button { text = live ? k_BoundPrefix + source.name : k_LinkLabel };
+                pick.style.flexShrink = 0f;
+                pick.style.marginLeft = 2f;
+                pick.style.maxWidth = 140f;
+                pick.style.overflow = Overflow.Hidden;
+                pick.style.textOverflow = TextOverflow.Ellipsis;
+                pick.style.whiteSpace = WhiteSpace.NoWrap;
+                pick.tooltip = live
+                    ? $"This state passes its own '{source.name}' through as "
+                    + $"'{parameter.name}', so the value beside it is not what runs. Click to pass "
+                    + "a different parameter."
+                    : $"Pass one of THIS tree's {KindLabel(parameter.kind)} parameters through as "
+                    + $"'{parameter.name}', instead of the value typed here — the callee then "
+                    + "follows whatever this tree was given.";
+                pick.clicked += () => ShowParameterMenu(pick, compatible, sourceId,
+                    id => SetOverrideSource(surface, parameter, id, k_LinkSourceUndo));
+                row.Add(pick);
+            }
+
+            if (linked)
+            {
+                var unlink = new Button { text = "✕" };
+                unlink.style.width = 22f;
+                unlink.style.flexShrink = 0f;
+                unlink.tooltip = $"Stop passing a parameter through as '{parameter.name}' — the "
+                    + "value in the field is used again.";
+                unlink.clicked += () => SetOverrideSource(surface, parameter, string.Empty,
+                    k_UnlinkSourceUndo);
+                row.Add(unlink);
+            }
+
+            if (linked && !live)
+            {
+                var help = new HelpBox(StaleSourceMessage(parameter, source),
+                    HelpBoxMessageType.Warning);
+                help.style.marginTop = 2f;
+                container.Add(help);
+            }
 
             toggle.RegisterValueChangedCallback(evt =>
             {
                 SetOverride(surface, parameter, evt.newValue);
+
+                // Un-ticking a linked row deletes the row and the link with it, so the "← name"
+                // beside it has just stopped being true — that one needs the pane, not a restyle.
+                if (linked)
+                {
+                    RebuildPane();
+                    return;
+                }
+
                 WriteParameterInput(input, surface, parameter);
                 ApplyOverrideStyle(input, evt.newValue);
             });
 
-            return row;
+            return container;
+        }
+
+        /// <summary>
+        /// Why an override row's pass-through is doing nothing. Same two stories as a stale field
+        /// link, told about the parent tree's list instead of the callee's — and with a different
+        /// ending, because the two fail differently: a dead FIELD link leaves the field's own value
+        /// in place, while a dead pass-through row is DROPPED from the list the callee is handed
+        /// (StateTreeExecutor.ResolveSourceValues), so what runs is the callee's declared default —
+        /// the same thing an unticked row does. It is quoted here rather than described, because
+        /// "the default" is a number the author would otherwise have to go and look up in another
+        /// asset.
+        /// </summary>
+        private static string StaleSourceMessage(GraphTaskParameter parameter,
+            GraphTaskParameter source)
+        {
+            var ending = " This state falls back to the default declared alongside it "
+                + $"({DefaultLabel(parameter)}), exactly as if the row were unticked.";
+
+            return source == null
+                ? $"'{parameter.name}' is set from a parameter this tree no longer declares — it "
+                + "was deleted (a rename would have kept the link)." + ending
+                : $"'{parameter.name}' is set from '{source.name}', which is now a "
+                + $"{KindLabel(source.kind)} where this parameter is a "
+                + $"{KindLabel(parameter.kind)}, so the link is skipped." + ending;
+        }
+
+        /// <summary>
+        /// Point one override row at a parameter of the tree being edited — the pass-through half of
+        /// M7i, stored as an id on the row exactly like the override's own binding.
+        ///
+        /// The row is created and ticked if it did not exist, because linking IS overriding (see
+        /// <see cref="BuildParameterRow"/>), and the value fields are seeded from the callee's
+        /// default for the same reason <see cref="SetOverride"/> seeds them: unlinking later must
+        /// leave the author looking at the number they were looking at before, not at zero.
+        ///
+        /// An empty <paramref name="sourceId"/> is the unlink, deliberately through this same method:
+        /// clearing the id leaves the row overriding with its literal, which is what the author sees
+        /// the moment the arrow disappears.
+        /// </summary>
+        private void SetOverrideSource(ParameterSurface surface, GraphTaskParameter parameter,
+            string sourceId, string undoName)
+        {
+            var group = StateTreeEditorOps.BeginUndoGroup(undoName);
+            Undo.RecordObject(surface.owner, undoName);
+
+            var overrides = surface.write();
+            var index = IndexOfOverride(surface, parameter);
+
+            GraphTaskParameterOverride entry;
+            if (index < 0)
+            {
+                entry = NewOverrideRow(parameter);
+                overrides.Add(entry);
+            }
+            else
+            {
+                entry = overrides[index];
+                entry.enabled = true;
+            }
+
+            entry.sourceParameterId = sourceId ?? string.Empty;
+
+            EditorUtility.SetDirty(surface.owner);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        /// <summary>A fresh override row for one declaration: bound by id, labelled by name, and
+        /// holding the callee's current default so ticking the box and typing nothing pins the value
+        /// the author was already looking at. One definition because two gestures create rows —
+        /// the checkbox and the link — and a row that came from one behaving differently from a row
+        /// that came from the other would be a bug found weeks later.</summary>
+        private static GraphTaskParameterOverride NewOverrideRow(GraphTaskParameter parameter)
+        {
+            return new GraphTaskParameterOverride
+            {
+                id = parameter.id,
+                name = parameter.name,
+                enabled = true,
+                floatValue = parameter.floatValue,
+                stringValue = parameter.stringValue ?? string.Empty
+            };
         }
 
         /// <summary>The value editor for one parameter kind. Its callback writes straight into the
@@ -1609,14 +1887,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             var index = IndexOfOverride(surface, parameter);
             if (on && index < 0)
             {
-                overrides.Add(new GraphTaskParameterOverride
-                {
-                    id = parameter.id,
-                    name = parameter.name,
-                    enabled = true,
-                    floatValue = parameter.floatValue,
-                    stringValue = parameter.stringValue ?? string.Empty
-                });
+                overrides.Add(NewOverrideRow(parameter));
             }
             else if (on)
             {
@@ -1952,7 +2223,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 box.Add(BuildTransitionTarget(index, transition, nodes));
                 box.Add(BuildTransitionInterrupt(transition));
                 box.Add(BuildTransitionCondition(transition));
-                box.Add(BuildParameterFields(transition.condition));
+                box.Add(BuildParameterFields(transition.condition, null,
+                    StateTreeFieldBinding.TargetKind.TransitionCondition, index));
 
                 m_Root.Add(box);
             }
@@ -2101,13 +2373,18 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>Generic parameter block for one task/condition sub-asset. Nothing here knows
-        /// any component type: whatever the class serialises is what the author sees.</summary>
+        /// any component type: whatever the class serialises is what the author sees — plus, for
+        /// the fields a tree parameter can drive, the control that connects the two.</summary>
         /// <param name="target">The sub-asset to draw.</param>
         /// <param name="hiddenProperty">One property to leave out, for the single case where a
         /// purpose-built control above already edits it. Named rather than inferred, so a field only
         /// disappears where something visibly replaced it.</param>
+        /// <param name="bindingKind">Which list <paramref name="targetIndex"/> indexes — what a
+        /// link row on this state would have to say to find this object again.</param>
+        /// <param name="targetIndex">The target's position in that list, or below zero to draw the
+        /// fields with no link controls at all.</param>
         private VisualElement BuildParameterFields(UnityEngine.Object target,
-            string hiddenProperty = null)
+            string hiddenProperty, StateTreeFieldBinding.TargetKind bindingKind, int targetIndex)
         {
             var container = new VisualElement();
             container.style.marginTop = 2f;
@@ -2128,7 +2405,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (hiddenProperty != null && iterator.propertyPath == hiddenProperty)
                     continue;
 
-                container.Add(new PropertyField(iterator.Copy()));
+                // Only the top level is walked (NextVisible stops entering children after the
+                // first step), so a path IS a field name — which is what a link row stores and what
+                // the executor's reflection looks up.
+                container.Add(BuildBindableField(new PropertyField(iterator.Copy()), target,
+                    iterator.propertyPath, bindingKind, targetIndex));
                 any = true;
             }
 
@@ -2141,6 +2422,199 @@ namespace PowerOfFire.DrawToPlay.Editor
             // tells the window an edit happened so the batched save timer restarts.
             container.RegisterCallback<SerializedPropertyChangeEvent>(_ => m_Edited?.Invoke());
             return container;
+        }
+
+        /// <summary>
+        /// One field, plus the control that connects it to a declared parameter — the M7i link, and
+        /// the answer to "I declared 'speed', now what reads it?" for every task that is not one of
+        /// the handful whose fields happen to be blackboard keys.
+        ///
+        /// The control appears only where it can do something: the field has to be one the executor
+        /// can write (<see cref="StateTreeEditorOps.TryGetBindableKind"/> asks by reflection, so a
+        /// <c>[SerializeField]</c> private is drawn and not offered), and the tree has to declare at
+        /// least one parameter of the matching kind. A field with nothing to bind to is left exactly
+        /// as it was drawn before this existed, because a Link button that opens an empty popup is a
+        /// worse answer than no button.
+        ///
+        /// A BOUND FIELD IS DISABLED, and says where its value comes from. That is the whole point of
+        /// the control: the literal underneath is still in the asset and is still what a reader of the
+        /// YAML sees, so leaving it editable would leave the author tuning a number that the tree
+        /// start overwrites — the failure this window exists to prevent, one level down.
+        ///
+        /// A link whose parameter is GONE leaves the field enabled, because the literal is what runs
+        /// again, and says so in the same warning-plus-remove shape a stale override gets
+        /// (<see cref="BuildStaleOverrideRow"/>). The Link button stays available beside it so the
+        /// fix is one gesture rather than remove-then-link.
+        /// </summary>
+        private VisualElement BuildBindableField(PropertyField field, UnityEngine.Object target,
+            string fieldName, StateTreeFieldBinding.TargetKind kind, int targetIndex)
+        {
+            if (targetIndex < 0 || m_Node == null || m_Tree == null
+                || !StateTreeEditorOps.TryGetBindableKind(target, fieldName, out var fieldKind))
+                return field;
+
+            var binding = StateTreeEditorOps.FindFieldBinding(m_Node, kind, targetIndex, fieldName);
+            var compatible = CompatibleParameters(fieldKind);
+            if (binding == null && compatible.Count == 0)
+                return field;
+
+            var source = binding != null
+                ? StateTreeEditorOps.FindParameterById(m_Tree.parameters, binding.parameterId)
+                : null;
+            var live = IsLiveLink(source, fieldKind);
+
+            var container = new VisualElement();
+
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            container.Add(row);
+
+            field.style.flexGrow = 1f;
+            field.style.flexShrink = 1f;
+
+            // The same disabled-and-dimmed the override rows use, and it means the same thing in
+            // both places: what you are looking at is not what runs.
+            ApplyOverrideStyle(field, !live);
+            row.Add(field);
+
+            if (compatible.Count > 0 || live)
+            {
+                var pick = new Button { text = live ? k_BoundPrefix + source.name : k_LinkLabel };
+                pick.style.flexShrink = 0f;
+                pick.style.marginLeft = 2f;
+                pick.style.maxWidth = 140f;
+                pick.style.overflow = Overflow.Hidden;
+                pick.style.textOverflow = TextOverflow.Ellipsis;
+                pick.style.whiteSpace = WhiteSpace.NoWrap;
+                pick.tooltip = live
+                    ? $"'{fieldName}' is written from the tree parameter '{source.name}' "
+                    + $"({KindLabel(source.kind)}) every time this tree starts, so the value beside "
+                    + "it is not what runs. Click to bind it to a different parameter."
+                    : $"Write this field from one of this tree's {KindLabel(fieldKind)} parameters "
+                    + "when the tree starts, instead of the value typed here.";
+                pick.clicked += () => ShowParameterMenu(pick, compatible,
+                    binding != null ? binding.parameterId : null,
+                    id => SetFieldLink(kind, targetIndex, fieldName, id));
+                row.Add(pick);
+            }
+
+            if (binding != null)
+            {
+                var unlink = new Button { text = "✕" };
+                unlink.style.width = 22f;
+                unlink.style.flexShrink = 0f;
+                unlink.tooltip = $"Stop writing '{fieldName}' from a parameter — the value in the "
+                    + "field runs again.";
+                unlink.clicked += () => ClearFieldLink(kind, targetIndex, fieldName);
+                row.Add(unlink);
+            }
+
+            if (binding != null && !live)
+            {
+                var help = new HelpBox(StaleBindingMessage(fieldName, source, fieldKind),
+                    HelpBoxMessageType.Warning);
+                help.style.marginTop = 2f;
+                container.Add(help);
+            }
+
+            return container;
+        }
+
+        /// <summary>Whether a link actually feeds its target: the parameter is still declared, and
+        /// still of the kind the target takes. ONE definition, asked by both link controls, because
+        /// it is also the test the runtime makes before it writes — <c>StateTreeExecutor.TryWrite</c>
+        /// for a field, <c>ResolveSourceValues</c> for a pass-through, both of which drop a
+        /// kind-mismatched row rather than converting it — and a link this window draws as live and
+        /// the runtime skips is the one outcome none of this may produce.</summary>
+        private static bool IsLiveLink(GraphTaskParameter source, GraphTaskParameterKind kind)
+            => source != null && source.kind == kind;
+
+        /// <summary>Why a field's link is doing nothing — the two stories a stale override tells,
+        /// in the same words. A parameter that is GONE was deleted, never renamed: a link holds an
+        /// id, so a rename is invisible to it. A parameter that is still there but of the wrong
+        /// KIND was retyped in the declaration list above, which the author can see and undo.
+        /// </summary>
+        private static string StaleBindingMessage(string fieldName, GraphTaskParameter source,
+            GraphTaskParameterKind fieldKind)
+        {
+            return source == null
+                ? $"'{fieldName}' is linked to a parameter this tree no longer declares — it was "
+                + "deleted (a rename would have kept the link). The value in the field runs "
+                + "instead."
+                : $"'{fieldName}' is linked to '{source.name}', which is now a "
+                + $"{KindLabel(source.kind)} where this field takes a {KindLabel(fieldKind)}. The "
+                + "link is skipped and the value in the field runs instead.";
+        }
+
+        /// <summary>The declared parameters a field or override row of one kind may bind to. Rows
+        /// with no id are excluded because nothing can bind to them (a baked declaration from before
+        /// ids — the same rule <see cref="BuildIdlessParameterRow"/> explains), and rows with no name
+        /// because the name is the blackboard key the value is seeded under.</summary>
+        private List<GraphTaskParameter> CompatibleParameters(GraphTaskParameterKind kind)
+        {
+            var found = new List<GraphTaskParameter>();
+            var parameters = m_Tree != null ? m_Tree.parameters : null;
+            if (parameters == null)
+                return found;
+
+            for (var i = 0; i < parameters.Count; ++i)
+            {
+                var entry = parameters[i];
+                if (entry != null && entry.kind == kind && !string.IsNullOrEmpty(entry.id)
+                    && !string.IsNullOrEmpty(entry.name))
+                    found.Add(entry);
+            }
+
+            return found;
+        }
+
+        /// <summary>The parameter popup, shared by both link controls. Names are shown and the id is
+        /// what the callback receives — the whole binding model in one method — and the current
+        /// choice is ticked so re-opening it reads as "change this" rather than "make one".</summary>
+        private static void ShowParameterMenu(VisualElement anchor,
+            List<GraphTaskParameter> choices, string currentId, Action<string> picked)
+        {
+            var menu = new GenericMenu();
+            for (var i = 0; i < choices.Count; ++i)
+            {
+                var entry = choices[i];
+                var id = entry.id;
+                var label = (entry.name ?? string.Empty).Replace('/', k_MenuSeparatorStandIn);
+                menu.AddItem(new GUIContent(label),
+                    string.Equals(id, currentId, StringComparison.Ordinal), () => picked(id));
+            }
+
+            menu.DropDown(anchor.worldBound);
+        }
+
+        /// <summary>Bind a field, through the Ops helper that owns the row list — so the link is
+        /// undone in one step and is renumbered by the same file that renumbers everything else when
+        /// a task or transition moves.</summary>
+        private void SetFieldLink(StateTreeFieldBinding.TargetKind kind, int targetIndex,
+            string fieldName, string parameterId)
+        {
+            if (m_Node == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_LinkFieldUndo);
+            StateTreeEditorOps.SetFieldBinding(m_Node, kind, targetIndex, fieldName, parameterId,
+                k_LinkFieldUndo);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        private void ClearFieldLink(StateTreeFieldBinding.TargetKind kind, int targetIndex,
+            string fieldName)
+        {
+            if (m_Node == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_UnlinkFieldUndo);
+            StateTreeEditorOps.RemoveFieldBinding(m_Node, kind, targetIndex, fieldName,
+                k_UnlinkFieldUndo);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
         }
 
         // --- commands ---------------------------------------------------------------------
@@ -2431,11 +2905,21 @@ namespace PowerOfFire.DrawToPlay.Editor
                 + System.IO.Path.GetFileNameWithoutExtension(sourcePath) + "."
                 + StateTreeGraphBridge.graphExtension);
 
+            // Parameter->field links do not survive the graph round-trip (the baker has no
+            // bindings concept); say so up front rather than dropping them silently.
+            var boundNodes = 0;
+            foreach (var treeNode in StateTreeEditorOps.CollectNodes(source))
+                if (treeNode != null && treeNode.bindings != null && treeNode.bindings.Count > 0)
+                    boundNodes++;
+            var bindingWarning = boundNodes == 0 ? "" :
+                $"\n\nWARNING: {boundNodes} state(s) carry parameter->field links; the baked "
+                + "graph does NOT keep them — re-link on the converted tree or keep this asset.";
+
             if (!EditorUtility.DisplayDialog("Convert to Graph",
                 $"Write '{sourceName}' out as a graph at\n\n{target}\n\nThis task is then "
                 + "re-pointed at the tree that graph bakes (one undo step), and the graph opens.\n\n"
                 + $"'{sourcePath}' is left exactly as it is — check the graph, then delete the old "
-                + "asset yourself. Anything else referencing it keeps pointing at it.",
+                + "asset yourself. Anything else referencing it keeps pointing at it." + bindingWarning,
                 "Convert", "Cancel"))
                 return;
 

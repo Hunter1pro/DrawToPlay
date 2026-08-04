@@ -201,6 +201,30 @@ namespace PowerOfFire.DrawToPlay
         public string id;
 
         /// <summary>
+        /// PASS-THROUGH (M7i): id of a parameter of the tree this row's OWNER state lives in, whose
+        /// effective value this row takes instead of its own literal. Empty — the normal case — means
+        /// the row IS the literal typed into it.
+        ///
+        /// This is what makes composition more than one level deep worth anything: a parent tree
+        /// declares "speed", a state in it runs a sub-tree (or a graph) that declares its own
+        /// "speed", and the row wires the second to the first rather than freezing a number half way
+        /// down. Without it every level would have to be re-tuned by hand, and re-tuned again the
+        /// moment the top-level value changed.
+        ///
+        /// Resolved at OnEnter against the CALLER's parameter scope
+        /// (<see cref="StateTreeExecutor.paramScopeKey"/>) by
+        /// <see cref="StateTreeExecutor.ResolveSourceValues"/>, before the callee's own scope
+        /// replaces it — so the value read is the one the state's own tree is running with. A source
+        /// that no longer exists, or one whose KIND no longer matches the parameter this row
+        /// overrides, is stale: one warning, the row skipped, and the callee's declared default
+        /// stands (the same wear rule as an unmatched <see cref="id"/>).
+        ///
+        /// It never changes what this row BINDS to: <see cref="id"/> alone decides which declaration
+        /// is overridden. This field only decides where the value comes from.
+        /// </summary>
+        public string sourceParameterId;
+
+        /// <summary>
         /// THE matching rule, in one place because two appliers implement it and a disagreement
         /// between them would show as an override that the inspector says is live and the runtime
         /// ignores. A row binds to a declaration when both carry the SAME non-empty id — no name

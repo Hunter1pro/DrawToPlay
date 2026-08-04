@@ -29,6 +29,21 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// the check that keeps a composition from closing a loop (<see cref="CreatesCycle"/>) has to
     /// read the authored graph of other assets entirely.
     ///
+    /// AND THIS FILE OWNS THE INDEX REMAP. A state's parameter links
+    /// (<see cref="StateTreeNodeAsset.bindings"/>, M7i) address their target by POSITION in
+    /// <c>node.tasks</c> / <c>node.transitions</c>, so every mutation here that moves a position
+    /// has to move the rows with it — otherwise deleting task 1 leaves task 2's link writing into
+    /// task 1's field, which is a corruption no error message can describe because every row
+    /// involved is individually valid. The four cases are enumerated where they happen:
+    /// <see cref="RemoveTask"/> and <see cref="RemoveTransition"/> drop and renumber
+    /// (<see cref="DropBindingsAt"/>), <see cref="MoveTransition"/> swaps, and
+    /// <see cref="CreateGraphTaskReference"/> shifts when it inserts rather than appends. The
+    /// APPENDS — <see cref="CreateTask"/>, <see cref="CreateSubTreeTask"/>,
+    /// <see cref="AddTransition"/> — move nothing and are deliberately left alone;
+    /// <see cref="SetTransitionCondition"/> moves nothing either but replaces the OBJECT at an
+    /// index, which is its own case (<see cref="PruneBindings"/>). <see cref="RemoveNode"/>
+    /// destroys the node that carries the rows, so there is nothing left to remap.
+    ///
     /// Saving is NOT done here. Callers batch it (see StateTreeEditorWindow) because
     /// AssetDatabase.SaveAssets() on every keystroke stalls the editor on large trees.
     /// </summary>
@@ -329,6 +344,298 @@ namespace PowerOfFire.DrawToPlay.Editor
             return count;
         }
 
+        // --- parameter bindings -----------------------------------------------------------
+
+        /// <summary>
+        /// Bind one serialized field of one of this state's tasks (or of one transition's condition)
+        /// to a parameter the tree declares — the M7i link, written to
+        /// <see cref="StateTreeNodeAsset.bindings"/> and applied by the executor when the tree
+        /// starts.
+        ///
+        /// A row addresses its target BY INDEX into <c>node.tasks</c> / <c>node.transitions</c>,
+        /// which is what makes the rest of this section necessary: every mutation in this file that
+        /// moves those indices has to move the rows with them, or a link authored against task 2
+        /// silently starts writing to task 1. See <see cref="DropBindingsAt"/> and its callers.
+        ///
+        /// ONE ROW PER SLOT, enforced by rewriting rather than editing in place: the executor walks
+        /// the list writing as it goes, so a second row for the same field would silently win, and a
+        /// list that already carried duplicates (hand-edited YAML, a merge) comes out of this with
+        /// one. The binding is by parameter ID only — the M7h rule — so renaming the parameter it
+        /// points at keeps the link.
+        /// </summary>
+        /// <param name="node">The state that owns the link rows.</param>
+        /// <param name="kind">Whether the target is a task or a transition's condition.</param>
+        /// <param name="targetIndex">Index into that list.</param>
+        /// <param name="fieldName">Public serialized instance field on the target.</param>
+        /// <param name="parameterId">Declared parameter's <see cref="GraphTaskParameter.id"/>.</param>
+        /// <param name="undoName">Undo label recorded on the node asset.</param>
+        /// <returns>False when the arguments describe no row at all; the caller reports rather
+        /// than believing a mutation happened.</returns>
+        internal static bool SetFieldBinding(StateTreeNodeAsset node,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName,
+            string parameterId, string undoName)
+        {
+            if (node == null || targetIndex < 0 || string.IsNullOrEmpty(fieldName)
+                || string.IsNullOrEmpty(parameterId))
+                return false;
+
+            Undo.RecordObject(node, undoName);
+
+            if (node.bindings == null)
+                node.bindings = new List<StateTreeFieldBinding>();
+
+            RemoveBindingRows(node, kind, targetIndex, fieldName);
+            node.bindings.Add(new StateTreeFieldBinding
+            {
+                targetKind = kind,
+                targetIndex = targetIndex,
+                fieldName = fieldName,
+                parameterId = parameterId
+            });
+
+            EditorUtility.SetDirty(node);
+            return true;
+        }
+
+        /// <summary>Drop the link on one field, so the field's own authored value is what runs
+        /// again. Every row for that slot goes, for the reason <see cref="SetFieldBinding"/>
+        /// keeps only one: "this field is not linked" has to become true.</summary>
+        /// <returns>False when there was nothing to remove — no undo entry is added in that
+        /// case.</returns>
+        internal static bool RemoveFieldBinding(StateTreeNodeAsset node,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName,
+            string undoName)
+        {
+            if (node == null || node.bindings == null || string.IsNullOrEmpty(fieldName))
+                return false;
+            if (FindFieldBinding(node, kind, targetIndex, fieldName) == null)
+                return false;
+
+            Undo.RecordObject(node, undoName);
+            RemoveBindingRows(node, kind, targetIndex, fieldName);
+            EditorUtility.SetDirty(node);
+            return true;
+        }
+
+        /// <summary>The row in force for one field: the LAST match, because that is the one the
+        /// executor's walk leaves in the field. Duplicates are only reachable through hand-edited
+        /// YAML, and that is exactly when the inspector must not show a different link from the one
+        /// that runs.</summary>
+        internal static StateTreeFieldBinding FindFieldBinding(StateTreeNodeAsset node,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName)
+        {
+            var rows = node != null ? node.bindings : null;
+            if (rows == null || string.IsNullOrEmpty(fieldName))
+                return null;
+
+            StateTreeFieldBinding found = null;
+            for (var i = 0; i < rows.Count; ++i)
+            {
+                if (IsBindingFor(rows[i], kind, targetIndex, fieldName))
+                    found = rows[i];
+            }
+
+            return found;
+        }
+
+        /// <summary>The object a link row writes into: the task at that index, or the condition of
+        /// the transition at that index. Null for every row the executor would skip.</summary>
+        internal static UnityEngine.Object ResolveBindingTarget(StateTreeNodeAsset node,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex)
+        {
+            if (node == null || targetIndex < 0)
+                return null;
+
+            if (kind == StateTreeFieldBinding.TargetKind.Task)
+                return targetIndex < node.tasks.Count ? node.tasks[targetIndex] : null;
+
+            return targetIndex < node.transitions.Count
+                ? node.transitions[targetIndex]?.condition
+                : null;
+        }
+
+        /// <summary>
+        /// Whether a named field of a task or condition can be linked at all, and to which
+        /// parameter kind. This is the ONE definition the editor offers links from, deliberately
+        /// reflection-based rather than driven by the SerializedProperty type: the executor finds
+        /// its target with <c>GetField(name, Public | Instance)</c>, so a <c>[SerializeField]</c>
+        /// private field is visible in the inspector and unreachable at run time, and offering a
+        /// link on one would be offering something that cannot work.
+        ///
+        /// An <c>int</c> field takes a number parameter alongside <c>float</c>, matching the
+        /// executor's kind-compatible write (Float → float|int, Bool → bool, String → string).
+        /// </summary>
+        internal static bool TryGetBindableKind(UnityEngine.Object target, string fieldName,
+            out GraphTaskParameterKind kind)
+        {
+            kind = GraphTaskParameterKind.Float;
+            if (target == null || string.IsNullOrEmpty(fieldName))
+                return false;
+
+            var field = target.GetType().GetField(fieldName,
+                BindingFlags.Public | BindingFlags.Instance);
+            if (field == null || field.IsNotSerialized || field.IsInitOnly)
+                return false;
+
+            return TryGetBindableKind(field.FieldType, out kind);
+        }
+
+        internal static bool TryGetBindableKind(Type fieldType, out GraphTaskParameterKind kind)
+        {
+            if (fieldType == typeof(float) || fieldType == typeof(int))
+            {
+                kind = GraphTaskParameterKind.Float;
+                return true;
+            }
+
+            if (fieldType == typeof(bool))
+            {
+                kind = GraphTaskParameterKind.Bool;
+                return true;
+            }
+
+            if (fieldType == typeof(string))
+            {
+                kind = GraphTaskParameterKind.String;
+                return true;
+            }
+
+            kind = GraphTaskParameterKind.Float;
+            return false;
+        }
+
+        /// <summary>The declaration one id names, or null for a link bound to nothing. Mirrors
+        /// <see cref="GraphTaskParameterOverride.Matches"/> exactly — non-empty id on both sides,
+        /// and a declaration with no NAME is unmatchable (it is an inspector row mid-edit, and the
+        /// name is the blackboard key the seeded value lands under).</summary>
+        internal static GraphTaskParameter FindParameterById(List<GraphTaskParameter> declared,
+            string id)
+        {
+            if (declared == null || string.IsNullOrEmpty(id))
+                return null;
+
+            for (var i = 0; i < declared.Count; ++i)
+            {
+                var entry = declared[i];
+                if (entry != null && !string.IsNullOrEmpty(entry.name)
+                    && string.Equals(entry.id, id, StringComparison.Ordinal))
+                    return entry;
+            }
+
+            return null;
+        }
+
+        private static bool IsBindingFor(StateTreeFieldBinding row,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName)
+        {
+            return row != null && row.targetKind == kind && row.targetIndex == targetIndex
+                && string.Equals(row.fieldName, fieldName, StringComparison.Ordinal);
+        }
+
+        private static void RemoveBindingRows(StateTreeNodeAsset node,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName)
+        {
+            var rows = node.bindings;
+            if (rows == null)
+                return;
+
+            for (var i = rows.Count - 1; i >= 0; --i)
+            {
+                if (IsBindingFor(rows[i], kind, targetIndex, fieldName))
+                    rows.RemoveAt(i);
+            }
+        }
+
+        /// <summary>
+        /// The index remap for a REMOVAL: rows that pointed at the removed slot die with it, and
+        /// every row past it follows its target down one.
+        ///
+        /// The three remap helpers take no undo label and record nothing on purpose — each is
+        /// called from inside a mutation that has already done <c>Undo.RecordObject(node, …)</c>,
+        /// and recording again AFTER the list changed would capture the mutated state as the state
+        /// to undo to.
+        /// </summary>
+        private static void DropBindingsAt(StateTreeNodeAsset node,
+            StateTreeFieldBinding.TargetKind kind, int index)
+        {
+            var rows = node != null ? node.bindings : null;
+            if (rows == null || index < 0)
+                return;
+
+            for (var i = rows.Count - 1; i >= 0; --i)
+            {
+                var row = rows[i];
+                if (row == null || row.targetKind != kind)
+                    continue;
+
+                if (row.targetIndex == index)
+                    rows.RemoveAt(i);
+                else if (row.targetIndex > index)
+                    --row.targetIndex;
+            }
+        }
+
+        /// <summary>The index remap for an INSERTION: everything at or past the insertion point
+        /// addresses one slot later than it did.</summary>
+        private static void ShiftBindingsFrom(StateTreeNodeAsset node,
+            StateTreeFieldBinding.TargetKind kind, int index)
+        {
+            var rows = node != null ? node.bindings : null;
+            if (rows == null || index < 0)
+                return;
+
+            for (var i = 0; i < rows.Count; ++i)
+            {
+                var row = rows[i];
+                if (row != null && row.targetKind == kind && row.targetIndex >= index)
+                    ++row.targetIndex;
+            }
+        }
+
+        /// <summary>The index remap for a REORDER. <c>else if</c> rather than two ifs: a row moved
+        /// from a to b must not then be moved back by the second test.</summary>
+        private static void SwapBindings(StateTreeNodeAsset node,
+            StateTreeFieldBinding.TargetKind kind, int a, int b)
+        {
+            var rows = node != null ? node.bindings : null;
+            if (rows == null || a == b)
+                return;
+
+            for (var i = 0; i < rows.Count; ++i)
+            {
+                var row = rows[i];
+                if (row == null || row.targetKind != kind)
+                    continue;
+
+                if (row.targetIndex == a)
+                    row.targetIndex = b;
+                else if (row.targetIndex == b)
+                    row.targetIndex = a;
+            }
+        }
+
+        /// <summary>Drop the rows of one slot that the object now sitting in it cannot satisfy —
+        /// the SWAP case, where the index is unchanged but the thing at it is a different class
+        /// with different fields. A null <paramref name="target"/> (the condition was cleared)
+        /// takes every row for the slot, which is the same answer arrived at one field at a
+        /// time.</summary>
+        private static void PruneBindings(StateTreeNodeAsset node,
+            StateTreeFieldBinding.TargetKind kind, int index, UnityEngine.Object target)
+        {
+            var rows = node != null ? node.bindings : null;
+            if (rows == null || index < 0)
+                return;
+
+            for (var i = rows.Count - 1; i >= 0; --i)
+            {
+                var row = rows[i];
+                if (row == null || row.targetKind != kind || row.targetIndex != index)
+                    continue;
+                if (!TryGetBindableKind(target, row.fieldName, out _))
+                    rows.RemoveAt(i);
+            }
+        }
+
         // --- sub-asset lifecycle ----------------------------------------------------------
 
         /// <summary>Create a state under <paramref name="parent"/> (null = become the tree
@@ -444,9 +751,18 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             Undo.RecordObject(node, undoName);
             if (insertAt >= 0 && insertAt <= node.tasks.Count)
+            {
                 node.tasks.Insert(insertAt, task);
+
+                // The one task mutation in this file that is not an append, and therefore the one
+                // that moves existing task indices — every parameter link at or past the insertion
+                // point now addresses the task after the one it was authored against.
+                ShiftBindingsFrom(node, StateTreeFieldBinding.TargetKind.Task, insertAt);
+            }
             else
+            {
                 node.tasks.Add(task);
+            }
 
             EditorUtility.SetDirty(node);
             EditorUtility.SetDirty(tree);
@@ -512,6 +828,14 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             Undo.RecordObject(node, undoName);
             transition.condition = created;
+
+            // The transition's INDEX is unchanged, but the object at it is a different class: links
+            // authored against the old condition's fields would either dangle or — worse — hit a
+            // same-named field of the new one that means something else. Rows the replacement can
+            // still satisfy survive, which is what makes re-picking the same type (the picker
+            // allows it) a no-op here too.
+            PruneBindings(node, StateTreeFieldBinding.TargetKind.TransitionCondition,
+                node.transitions.IndexOf(transition), created);
             EditorUtility.SetDirty(node);
 
             // Clear the reference before destroying, never the other way round: a sub-asset
@@ -528,7 +852,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
 
             Undo.RecordObject(node, undoName);
+
+            // Read the index BEFORE the removal: it is what the surviving parameter links are
+            // renumbered against, and afterwards the list no longer knows where the task was.
+            var index = node.tasks.IndexOf(task);
             node.tasks.Remove(task);
+            DropBindingsAt(node, StateTreeFieldBinding.TargetKind.Task, index);
             EditorUtility.SetDirty(node);
 
             DestroySubAsset(task);
@@ -545,6 +874,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             var transition = node.transitions[index];
             Undo.RecordObject(node, undoName);
             node.transitions.RemoveAt(index);
+            DropBindingsAt(node, StateTreeFieldBinding.TargetKind.TransitionCondition, index);
             EditorUtility.SetDirty(node);
 
             DestroySubAsset(transition?.condition);
@@ -587,6 +917,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             var moved = node.transitions[index];
             node.transitions[index] = node.transitions[target];
             node.transitions[target] = moved;
+
+            // The conditions moved with their transitions, so the parameter links have to move too
+            // — a reorder that left them behind would silently retarget both of them.
+            SwapBindings(node, StateTreeFieldBinding.TargetKind.TransitionCondition, index, target);
             EditorUtility.SetDirty(node);
             if (tree != null)
                 EditorUtility.SetDirty(tree);

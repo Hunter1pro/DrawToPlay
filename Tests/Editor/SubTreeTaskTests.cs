@@ -68,6 +68,57 @@ namespace PowerOfFire.DrawToPlay.Tests
     }
 
     /// <summary>
+    /// Task stub with one PUBLIC FIELD PER BINDABLE KIND, reporting all four whenever it is entered.
+    /// The M7i binding cases need a target whose fields are the assertion: a binding writes a field
+    /// of the DEEP COPY the executor runs, so the authored instance the test holds can never show
+    /// what happened — only the copy's own log entry can.
+    ///
+    /// It reports every field on every entry, not just the bound one, because the interesting
+    /// failures are the ones where a row writes the WRONG field or a skipped row leaves its target
+    /// at the authored value while the rest of the list still applies. One trace line shows both.
+    /// </summary>
+    internal sealed class StubBoundFieldTask : StateTreeTaskAsset
+    {
+        public string taskId = "bound";
+
+        /// <summary>Float parameter target.</summary>
+        public float speed;
+
+        /// <summary>Float parameter target of the other accepted numeric type.</summary>
+        public int count;
+
+        /// <summary>Bool parameter target.</summary>
+        public bool flag;
+
+        /// <summary>String parameter target.</summary>
+        public string label = "";
+
+        public override void OnEnter(StateTreeContext context)
+        {
+            StateTreeTestLog.Record(context, taskId + ":enter:" + Describe());
+        }
+
+        public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
+        {
+            StateTreeTestLog.Record(context, taskId + ":tick:" + Describe());
+            return StateTreeStatus.Running;
+        }
+
+        public override void OnExit(StateTreeContext context, StateTreeStatus status)
+        {
+            StateTreeTestLog.Record(context, taskId + ":exit:" + status);
+        }
+
+        /// <summary>"3|0|false|" — invariant culture on the float, because a machine running under a
+        /// comma-decimal locale must fail these tests for a real reason or not at all.</summary>
+        private string Describe()
+        {
+            return System.Convert.ToString(speed, System.Globalization.CultureInfo.InvariantCulture)
+                + "|" + count + "|" + (flag ? "true" : "false") + "|" + label;
+        }
+    }
+
+    /// <summary>
     /// EditMode coverage of <see cref="RunSubTreeTask"/> — a tree running as a task inside
     /// another tree (M7c). Same rules as <see cref="StateTreeRunnerTests"/>: trees are built in
     /// memory (no AssetDatabase), runners live on INACTIVE GameObjects with autoStart off so
@@ -698,6 +749,307 @@ namespace PowerOfFire.DrawToPlay.Tests
             LogAssert.NoUnexpectedReceived();
         }
 
+        // ------------------------------------------------------------------ field bindings (M7i)
+        //
+        // A declared parameter reaches a task's own FIELD, not just the blackboard. The executor
+        // applies the rows to the copy it runs, once per start, which is why every case here reads
+        // the value out of the running copy's log rather than off the authored asset.
+
+        /// <summary>THE binding rule: when the tree starts, the bound field of the running copy
+        /// already holds the parameter's effective value — before the task is entered, so a task
+        /// that acts on OnEnter acts on the bound value. And the AUTHORED asset is untouched, which
+        /// is what lets two states share one configured task at two different tunings.</summary>
+        [Test]
+        public void Binding_TaskFieldHoldsTheEffectiveValueBeforeTheTaskEnters()
+        {
+            StubBoundFieldTask authored = MakeBoundTask("bound");
+            var work = MakeNode("work", authored);
+            Bind(work, 0, "speed", Id("speed"));
+            StateTreeAsset tree = MakeTree(work, "BoundTree");
+            tree.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 3f));
+
+            var runner = MakeRunner(tree, "Zombie");
+            runner.StartTree();
+
+            CollectionAssert.AreEqual(new[] { "bound:enter:3|0|false|" }, Log(runner),
+                "the running copy entered with its bound field already set");
+            Assert.AreEqual(0f, authored.speed,
+                "the authored task must never be written to — only the executor's deep copy is");
+        }
+
+        /// <summary>Every accepted kind through its own field type, in one tree: a Float into an
+        /// <c>int</c> as well as a <c>float</c> (a tuning knob is routinely a count), a Bool into a
+        /// <c>bool</c> — a REAL bool here, unlike the blackboard's 1/0, because a field has a
+        /// declared type and nothing to disambiguate — and a String into a <c>string</c>.</summary>
+        [Test]
+        public void Binding_EachKindWritesItsOwnFieldType()
+        {
+            var work = MakeNode("work", MakeBoundTask("bound"));
+            Bind(work, 0, "speed", Id("speed"));
+            Bind(work, 0, "count", Id("speed"));
+            Bind(work, 0, "flag", Id("angry"));
+            Bind(work, 0, "label", Id("mood"));
+            StateTreeAsset tree = MakeTree(work, "BoundTree");
+            tree.parameters = Params(
+                Param("speed", GraphTaskParameterKind.Float, 4f),
+                Param("angry", GraphTaskParameterKind.Bool, 1f),
+                Param("mood", GraphTaskParameterKind.String, 0f, "furious"));
+
+            var runner = MakeRunner(tree, "Zombie");
+            runner.StartTree();
+
+            CollectionAssert.AreEqual(new[] { "bound:enter:4|4|true|furious" }, Log(runner));
+        }
+
+        /// <summary>A field or a parameter retyped after the row was authored is the one way a live
+        /// binding can go wrong, so it is an ERROR (a field silently left at its authored value is
+        /// indistinguishable from a binding that worked) — and only THAT row is skipped: the rest of
+        /// the list still applies, because one bad wire must not disarm the state.</summary>
+        [Test]
+        public void Binding_KindMismatchErrorsAndSkipsOnlyThatRow()
+        {
+            var work = MakeNode("work", MakeBoundTask("bound"));
+            Bind(work, 0, "flag", Id("speed"));      // Float into a bool: refused, not converted.
+            Bind(work, 0, "label", Id("mood"));      // and this one still lands.
+            StateTreeAsset tree = MakeTree(work, "BoundTree");
+            tree.parameters = Params(
+                Param("speed", GraphTaskParameterKind.Float, 4f),
+                Param("mood", GraphTaskParameterKind.String, 0f, "calm"));
+
+            LogAssert.Expect(LogType.Error, new Regex("'flag'"));
+            var runner = MakeRunner(tree, "Zombie");
+            runner.StartTree();
+
+            CollectionAssert.AreEqual(new[] { "bound:enter:0|0|false|calm" }, Log(runner),
+                "the mismatched row was skipped and the good one applied");
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        /// <summary>The runtime half of the index-remap contract: the editor Ops remap binding rows
+        /// when a task is removed or a transition reordered, and when they miss one the row must
+        /// name a target that is not there — one error, the row skipped, nothing thrown, and the
+        /// state still enters and runs. A binding is authoring metadata; losing one cannot be
+        /// allowed to lose the state it was authored on.</summary>
+        [Test]
+        public void Binding_OutOfRangeTargetErrorsAndTheStateStillRuns()
+        {
+            var work = MakeNode("work", MakeBoundTask("bound"));
+            Bind(work, 3, "speed", Id("speed"));
+            StateTreeAsset tree = MakeTree(work, "BoundTree");
+            tree.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 3f));
+
+            LogAssert.Expect(LogType.Error, new Regex("task 3"));
+            var runner = MakeRunner(tree, "Zombie");
+            runner.StartTree();
+            runner.TickTree(0.1f);
+
+            CollectionAssert.AreEqual(new[] { "bound:enter:0|0|false|", "bound:tick:0|0|false|" },
+                Log(runner), "the state ran, at the authored value, with nothing bound");
+            Assert.AreEqual("work", runner.activeNodeId);
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        /// <summary>A row bound to a parameter the tree does not declare is the other authoring
+        /// mistake with the same consequence, and it is reported the same way — the id, not the
+        /// field, being the part that went missing.</summary>
+        [Test]
+        public void Binding_UnknownParameterIdErrorsAndIsSkipped()
+        {
+            var work = MakeNode("work", MakeBoundTask("bound"));
+            Bind(work, 0, "speed", "pid-deleted");
+            StateTreeAsset tree = MakeTree(work, "BoundTree");
+            tree.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 3f));
+
+            LogAssert.Expect(LogType.Error, new Regex("pid-deleted"));
+            var runner = MakeRunner(tree, "Zombie");
+            runner.StartTree();
+
+            CollectionAssert.AreEqual(new[] { "bound:enter:0|0|false|" }, Log(runner));
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        /// <summary>Transitions are the other half of a state's authored surface, so a condition's
+        /// field binds exactly like a task's. Proven through BEHAVIOUR rather than a field read: the
+        /// parameter supplies the blackboard key <see cref="StubFlagCondition"/> watches, and the
+        /// transition fires on that key and no other.</summary>
+        [Test]
+        public void Binding_TransitionConditionFieldIsBound()
+        {
+            var work = MakeNode("work", MakeTask("work"));
+            AddTransition(work, "done", MakeFlagCondition("unbound"), true);
+            Bind(work, 0, "flagKey", Id("gateKey"),
+                StateTreeFieldBinding.TargetKind.TransitionCondition);
+            var done = MakeNode("done", MakeTask("done"));
+            var root = MakeNode("root");
+            root.children.Add(work);
+            root.children.Add(done);
+
+            StateTreeAsset tree = MakeTree(root, "GateTree");
+            tree.parameters = Params(Param("gateKey", GraphTaskParameterKind.String, 0f, "gate"));
+
+            var runner = MakeRunner(tree, "Zombie");
+            runner.StartTree();
+
+            runner.context.blackboard["unbound"] = true;
+            runner.TickTree(0.1f);
+            Assert.AreEqual("work", runner.activeNodeId,
+                "the condition no longer watches the key it was authored with");
+
+            runner.context.blackboard["gate"] = true;
+            runner.TickTree(0.1f);
+            Assert.AreEqual("done", runner.activeNodeId,
+                "it watches the key the bound parameter named");
+        }
+
+        /// <summary>The caller's override reaches the child's bound FIELD, which is the whole point
+        /// of the two features together: a state tunes a sub-tree, and what it tuned lands in the
+        /// field of a task three assets away without either end knowing about the other.</summary>
+        [Test]
+        public void Binding_SubTreeOverrideReachesTheChildsBoundField()
+        {
+            StateTreeAsset childTree = MakeBoundTree("childSpeed", 1f);
+            RunSubTreeTask task = MakeSubTreeTask(childTree);
+            task.overrides = Overrides(Override("childSpeed", true, 9f));
+            StateTreeContext context = MakeContext("Zombie");
+
+            task.OnEnter(context);
+
+            CollectionAssert.AreEqual(new[] { "bound:enter:9|0|false|" }, Log(context),
+                "the child's bound field holds the caller's value, not the declared 1");
+            task.OnExit(context, StateTreeStatus.Cancelled);
+        }
+
+        // ------------------------------------------------------------------ pass-through (M7i)
+        //
+        // An override row may source its value from a parameter of the tree the CALLING STATE lives
+        // in, so a value declared at the top of a composition reaches the bottom of it.
+
+        /// <summary>THE pass-through case, end to end and one level deep: the parent tree declares
+        /// "speed", the state's override row on the sub-tree call takes its value from it, and the
+        /// child's bound field ends up holding the parent's value — never the literal typed into the
+        /// row, which is left at a value it could not be confused with.</summary>
+        [Test]
+        public void PassThrough_ParentParameterReachesTheChildsBoundField()
+        {
+            StateTreeAsset childTree = MakeBoundTree("childSpeed", 1f);
+            RunSubTreeTask call = MakeSubTreeTask(childTree);
+            call.overrides = Overrides(
+                Override("childSpeed", true, -1f, null, Id("childSpeed"), Id("speed")));
+
+            StateTreeAsset parentTree = MakeTree(MakeNode("call", call), "ParentTree");
+            parentTree.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 7f));
+
+            var runner = MakeRunner(parentTree, "Zombie");
+            runner.StartTree();
+
+            CollectionAssert.AreEqual(new[] { "bound:enter:7|0|false|" }, Log(runner),
+                "the child read the PARENT's parameter, not the row's own -1");
+        }
+
+        /// <summary>The parent's own override travels the same wire: tuning the parent's parameter
+        /// re-tunes everything downstream of it, which is what makes a composition worth
+        /// parameterising at all. Same fixture as above, one level higher.</summary>
+        [Test]
+        public void PassThrough_ChainsThroughTwoLevelsOfOverride()
+        {
+            StateTreeAsset childTree = MakeBoundTree("childSpeed", 1f);
+            RunSubTreeTask innerCall = MakeSubTreeTask(childTree);
+            innerCall.overrides = Overrides(
+                Override("childSpeed", true, -1f, null, Id("childSpeed"), Id("speed")));
+
+            StateTreeAsset middleTree = MakeTree(MakeNode("call", innerCall), "MiddleTree");
+            middleTree.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 7f));
+
+            RunSubTreeTask outerCall = MakeSubTreeTask(middleTree);
+            outerCall.overrides = Overrides(Override("speed", true, 12f));
+            StateTreeContext context = MakeContext("Zombie");
+
+            outerCall.OnEnter(context);
+
+            CollectionAssert.AreEqual(new[] { "bound:enter:12|0|false|" }, Log(context),
+                "the outermost caller's 12 travelled two levels down into a field");
+            Assert.AreEqual(12f, SeededFloat(context, "speed"), "the middle tree seeded its own key");
+            Assert.AreEqual(12f, SeededFloat(context, "childSpeed"),
+                "and the child's key carries what was passed through, not its declared 1");
+
+            outerCall.OnExit(context, StateTreeStatus.Cancelled);
+        }
+
+        /// <summary>The scope is the CALLER's for exactly as long as the caller is the caller: a
+        /// sub-tree that declares a parameter with the same id as its parent's must not be able to
+        /// feed its own value back into itself. Proven by nesting the same id: the row still reads
+        /// 7, the parent's value, although the child declares 1 under that id by the time the child
+        /// is running.</summary>
+        [Test]
+        public void PassThrough_ReadsTheCallersScopeAndNotTheCalleesOwn()
+        {
+            StateTreeAsset childTree = MakeBoundTree("speed", 1f);
+            RunSubTreeTask call = MakeSubTreeTask(childTree);
+            call.overrides = Overrides(
+                Override("speed", true, -1f, null, Id("speed"), Id("speed")));
+
+            StateTreeAsset parentTree = MakeTree(MakeNode("call", call), "ParentTree");
+            parentTree.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 7f));
+
+            var runner = MakeRunner(parentTree, "Zombie");
+            runner.StartTree();
+
+            CollectionAssert.AreEqual(new[] { "bound:enter:7|0|false|" }, Log(runner));
+
+            runner.StopTree();
+            Assert.IsFalse(runner.context.domainContext.ContainsKey(StateTreeExecutor.paramScopeKey),
+                "and both scopes are popped when the trees stop — the context is left as it was");
+        }
+
+        /// <summary>A source parameter that no longer exists is wear, not a fault: the row is
+        /// skipped so the callee's DECLARED DEFAULT stands (the same thing an unchecked row does),
+        /// everything else still applies, and it is a warning said once per instance rather than
+        /// once per activation.</summary>
+        [Test]
+        public void PassThrough_UnknownSourceWarnsOnceAndFallsBackToTheDeclaration()
+        {
+            StateTreeAsset childTree = MakeBoundTree("childSpeed", 1f);
+            RunSubTreeTask task = MakeSubTreeTask(childTree);
+            task.overrides = Overrides(
+                Override("childSpeed", true, -1f, null, Id("childSpeed"), "pid-gone"));
+            StateTreeContext context = MakeContext("Zombie");
+
+            LogAssert.Expect(LogType.Warning, new Regex("'childSpeed'"));
+            task.OnEnter(context);
+
+            CollectionAssert.AreEqual(new[] { "bound:enter:1|0|false|" }, Log(context),
+                "the declared default, never the row's own -1");
+            task.OnExit(context, StateTreeStatus.Cancelled);
+
+            task.OnEnter(context);
+            task.OnExit(context, StateTreeStatus.Cancelled);
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        /// <summary>A source that exists but has been RETYPED is refused for the same reason a
+        /// mismatched field binding is: carrying a string into a float parameter would publish a
+        /// number the author never chose, and no conversion here is better than a silent one.</summary>
+        [Test]
+        public void PassThrough_SourceOfADifferentKindIsRefused()
+        {
+            StateTreeAsset childTree = MakeBoundTree("childSpeed", 1f);
+            RunSubTreeTask call = MakeSubTreeTask(childTree);
+            call.overrides = Overrides(
+                Override("childSpeed", true, -1f, null, Id("childSpeed"), Id("mood")));
+
+            StateTreeAsset parentTree = MakeTree(MakeNode("call", call), "ParentTree");
+            parentTree.parameters = Params(
+                Param("mood", GraphTaskParameterKind.String, 0f, "furious"));
+
+            LogAssert.Expect(LogType.Warning, new Regex("'childSpeed'"));
+            var runner = MakeRunner(parentTree, "Zombie");
+            runner.StartTree();
+
+            CollectionAssert.AreEqual(new[] { "bound:enter:1|0|false|" }, Log(runner),
+                "the kinds disagree, so the child keeps its declared default");
+            LogAssert.NoUnexpectedReceived();
+        }
+
         // ------------------------------------------------------------------ fixture helpers
 
         /// <summary>Sub-tree shape used by the success case: an attack state that finishes, then
@@ -782,15 +1134,58 @@ namespace PowerOfFire.DrawToPlay.Tests
 
         /// <summary>An override row. <paramref name="id"/> is what it BINDS by;
         /// <paramref name="name"/> is only what the inspector would show — the identity cases pass
-        /// the two deliberately out of step.</summary>
+        /// the two deliberately out of step. <paramref name="sourceParameterId"/> makes it a
+        /// PASS-THROUGH row: the value then comes from the calling tree's parameter of that id and
+        /// <paramref name="floatValue"/> is the literal it must NOT use.</summary>
         private static GraphTaskParameterOverride Override(string name, bool enabled,
-            float floatValue = 0f, string stringValue = null, string id = null)
+            float floatValue = 0f, string stringValue = null, string id = null,
+            string sourceParameterId = null)
         {
             return new GraphTaskParameterOverride
             {
                 name = name, enabled = enabled, floatValue = floatValue, stringValue = stringValue,
-                id = id ?? Id(name)
+                id = id ?? Id(name), sourceParameterId = sourceParameterId
             };
+        }
+
+        /// <summary>A task whose four public fields are the four bindable kinds.</summary>
+        private StubBoundFieldTask MakeBoundTask(string id)
+        {
+            var task = ScriptableObject.CreateInstance<StubBoundFieldTask>();
+            task.name = id + "Bound";
+            task.taskId = id;
+            m_Assets.Add(task);
+            return task;
+        }
+
+        /// <summary>Single-state tree declaring one Float parameter and binding it to the
+        /// <see cref="StubBoundFieldTask.speed"/> field of its one task — the smallest shape in
+        /// which "a value reached a field" is observable.</summary>
+        private StateTreeAsset MakeBoundTree(string parameterName, float declaredDefault)
+        {
+            var work = MakeNode("work", MakeBoundTask("bound"));
+            Bind(work, 0, "speed", Id(parameterName));
+            StateTreeAsset tree = MakeTree(work, "BoundTree");
+            tree.parameters = Params(
+                Param(parameterName, GraphTaskParameterKind.Float, declaredDefault));
+            return tree;
+        }
+
+        /// <summary>Adds one binding row to a node, the way the inspector's link control would:
+        /// the target is an index into the node's own list, the parameter an id.</summary>
+        private static StateTreeFieldBinding Bind(StateTreeNodeAsset node, int targetIndex,
+            string fieldName, string parameterId,
+            StateTreeFieldBinding.TargetKind targetKind = StateTreeFieldBinding.TargetKind.Task)
+        {
+            var binding = new StateTreeFieldBinding
+            {
+                targetKind = targetKind,
+                targetIndex = targetIndex,
+                fieldName = fieldName,
+                parameterId = parameterId
+            };
+            node.bindings.Add(binding);
+            return binding;
         }
 
         private static List<GraphTaskParameterOverride> Overrides(
