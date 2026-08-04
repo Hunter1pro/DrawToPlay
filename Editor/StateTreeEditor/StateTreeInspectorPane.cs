@@ -257,6 +257,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// where it is decided.</summary>
         private const string k_BoundPrefix = "← ";
 
+        /// <summary>What a WIRED field shows in place of its value (M7m): the value is a task
+        /// output that exists only at runtime, so the honest display is that there is nothing to
+        /// display — not the authored number, which a routing entry overwrites.</summary>
+        private const string k_RoutedValueText = "unknown until entry";
+
         /// <summary>What a row bound to a BLACKBOARD KEY shows instead of <see cref="k_BoundPrefix"/>
         /// — a flag rather than an arrow, because the two sources are not the same promise and must
         /// not read as the same one. An arrow points at a declaration that is definitely there; a flag
@@ -3241,16 +3246,26 @@ namespace PowerOfFire.DrawToPlay.Editor
             row.style.minHeight = k_RowMinHeight;
             container.Add(row);
 
-            field.style.flexGrow = 1f;
-            field.style.flexShrink = 1f;
-
             // The same disabled-and-dimmed the override rows use, and it means the same thing in
             // both places: what you are looking at is not what runs. A key-bound literal dims too:
             // it does still run on entries where nothing wrote the key, but that makes it a
             // FALLBACK (the source button's tooltip says so), and an editable-looking field beside
             // a wire claims to be the value in charge — the one thing it is not.
-            ApplyOverrideStyle(field, !live && !keyBound);
-            row.Add(field);
+            //
+            // A WIRED field goes one further and shows no literal at all (M7m): what runs is a task
+            // output produced at runtime, so even a dimmed number is a confident display of the
+            // wrong thing. The stand-in says "unknown"; the authored fallback rides its tooltip.
+            if (keyBound && BindingKeyWired(binding.blackboardKey))
+            {
+                row.Add(BuildRoutedValueStandIn(target, fieldName, binding.blackboardKey));
+            }
+            else
+            {
+                field.style.flexGrow = 1f;
+                field.style.flexShrink = 1f;
+                ApplyOverrideStyle(field, !live && !keyBound);
+                row.Add(field);
+            }
 
             var pick = new Button
             {
@@ -3312,6 +3327,42 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             return container;
+        }
+
+        /// <summary>
+        /// What a WIRED field shows in place of its value. The number in the asset is not what will
+        /// run — a routing transition overwrites it at entry with a task output that exists only at
+        /// runtime — so showing it, even dimmed, would be a confident display of the wrong thing.
+        /// The stand-in states the truth of edit time: the value is unknown here. The authored
+        /// number survives only as the fallback for entry paths that route nothing, and the tooltip
+        /// carries it, read once at build from the field itself so the two can never disagree.
+        /// </summary>
+        private VisualElement BuildRoutedValueStandIn(UnityEngine.Object target, string fieldName,
+            string key)
+        {
+            var standIn = new TextField(ObjectNames.NicifyVariableName(fieldName))
+            {
+                value = k_RoutedValueText,
+                isReadOnly = true
+            };
+            standIn.AddToClassList(TextField.alignedFieldUssClassName);
+            standIn.style.flexGrow = 1f;
+            standIn.style.flexShrink = 1f;
+            standIn.style.minHeight = k_ControlMinHeight;
+            ApplyOverrideStyle(standIn, false);
+
+            var info = target != null
+                ? target.GetType().GetField(fieldName,
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public)
+                : null;
+            var fallback = info != null ? info.GetValue(target) : null;
+            standIn.tooltip = $"'{fieldName}' is overwritten from blackboard key '{key}' when this "
+                + "state is entered — the value is a task's output, produced at runtime, so it is "
+                + "unknown while editing. Only an entry through a path that routes nothing keeps "
+                + (fallback != null
+                    ? $"the authored value ({fallback})."
+                    : "the authored value.");
+            return standIn;
         }
 
         /// <summary>The key itself, edited where it is read. Delayed like every other committing text
