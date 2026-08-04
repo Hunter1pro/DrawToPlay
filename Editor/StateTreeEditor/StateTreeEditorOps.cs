@@ -62,7 +62,9 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// transition's <c>targetNodeId</c> (<see cref="RetargetTransitions"/>), a parameter's name used
     /// as a blackboard key by the tasks that read it (<see cref="RetargetBlackboardReads"/>), and the
     /// key an output route writes for a field binding to read at entry
-    /// (<see cref="RetargetEntryBindings"/>) — so renaming either end of one of them disconnects it
+    /// (<see cref="RetargetEntryBindings"/> when the route's end is retyped,
+    /// <see cref="RetargetIncomingRoutes"/> when the field's is) — so renaming either end of one of
+    /// them disconnects it
     /// with nothing broken enough to report. Only the first is fixed SILENTLY, because a node id is
     /// an editor-side handle and a rename that skipped it would simply break the tree. The other two
     /// are name CONTRACTS whose other end may legitimately be meant to stay put, so they are counted,
@@ -1108,6 +1110,87 @@ namespace PowerOfFire.DrawToPlay.Editor
                     }
 
                     row.blackboardKey = newKey;
+                }
+
+                if (touched)
+                    EditorUtility.SetDirty(node);
+            }
+
+            return count;
+        }
+
+        /// <summary>How many routes into one state write <paramref name="key"/> — the question
+        /// <see cref="RetargetIncomingRoutes"/> is offered on the strength of, asked without
+        /// changing anything. The <see cref="CountEntryBindings"/> shape, for the same reason: the
+        /// number is the whole basis for the author's decision, so it has to be quotable before the
+        /// fact.</summary>
+        internal static int CountIncomingRoutes(StateTreeAsset tree, string nodeId, string key)
+            => ScanIncomingRoutes(tree, nodeId, key, null, false, null);
+
+        /// <summary>
+        /// Move every route into one state from writing <paramref name="oldKey"/> to writing
+        /// <paramref name="newKey"/> — <see cref="RetargetEntryBindings"/> approached from the other
+        /// end of the same wire, for the edit made from the other end of it: the FIELD's key was
+        /// retyped, and the routes that fed it sit on other states' transitions where nothing the
+        /// author is looking at changes. Scoped by the same v1 rule — only transitions whose target
+        /// is this state, the one place route and binding are provably one wire.
+        ///
+        /// Matched through <see cref="TransitionOutputRoute.ResolvedKey"/>, like every reader of a
+        /// route's key: a row with an empty <c>blackboardKey</c> writes under its output's own name,
+        /// and when THAT name is the key being renamed the new key is written out EXPLICITLY —
+        /// the output's name is a contract with the task and not this helper's to change.
+        /// </summary>
+        internal static int RetargetIncomingRoutes(StateTreeAsset tree, string nodeId,
+            string oldKey, string newKey, string undoName)
+            => ScanIncomingRoutes(tree, nodeId, oldKey, newKey, true, undoName);
+
+        /// <summary>The one walk both entry points share, so "how many would change" and "change
+        /// them" can never disagree about what counts as a match.</summary>
+        private static int ScanIncomingRoutes(StateTreeAsset tree, string nodeId, string oldKey,
+            string newKey, bool apply, string undoName)
+        {
+            if (tree == null || string.IsNullOrEmpty(nodeId) || string.IsNullOrEmpty(oldKey))
+                return 0;
+            if (apply && (string.IsNullOrEmpty(newKey)
+                || string.Equals(newKey, oldKey, StringComparison.Ordinal)))
+                return 0;
+
+            var count = 0;
+            var nodes = CollectNodes(tree);
+            for (var i = 0; i < nodes.Count; ++i)
+            {
+                var node = nodes[i];
+                var transitions = node.transitions;
+                var touched = false;
+                for (var t = 0; t < transitions.Count; ++t)
+                {
+                    var transition = transitions[t];
+                    if (transition == null || !string.Equals(transition.targetNodeId, nodeId,
+                        StringComparison.Ordinal))
+                        continue;
+
+                    var routes = transition.outputRoutes;
+                    for (var r = 0; routes != null && r < routes.Count; ++r)
+                    {
+                        var row = routes[r];
+                        if (row == null
+                            || !string.Equals(row.ResolvedKey(), oldKey, StringComparison.Ordinal))
+                            continue;
+
+                        ++count;
+                        if (!apply)
+                            continue;
+
+                        // Once per state, and only when something actually changes — a scan that
+                        // matches nothing adds no undo entry and dirties nothing.
+                        if (!touched)
+                        {
+                            Undo.RecordObject(node, undoName);
+                            touched = true;
+                        }
+
+                        row.blackboardKey = newKey;
+                    }
                 }
 
                 if (touched)
