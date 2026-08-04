@@ -57,6 +57,17 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// routes are walked across ALL of the node's transitions in both helpers, because a task index
     /// is a fact about the state, not about the transition the row happens to sit on.
     ///
+    /// AND IT OWNS THE ASSISTED RENAMES, which are the same problem again with the index replaced by
+    /// a NAME. Three wires in this toolset are joined by matching text rather than by identity — a
+    /// transition's <c>targetNodeId</c> (<see cref="RetargetTransitions"/>), a parameter's name used
+    /// as a blackboard key by the tasks that read it (<see cref="RetargetBlackboardReads"/>), and the
+    /// key an output route writes for a field binding to read at entry
+    /// (<see cref="RetargetEntryBindings"/>) — so renaming either end of one of them disconnects it
+    /// with nothing broken enough to report. Only the first is fixed SILENTLY, because a node id is
+    /// an editor-side handle and a rename that skipped it would simply break the tree. The other two
+    /// are name CONTRACTS whose other end may legitimately be meant to stay put, so they are counted,
+    /// offered, and applied inside the caller's own undo group — never done on the tool's initiative.
+    ///
     /// Saving is NOT done here. Callers batch it (see StateTreeEditorWindow) because
     /// AssetDatabase.SaveAssets() on every keystroke stalls the editor on large trees.
     /// </summary>
@@ -880,21 +891,30 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// The key asked for is <see cref="TransitionOutputRoute.ResolvedKey"/>, never the raw field:
         /// an empty <c>blackboardKey</c> means "under the output's own name", and a suggestion list
         /// that showed blanks where the executor writes names would be a list of the wrong thing.
+        ///
+        /// EACH KEY COMES BACK WITH WHAT IT CARRIES, because a suggestion list is only as good as the
+        /// links it produces: a route out of a task returning text offered to a <c>public float</c>
+        /// makes a binding the executor drops with a warning, which is a worse outcome than not
+        /// offering it. The kind is read from the SOURCE task's own declarations
+        /// (<see cref="CollectTaskOutputs"/> — the same list the route's dropdown is built from), and
+        /// stays UNKNOWN rather than guessed wherever that cannot answer; see
+        /// <see cref="RoutedKey.kindKnown"/> for what the caller does with that.
         /// </summary>
         /// <returns>A fresh list, never null. Empty means nothing routes into the state — which is
         /// not an error: a key can also be written by a graph, by a task, or by a state further
         /// away, which is why the inspector treats an unrouted key as information, not a fault.
         /// </returns>
-        internal static List<string> CollectIncomingRouteKeys(StateTreeAsset tree, string nodeId)
+        internal static List<RoutedKey> CollectIncomingRoutedKeys(StateTreeAsset tree, string nodeId)
         {
-            var keys = new List<string>();
+            var keys = new List<RoutedKey>();
             if (tree == null || string.IsNullOrEmpty(nodeId))
                 return keys;
 
             var nodes = CollectNodes(tree);
             for (var i = 0; i < nodes.Count; ++i)
             {
-                var transitions = nodes[i].transitions;
+                var source = nodes[i];
+                var transitions = source.transitions;
                 for (var t = 0; t < transitions.Count; ++t)
                 {
                     var transition = transitions[t];
@@ -909,16 +929,192 @@ namespace PowerOfFire.DrawToPlay.Editor
                         if (row == null)
                             continue;
 
-                        // Ordinal by construction: List<string>.Contains uses the default string
-                        // comparer, which is what every other key comparison in this toolset uses.
                         var key = row.ResolvedKey();
-                        if (!string.IsNullOrEmpty(key) && !keys.Contains(key))
-                            keys.Add(key);
+                        if (string.IsNullOrEmpty(key))
+                            continue;
+
+                        MergeRoutedKey(keys, key,
+                            TryGetRouteKind(source, row, out var kind), kind);
                     }
                 }
             }
 
             return keys;
+        }
+
+        /// <summary>
+        /// One key an incoming route writes, and what it carries — the answer the field link menu
+        /// filters on, so a route that returns text is not offered to a <c>public float</c>.
+        ///
+        /// <see cref="kindKnown"/> is a third state rather than a defaulted kind, and the distinction
+        /// is the whole reason this is a struct instead of a dictionary. A route out of a graph that
+        /// has not been re-baked, or a free-text output name nothing declares, has a kind this window
+        /// genuinely cannot work out — and hiding the only key that arrives at a state because a
+        /// GUESS said it was the wrong type would be worse than the mismatch it prevents. Unknown is
+        /// offered, marked.
+        /// </summary>
+        internal struct RoutedKey
+        {
+            /// <summary>What the executor writes under — <see cref="TransitionOutputRoute.ResolvedKey"/>,
+            /// never the raw field.</summary>
+            public string key;
+
+            /// <summary>Meaningful only while <see cref="kindKnown"/> is true.</summary>
+            public GraphTaskParameterKind kind;
+
+            /// <summary>Whether every route that writes this key was found to carry the same, known
+            /// kind. Two routes writing one key with different kinds is legal (the blackboard has no
+            /// types) and leaves this false, because neither answer would be the truth.</summary>
+            public bool kindKnown;
+        }
+
+        /// <summary>Fold one route's contribution into the distinct list. Ordinal, in first-met order,
+        /// so a menu built from it is stable across rebuilds instead of reshuffling under the cursor.
+        /// Disagreement DOWNGRADES: once a key is unknown it stays unknown, because the field that
+        /// binds to it will be fed by whichever transition was taken.</summary>
+        private static void MergeRoutedKey(List<RoutedKey> keys, string key, bool known,
+            GraphTaskParameterKind kind)
+        {
+            for (var i = 0; i < keys.Count; ++i)
+            {
+                if (!string.Equals(keys[i].key, key, StringComparison.Ordinal))
+                    continue;
+
+                var existing = keys[i];
+                if (existing.kindKnown && (!known || existing.kind != kind))
+                {
+                    existing.kindKnown = false;
+                    keys[i] = existing;
+                }
+
+                return;
+            }
+
+            keys.Add(new RoutedKey { key = key, kind = kind, kindKnown = known });
+        }
+
+        /// <summary>What one route carries, read from the task it names — the same
+        /// <see cref="CollectTaskOutputs"/> the route's own dropdown is built from, so a key's kind
+        /// here and the output's kind there cannot disagree. False for every route whose source this
+        /// window cannot resolve: a missing task, an unnamed output, or a name the source does not
+        /// publish (which the row is already reported as stale for).</summary>
+        private static bool TryGetRouteKind(StateTreeNodeAsset source, TransitionOutputRoute route,
+            out GraphTaskParameterKind kind)
+        {
+            kind = GraphTaskParameterKind.Float;
+            if (source == null || route == null || string.IsNullOrEmpty(route.outputName))
+                return false;
+            if (route.taskIndex < 0 || route.taskIndex >= source.tasks.Count)
+                return false;
+
+            var outputs = CollectTaskOutputs(source.tasks[route.taskIndex]);
+            for (var i = 0; i < outputs.Count; ++i)
+            {
+                if (!string.Equals(outputs[i].name, route.outputName, StringComparison.Ordinal))
+                    continue;
+
+                kind = outputs[i].kind;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// How many entry-time field bindings of one state read <paramref name="key"/> — the question
+        /// <see cref="RetargetEntryBindings"/> is offered on the strength of, asked without changing
+        /// anything. The <see cref="CountBlackboardReads"/> shape, for the same reason: the number is
+        /// the whole basis for the author's decision, so it has to be quotable before the fact.
+        /// </summary>
+        internal static int CountEntryBindings(StateTreeAsset tree, string nodeId, string key)
+            => ScanEntryBindings(tree, nodeId, key, null, false, null);
+
+        /// <summary>
+        /// Move one state's blackboard-key field bindings from <paramref name="oldKey"/> to
+        /// <paramref name="newKey"/> — the assisted half of renaming the key an output route writes,
+        /// and the counterpart of <see cref="RetargetBlackboardReads"/> one level down.
+        ///
+        /// THE KEY IS A JOINT BETWEEN TWO INDEPENDENT NAMES, which is exactly what makes it fragile.
+        /// A route says "write the finished task's return under 'damage'"; a field on the state it
+        /// leads to says "read 'damage' at entry"; neither knows the other exists, and that is the
+        /// design (the M7j name-contract rule) rather than an oversight. The cost is that retyping the
+        /// route's key silently disconnects the field — nothing is broken enough to warn about, the
+        /// binding simply stops finding anything, which is the ONE failure the M7k rules deliberately
+        /// keep quiet about because entering a state through an unrouted path is normal. So the editor
+        /// carries the rename across while it still knows both ends.
+        ///
+        /// SCOPED TO THE TRANSITION'S TARGET STATE, deliberately and only in v1. A key is a global
+        /// dictionary entry, so a tree-wide rewrite would also catch states this route never reaches
+        /// and graphs whose keys are baked from their own canvas — a rename that reached further than
+        /// the wire the author was editing. The state the transition points at is the one place the
+        /// two ends are provably the same wire.
+        ///
+        /// Matched by NODE ID rather than by object, like every other route scan here, so a tree with
+        /// two states sharing an id (which the window reports separately) has both of them
+        /// retargeted — the runner's index keeps one, and which one it keeps is not this helper's
+        /// question to answer.
+        /// </summary>
+        /// <param name="tree">The tree to walk.</param>
+        /// <param name="nodeId">Id of the state whose bindings are rewritten — a transition's
+        /// <c>targetNodeId</c>.</param>
+        /// <param name="oldKey">The key to replace.</param>
+        /// <param name="newKey">The key to replace it with. Empty is refused: a binding with no key
+        /// is inert, and turning a working link into one silently would be the opposite of help.</param>
+        /// <param name="undoName">Undo label recorded on each touched state.</param>
+        /// <returns>The number of rows rewritten.</returns>
+        internal static int RetargetEntryBindings(StateTreeAsset tree, string nodeId, string oldKey,
+            string newKey, string undoName)
+            => ScanEntryBindings(tree, nodeId, oldKey, newKey, true, undoName);
+
+        /// <summary>The one walk both entry points share, so "how many would change" and "change
+        /// them" can never disagree about what counts as a match.</summary>
+        private static int ScanEntryBindings(StateTreeAsset tree, string nodeId, string oldKey,
+            string newKey, bool apply, string undoName)
+        {
+            if (tree == null || string.IsNullOrEmpty(nodeId) || string.IsNullOrEmpty(oldKey))
+                return 0;
+            if (apply && (string.IsNullOrEmpty(newKey)
+                || string.Equals(newKey, oldKey, StringComparison.Ordinal)))
+                return 0;
+
+            var count = 0;
+            var nodes = CollectNodes(tree);
+            for (var i = 0; i < nodes.Count; ++i)
+            {
+                var node = nodes[i];
+                if (!string.Equals(node.nodeId, nodeId, StringComparison.Ordinal))
+                    continue;
+
+                var rows = node.bindings;
+                var touched = false;
+                for (var r = 0; rows != null && r < rows.Count; ++r)
+                {
+                    var row = rows[r];
+                    if (row == null
+                        || row.sourceKind != StateTreeFieldBinding.SourceKind.BlackboardKey
+                        || !string.Equals(row.blackboardKey, oldKey, StringComparison.Ordinal))
+                        continue;
+
+                    ++count;
+                    if (!apply)
+                        continue;
+
+                    // Once per state, and only when something actually changes — a scan that matches
+                    // nothing adds no undo entry and dirties nothing.
+                    if (!touched)
+                    {
+                        Undo.RecordObject(node, undoName);
+                        touched = true;
+                    }
+
+                    row.blackboardKey = newKey;
+                }
+
+                if (touched)
+                    EditorUtility.SetDirty(node);
+            }
+
+            return count;
         }
 
         /// <summary>The route half of the index remap for a task REMOVAL: rows that read the removed

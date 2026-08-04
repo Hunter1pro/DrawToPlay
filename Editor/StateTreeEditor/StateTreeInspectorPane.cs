@@ -161,9 +161,11 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// tree start, which is what makes "attack routes damage, the next state's task takes damage"
     /// one wiring job instead of two halves that never met. The popup shows the two sources in one
     /// list, with the keys THIS state's incoming transitions actually route listed by name
-    /// (<see cref="StateTreeEditorOps.CollectIncomingRouteKeys"/>) — the tree's own wiring read
-    /// backwards, so the key is picked rather than remembered — and a free-form entry beneath them,
-    /// because a key can equally be written by a graph or a distant state.
+    /// (<see cref="StateTreeEditorOps.CollectIncomingRoutedKeys"/>) — the tree's own wiring read
+    /// backwards, so the key is picked rather than remembered, and filtered to the ones that carry
+    /// this field's KIND, because a suggestion the executor would drop at entry is not a suggestion —
+    /// and a free-form entry beneath them, because a key can equally be written by a graph or a
+    /// distant state.
     ///
     /// The two sources read differently on purpose: "← name" for a parameter, "⚑ key" for a
     /// blackboard key, and the key stays editable in place because it is authored text rather than a
@@ -171,6 +173,17 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// (nothing can ever fix it but the author), while a key nothing routes is INFORMATION, because
     /// entering a state through a path that routes nothing is the normal case the runtime is
     /// deliberately silent about, and only an EMPTY key is a fault.
+    ///
+    /// AND WHERE THE WINDOW KNOWS BOTH ENDS OF A NAME, A RENAME FLOWS (M7l). Everything above the
+    /// return flow binds by id and survives renaming; the return flow itself is name-keyed by design,
+    /// which leaves two edits able to disconnect a working wire in silence. Both are now assisted at
+    /// the point they are made. Retyping a route's destination KEY offers to carry the target state's
+    /// entry-time field bindings with it (<see cref="CommitRouteKey"/>) — the shape a parameter
+    /// rename already used, one gesture, one undo step, and a "Keep" that is a real answer. And a
+    /// route left stale by an output renamed on the far side offers the repair when it is unambiguous
+    /// (<see cref="BuildMissingOutputFix"/>): exactly one output nothing else on the transition
+    /// carries, proposed as a button rather than applied, because the break is still the author's to
+    /// decide about.
     /// </summary>
     internal sealed class StateTreeInspectorPane
     {
@@ -235,6 +248,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const string k_RemoveRouteUndo = "Remove Output Route";
         private const string k_EditRouteUndo = "Edit Output Route";
 
+        /// <summary>Title of the dialog a route's key rename asks through. Named after the gesture
+        /// rather than after its consequence, so the author recognises it as the edit they just made
+        /// — the same rule <see cref="k_RenameDialogTitle"/> follows one level up.</summary>
+        private const string k_RouteKeyDialogTitle = "Rename Route Key";
+
         /// <summary>What a bound row shows in place of its value. An arrow rather than a word
         /// because it says the direction: the value comes FROM there, and this field is no longer
         /// where it is decided.</summary>
@@ -266,6 +284,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Indent for the suggestion items, so the heading above them reads as a heading.
         /// Spaces rather than a submenu, for the reason <see cref="k_RoutedHeading"/> gives.</summary>
         private const string k_MenuIndent = "    ";
+
+        /// <summary>Marks a routed key whose KIND this window could not work out — a graph that has
+        /// not been re-baked, or a free-text output name nothing declares. Those keys are still
+        /// offered (hiding the only key that arrives at a state on the strength of a guess would be
+        /// worse than the mismatch it prevents), so the list says which of its entries it is sure
+        /// about. A question mark rather than a word: the item is a key, and a sentence appended to
+        /// one would read as part of it.</summary>
+        private const string k_UnknownKindSuffix = " (?)";
 
         /// <summary>Click ergonomics for the override/link rows (user feedback: the bare
         /// checkbox and glyph buttons were hard to hit). One place sets the minimum
@@ -375,13 +401,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// that already routes something shows it without being asked.</summary>
         private readonly HashSet<int> m_OpenRouteFoldouts = new HashSet<int>();
 
-        /// <summary>The keys this state's incoming transitions route, computed at most once per
-        /// rebuild and thrown away with it. Every bindable field of every task asks the same question
-        /// — "is my key one of the ones that arrive here?" — and the answer costs a walk of the whole
-        /// tree, so it is asked once for a state with forty fields rather than forty times. Cleared
-        /// at the top of <see cref="Rebuild"/>, because the answer changes when any transition
+        /// <summary>The keys this state's incoming transitions route — and what each of them carries
+        /// — computed at most once per rebuild and thrown away with it. Every bindable field of every
+        /// task asks the same question ("is my key one of the ones that arrive here, and is it my
+        /// kind?") and the answer costs a walk of the whole tree plus a reflection pass over each
+        /// source task, so it is asked once for a state with forty fields rather than forty times.
+        /// Cleared at the top of <see cref="Rebuild"/>, because the answer changes when any transition
         /// anywhere in the tree does.</summary>
-        private List<string> m_IncomingRouteKeys;
+        private List<StateTreeEditorOps.RoutedKey> m_IncomingRoutedKeys;
 
         internal StateTreeInspectorPane(ScrollView root, Action structuralChanged, Action edited)
         {
@@ -394,7 +421,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             m_Tree = tree;
             m_Node = node;
-            m_IncomingRouteKeys = null;
+            m_IncomingRoutedKeys = null;
 
             m_Root.Clear();
 
@@ -2811,6 +2838,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 : null;
             row.Add(BuildRouteOutput(transitionIndex, routeIndex, route, task));
 
+            // Beside the control that shows the break, not under it: the fix is a different pick in
+            // the same slot, and a button two rows down would read as being about the whole route.
+            var fix = BuildMissingOutputFix(transitionIndex, routeIndex, route, task);
+            if (fix != null)
+                row.Add(fix);
+
             var key = new TextField
             {
                 value = route.blackboardKey ?? string.Empty,
@@ -2831,9 +2864,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 : resolved;
             key.tooltip = "Blackboard key the value lands under. Leave it empty to write it under "
                 + "the output's own name — rename it here when the target state reads something "
-                + "else, or when two routes would otherwise collide.";
-            key.RegisterValueChangedCallback(evt => CommitRoute(transitionIndex, routeIndex,
-                entry => entry.blackboardKey = evt.newValue ?? string.Empty));
+                + "else, or when two routes would otherwise collide. Fields on the target state that "
+                + "read the old key are offered the rename too.";
+            key.RegisterValueChangedCallback(
+                evt => CommitRouteKey(transitionIndex, routeIndex, evt.newValue));
             row.Add(key);
 
             row.Add(RemoveRouteButton(transitionIndex, routeIndex));
@@ -2931,6 +2965,127 @@ namespace PowerOfFire.DrawToPlay.Editor
             });
 
             return dropdown;
+        }
+
+        /// <summary>
+        /// The one-press repair for a route whose output name the source task no longer publishes —
+        /// offered only when there is exactly one thing it could possibly mean.
+        ///
+        /// An output is a NAME CONTRACT (M7j), so this window shows a break rather than repairing it,
+        /// and that is still the rule: nothing here changes anything until the button is pressed, and
+        /// the stale row keeps saying what it says. What the rule was never meant to cost is the
+        /// commonest case by a distance — a task publishes ONE output, the author renamed it, and
+        /// every route that carried it now needs the same two clicks through a dropdown with one real
+        /// entry in it. When the answer is unambiguous, the window may as well say so.
+        ///
+        /// UNAMBIGUOUS IS DEFINED NARROWLY, because a wrong guess here silently reroutes a value. The
+        /// candidate must be the only output of the task that no OTHER route of this transition is
+        /// already carrying: two free outputs means the author has a choice to make and the dropdown
+        /// is where it is made, and an output another row already takes is the one thing a rename
+        /// certainly did not become. A task that publishes nothing detectable (a graph awaiting a
+        /// re-bake) gets no button either — its control is a free-text field, and there is no
+        /// candidate to propose.
+        /// </summary>
+        /// <returns>The button, or null when the row is not broken or the answer is not unique.</returns>
+        private Button BuildMissingOutputFix(int transitionIndex, int routeIndex,
+            TransitionOutputRoute route, StateTreeTaskAsset task)
+        {
+            var candidate = SuggestedOutputFix(transitionIndex, routeIndex, route, task);
+            if (candidate == null)
+                return null;
+
+            var fix = new Button(() =>
+            {
+                CommitRoute(transitionIndex, routeIndex, entry => entry.outputName = candidate);
+
+                // Same reason the dropdown rebuilds: the key field's placeholder is this name and
+                // the row's warning was about it.
+                RebuildPane();
+            })
+            {
+                text = $"→ use '{candidate}'"
+            };
+
+            fix.style.flexShrink = 0f;
+            fix.style.maxWidth = 160f;
+            fix.style.overflow = Overflow.Hidden;
+            fix.style.textOverflow = TextOverflow.Ellipsis;
+            fix.style.whiteSpace = WhiteSpace.NoWrap;
+            EnlargeRowButton(fix, k_LinkMinWidth);
+            fix.tooltip = $"{TaskBoxLabel(task)} no longer publishes '{route.outputName}', and "
+                + $"'{candidate}' is the only output of it nothing else on this transition carries. "
+                + "Point this route at it.";
+            return fix;
+        }
+
+        /// <summary>The whole decision behind <see cref="BuildMissingOutputFix"/>, separated from the
+        /// button so what the window OFFERS is one named rule rather than a condition spread through
+        /// a builder: is this row actually stale, and is there exactly one thing it could have
+        /// meant.</summary>
+        /// <returns>The output name to propose, or null for every row that gets no button.</returns>
+        private string SuggestedOutputFix(int transitionIndex, int routeIndex,
+            TransitionOutputRoute route, StateTreeTaskAsset task)
+        {
+            // An unpicked name is not a rename: the dropdown shows <none> and the row already says
+            // it carries nothing, which is a different problem with a different fix.
+            if (route == null || string.IsNullOrEmpty(route.outputName))
+                return null;
+
+            // An EMPTY list is not evidence of a break — the same rule DescribeRouteProblem follows,
+            // and the same reason: a graph awaiting a re-bake declares nothing either.
+            var outputs = StateTreeEditorOps.CollectTaskOutputs(task);
+            if (outputs.Count == 0 || PublishesOutput(outputs, route.outputName))
+                return null;
+
+            return SoleUnroutedOutput(outputs,
+                StateTreeEditorOps.TransitionAt(m_Node, transitionIndex), routeIndex);
+        }
+
+        /// <summary>The one output of <paramref name="outputs"/> that no other route of
+        /// <paramref name="transition"/> reads, or null when there is none or more than one.
+        ///
+        /// Names are compared, not entries: a graph that sets one name twice publishes ONE output
+        /// (<see cref="StateTreeEditorOps.CollectTaskOutputs"/> reports declarations, not distinct
+        /// names), and counting it as two would refuse the repair on a task that has exactly one
+        /// thing to return.</summary>
+        private static string SoleUnroutedOutput(List<TaskOutputValue> outputs,
+            StateTreeTransition transition, int exceptRouteIndex)
+        {
+            string found = null;
+            for (var i = 0; i < outputs.Count; ++i)
+            {
+                var name = outputs[i].name;
+                if (string.IsNullOrEmpty(name)
+                    || string.Equals(name, found, StringComparison.Ordinal))
+                    continue;
+                if (RoutesOutput(transition, exceptRouteIndex, name))
+                    continue;
+                if (found != null)
+                    return null;
+
+                found = name;
+            }
+
+            return found;
+        }
+
+        /// <summary>Whether any route of this transition OTHER than the one being repaired already
+        /// carries <paramref name="name"/>. Every row of the transition counts, whichever task it
+        /// reads: two rows carrying one name is legal, but it is not what a rename produced, and
+        /// proposing it would be proposing a duplicate.</summary>
+        private static bool RoutesOutput(StateTreeTransition transition, int exceptRouteIndex,
+            string name)
+        {
+            var rows = transition != null ? transition.outputRoutes : null;
+            for (var i = 0; rows != null && i < rows.Count; ++i)
+            {
+                if (i == exceptRouteIndex || rows[i] == null)
+                    continue;
+                if (string.Equals(rows[i].outputName, name, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
         }
 
         private Button RemoveRouteButton(int transitionIndex, int routeIndex)
@@ -3188,7 +3343,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     + "— nothing is read and the value in the field runs.",
                     HelpBoxMessageType.Warning);
             }
-            else if (!IncomingRouteKeys().Contains(blackboardKey))
+            else if (!IsRoutedIn(blackboardKey))
             {
                 help = new HelpBox($"No transition into this state routes '{blackboardKey}'. That is "
                     + "fine if something else writes it — a graph, a task, or an earlier state — but "
@@ -3205,16 +3360,32 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>The keys routed into the selected state, computed once per pane rebuild. See
-        /// <see cref="m_IncomingRouteKeys"/> for why it is cached rather than asked per field.</summary>
-        private List<string> IncomingRouteKeys()
+        /// <see cref="m_IncomingRoutedKeys"/> for why it is cached rather than asked per field.</summary>
+        private List<StateTreeEditorOps.RoutedKey> IncomingRoutedKeys()
         {
-            if (m_IncomingRouteKeys == null)
+            if (m_IncomingRoutedKeys == null)
             {
-                m_IncomingRouteKeys = StateTreeEditorOps.CollectIncomingRouteKeys(m_Tree,
+                m_IncomingRoutedKeys = StateTreeEditorOps.CollectIncomingRoutedKeys(m_Tree,
                     m_Node != null ? m_Node.nodeId : null);
             }
 
-            return m_IncomingRouteKeys;
+            return m_IncomingRoutedKeys;
+        }
+
+        /// <summary>Whether anything routes one key INTO this state, kind ignored. The hint asks this
+        /// and the menu does not: an incoming route of the wrong kind is not a source the author can
+        /// pick, but it is still a reason the key is not a mystery — so a note that called it unrouted
+        /// would be telling them something false.</summary>
+        private bool IsRoutedIn(string key)
+        {
+            var routed = IncomingRoutedKeys();
+            for (var i = 0; i < routed.Count; ++i)
+            {
+                if (string.Equals(routed[i].key, key, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>Whether a link actually feeds its target: the parameter is still declared, and
@@ -3302,6 +3473,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// The parameter section is unchanged and comes FIRST because it is the stronger guarantee —
         /// a declared parameter is definitely there when the tree starts, a routed key only if the
         /// path that writes it was taken.
+        ///
+        /// BOTH SECTIONS ARE FILTERED BY KIND, and for the same reason: the parameters have always
+        /// been (<see cref="CompatibleParameters"/>), because a link the executor drops with a warning
+        /// is not a link, and a routed key whose source task returns text is exactly that link seen
+        /// from the other end. The keys differ only in that their kind can be UNKNOWN — a graph that
+        /// has not been re-baked declares nothing, and a free-text output name is a promise this
+        /// window cannot check — so those stay in the list, marked, rather than being hidden on a
+        /// guess.
         /// </summary>
         /// <param name="compatible">Declared parameters of the field's kind, possibly none — the
         /// section is then skipped and replaced by the one line that explains why.</param>
@@ -3315,7 +3494,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 && binding.sourceKind == StateTreeFieldBinding.SourceKind.BlackboardKey;
             var boundId = binding != null && !keyBound ? binding.parameterId : null;
             var boundKey = keyBound ? binding.blackboardKey ?? string.Empty : null;
-            var routed = IncomingRouteKeys();
+            var routed = IncomingRoutedKeys();
 
             var menu = new GenericMenu();
             for (var i = 0; i < compatible.Count; ++i)
@@ -3344,24 +3523,36 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             menu.AddDisabledItem(new GUIContent(k_RoutedHeading));
 
-            if (routed.Count == 0)
+            var offered = 0;
+            var boundOffered = false;
+            for (var i = 0; i < routed.Count; ++i)
             {
-                menu.AddDisabledItem(new GUIContent(k_MenuIndent
-                    + "nothing is routed into this state"));
+                var entry = routed[i];
+
+                if (!OffersRoutedKey(entry, fieldKind))
+                    continue;
+
+                // The LABEL is escaped and the closure carries the real key — same rule as the
+                // parameter names above, and it matters more here because a key is free text.
+                var key = entry.key;
+                var label = k_MenuIndent + key.Replace('/', k_MenuSeparatorStandIn)
+                    + (entry.kindKnown ? string.Empty : k_UnknownKindSuffix);
+                var current = string.Equals(key, boundKey, StringComparison.Ordinal);
+                boundOffered |= current;
+                menu.AddItem(new GUIContent(label), current,
+                    () => SetFieldKeyLink(kind, targetIndex, fieldName, key, k_LinkFieldKeyUndo));
+                ++offered;
             }
-            else
+
+            if (offered == 0)
             {
-                for (var i = 0; i < routed.Count; ++i)
-                {
-                    // The LABEL is escaped and the closure carries the real key — same rule as the
-                    // parameter names above, and it matters more here because a key is free text.
-                    var key = routed[i];
-                    var label = k_MenuIndent + key.Replace('/', k_MenuSeparatorStandIn);
-                    menu.AddItem(new GUIContent(label),
-                        string.Equals(key, boundKey, StringComparison.Ordinal),
-                        () => SetFieldKeyLink(kind, targetIndex, fieldName, key,
-                            k_LinkFieldKeyUndo));
-                }
+                // Two different silences, and the author acts on them differently: nothing arrives
+                // here at all (wire a route, or type a key something else writes), versus something
+                // arrives and none of it is this field's type (the route is there, the field is the
+                // wrong shape for it).
+                menu.AddDisabledItem(new GUIContent(k_MenuIndent + (routed.Count == 0
+                    ? "nothing is routed into this state"
+                    : $"nothing routed here carries a {KindLabel(fieldKind)}")));
             }
 
             menu.AddSeparator(string.Empty);
@@ -3370,14 +3561,26 @@ namespace PowerOfFire.DrawToPlay.Editor
             // have typed anyway — and with the CURRENT key when there already is one, so re-picking
             // the source the row already has cannot throw away what was typed into it.
             //
-            // Ticked only for a key that is NOT in the list above, so exactly one item in the menu is
-            // ever ticked: two ticks would read as two sources, and a row has one.
+            // Ticked only for a key that is not among the items above, so exactly one item in the menu
+            // is ever ticked: two ticks would read as two sources, and a row has one. Asked of what
+            // was OFFERED rather than of what is routed, because a bound key the kind filter dropped
+            // is not represented up there either.
             var seed = string.IsNullOrEmpty(boundKey) ? fieldName : boundKey;
-            menu.AddItem(new GUIContent(k_KeyPickLabel), keyBound && !routed.Contains(boundKey),
+            menu.AddItem(new GUIContent(k_KeyPickLabel), keyBound && !boundOffered,
                 () => SetFieldKeyLink(kind, targetIndex, fieldName, seed, k_LinkFieldKeyUndo));
 
             menu.DropDown(anchor.worldBound);
         }
+
+        /// <summary>Whether one routed key is offered to a field of <paramref name="fieldKind"/> —
+        /// the difference between a suggestion and a trap. A route carrying text into a float field
+        /// makes a binding the executor drops with a warning at entry, so offering it would be
+        /// offering something that cannot work; a key whose kind this window could not establish is
+        /// offered anyway (and marked with <see cref="k_UnknownKindSuffix"/>), because hiding the only
+        /// key that arrives at a state on the strength of a guess is the worse failure.</summary>
+        private static bool OffersRoutedKey(StateTreeEditorOps.RoutedKey entry,
+            GraphTaskParameterKind fieldKind)
+            => !entry.kindKnown || entry.kind == fieldKind;
 
         /// <summary>Bind a field, through the Ops helper that owns the row list — so the link is
         /// undone in one step and is renumbered by the same file that renumbers everything else when
@@ -3922,6 +4125,107 @@ namespace PowerOfFire.DrawToPlay.Editor
             EditorUtility.SetDirty(m_Node);
             StateTreeEditorOps.EndUndoGroup(group);
             m_Edited?.Invoke();
+        }
+
+        /// <summary>
+        /// Commit a route's destination key — its own path rather than a <see cref="CommitRoute"/>
+        /// call, because this is the one route field whose OTHER END the editor knows.
+        ///
+        /// A key joins two names that were written independently: this route says where the finished
+        /// task's value lands, and a field binding on the state the transition leads to says what it
+        /// reads at entry (M7k). Retyping the key here disconnects that field, and disconnects it
+        /// SILENTLY — a missing key at entry is the ordinary case the runtime is deliberately quiet
+        /// about, so nothing warns, nothing breaks, and the value simply stops arriving. That is the
+        /// failure this method exists to prevent, in the shape M7h established for renaming a
+        /// parameter: count first, ask, and carry the change across inside the same undo group, so
+        /// one gesture stays one undo.
+        ///
+        /// Declining is a real answer and leaves the tree exactly as the author typed it — the key was
+        /// perhaps retyped BECAUSE it should now feed something else.
+        /// </summary>
+        private void CommitRouteKey(int transitionIndex, int routeIndex, string requested)
+        {
+            var transition = StateTreeEditorOps.TransitionAt(m_Node, transitionIndex);
+            var rows = transition != null ? transition.outputRoutes : null;
+            if (rows == null || routeIndex < 0 || routeIndex >= rows.Count || rows[routeIndex] == null)
+                return;
+
+            var route = rows[routeIndex];
+            var oldKey = route.blackboardKey ?? string.Empty;
+            var value = requested ?? string.Empty;
+            if (string.Equals(oldKey, value, StringComparison.Ordinal))
+                return;
+
+            // What the row WILL write, asked through TransitionOutputRoute's own rule rather than
+            // restated here: CLEARING the key does not stop the route, it moves it back onto the
+            // output's own name, and that name is what the target's fields have to follow.
+            var newKey = new TransitionOutputRoute
+            {
+                taskIndex = route.taskIndex,
+                outputName = route.outputName,
+                blackboardKey = value
+            }.ResolvedKey();
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_EditRouteUndo);
+
+            // Recorded before ANY of this gesture's writes, and deliberately before the retarget
+            // below rather than after it: a transition that points back at its own state makes the
+            // retarget record this same node a second time, and two snapshots of one object are only
+            // interchangeable while both are taken clean.
+            Undo.RecordObject(m_Node, k_EditRouteUndo);
+
+            var retargeted = OfferKeyRetarget(transition, oldKey, newKey);
+
+            route.blackboardKey = value;
+            EditorUtility.SetDirty(m_Node);
+            StateTreeEditorOps.EndUndoGroup(group);
+
+            // A retarget rewrites rows this pane may be drawing (a self-transition) or a note it is
+            // showing, so it redraws; a plain key edit changes a placeholder the field already holds
+            // and does not, which is what keeps typing in this box from rebuilding the world.
+            if (retargeted)
+                RebuildPane();
+            else
+                m_Edited?.Invoke();
+        }
+
+        /// <summary>
+        /// Ask whether the fields waiting on the old key should follow it, and rewrite them if so.
+        ///
+        /// Asked only of the transition's TARGET state, which is the scope in which the two ends are
+        /// provably the same wire — the same key elsewhere in the tree may be written by a graph, by
+        /// a task, or by a different route entirely, and a rename that reached those would be a
+        /// rename the author did not ask for. Asked only when there is something to ask about, for the
+        /// reason <see cref="OfferRetarget"/> gives: a dialog that reports nothing trains authors to
+        /// dismiss dialogs.
+        /// </summary>
+        /// <returns>True when rows were actually rewritten — the caller redraws on that.</returns>
+        private bool OfferKeyRetarget(StateTreeTransition transition, string oldKey, string newKey)
+        {
+            // An empty OLD key means the route was writing under its output's name and nothing was
+            // ever pointed at a typed key here; an empty NEW one cannot be retargeted TO, because a
+            // binding with no key is inert and turning a working link into one is not a repair.
+            if (transition == null || string.IsNullOrEmpty(oldKey) || string.IsNullOrEmpty(newKey)
+                || string.Equals(oldKey, newKey, StringComparison.Ordinal))
+                return false;
+
+            var targetId = transition.targetNodeId;
+            var reads = StateTreeEditorOps.CountEntryBindings(m_Tree, targetId, oldKey);
+            if (reads <= 0)
+                return false;
+
+            var message = $"{reads} linked field(s) on '{targetId}' read '{oldKey}' at entry. "
+                + $"Retarget them to '{newKey}'?\n\nA route and the field that reads it name the key "
+                + "independently, so nothing warns when they stop matching — the field simply keeps "
+                + "its own value on every entry.\n\nOnly fields on the state this transition leads to "
+                + "are offered: the same key elsewhere may be written by something else entirely. "
+                + "The key edit and the retarget are one undo step.";
+
+            if (!EditorUtility.DisplayDialog(k_RouteKeyDialogTitle, message, "Retarget", "Keep"))
+                return false;
+
+            return StateTreeEditorOps.RetargetEntryBindings(m_Tree, targetId, oldKey, newKey,
+                k_EditRouteUndo) > 0;
         }
 
         /// <summary>Rebuilding the pane from inside a DropdownField's own value-changed callback

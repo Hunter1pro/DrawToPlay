@@ -113,7 +113,13 @@ MonoBehaviour:
     condition: {fileID: 0}
     checkWhileRunning: 0
     outputRoutes: []
-  bindings: []
+  bindings:
+  - targetKind: 0
+    targetIndex: 0
+    fieldName: stopRange
+    parameterId: 
+    sourceKind: 1
+    blackboardKey: OutputFlow
 --- !u!114 &-808449643597999803
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -325,7 +331,7 @@ MonoBehaviour:
     condition: {fileID: -8820200083383772058}
     checkWhileRunning: 1
     outputRoutes: []
-  - targetNodeId: idle
+  - targetNodeId: chase
     condition: {fileID: 0}
     checkWhileRunning: 0
     outputRoutes:
