@@ -68,6 +68,7 @@ MonoBehaviour:
   - targetNodeId: idle
     condition: {fileID: 0}
     checkWhileRunning: 0
+  bindings: []
 --- !u!114 &-3443045938502097728
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -108,6 +109,7 @@ MonoBehaviour:
   - targetNodeId: idle
     condition: {fileID: 0}
     checkWhileRunning: 0
+  bindings: []
 --- !u!114 &-808449643597999803
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -122,7 +124,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
   nodeId: root
   displayName: Zombie
-  tasks: []
+  tasks:
+  - {fileID: 8550888603621539337}
   children:
   - {fileID: 5518421945841141213}
   - {fileID: -963880367197306978}
@@ -130,6 +133,7 @@ MonoBehaviour:
   - {fileID: 4407659101692443410}
   - {fileID: -4297927138703703736}
   transitions: []
+  bindings: []
 --- !u!114 &-355785411525061551
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -143,7 +147,13 @@ MonoBehaviour:
   m_Name: Task idle Graph:IdleTask
   m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.RunGraphTask
   graph: {fileID: -4015433371749376189, guid: 6fa73e79d0ffa4b7b86dbd72610bec32, type: 3}
-  overrides: []
+  overrides:
+  - name: Range
+    enabled: 1
+    floatValue: 20
+    stringValue: 
+    id: 5ed7667254afcea77ee38e92a9f373a1
+    sourceParameterId: 
 --- !u!114 &11400000
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -253,6 +263,7 @@ MonoBehaviour:
   - targetNodeId: slash
     condition: {fileID: 0}
     checkWhileRunning: 0
+  bindings: []
 --- !u!114 &4241487732345088177
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -289,6 +300,7 @@ MonoBehaviour:
   - targetNodeId: recover
     condition: {fileID: 0}
     checkWhileRunning: 0
+  bindings: []
 --- !u!114 &5518421945841141213
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -314,6 +326,7 @@ MonoBehaviour:
   - targetNodeId: idle
     condition: {fileID: 0}
     checkWhileRunning: 0
+  bindings: []
 --- !u!114 &6370879403659551023
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -346,3 +359,17 @@ MonoBehaviour:
   useBlackboardSpeed: 0
   faceTarget: 1
   maxChaseDistance: 0
+--- !u!114 &8550888603621539337
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7f137063190c74e288374941ee71e929, type: 3}
+  m_Name: Task root Graph:IdleTask
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.RunGraphTask
+  graph: {fileID: -4015433371749376189, guid: 6fa73e79d0ffa4b7b86dbd72610bec32, type: 3}
+  overrides: []

@@ -182,6 +182,44 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// this to a parameter" is not one of those.</summary>
         private const string k_LinkLabel = "Link";
 
+        /// <summary>Click ergonomics for the override/link rows (user feedback: the bare
+        /// checkbox and glyph buttons were hard to hit). One place sets the minimum
+        /// target sizes; the row label also toggles, giving the checkbox a text-sized
+        /// hit area like every built-in Unity toggle row.</summary>
+        private const float k_RowMinHeight = 22f;
+        private const float k_ControlMinHeight = 20f;
+        private const float k_LinkMinWidth = 52f;
+
+        private static void EnlargeToggle(Toggle toggle)
+        {
+            toggle.style.minWidth = 18f;
+            toggle.style.minHeight = k_ControlMinHeight;
+            toggle.style.justifyContent = Justify.Center;
+            toggle.style.marginRight = 4f;
+            toggle.style.paddingLeft = 2f;
+            toggle.style.paddingRight = 2f;
+        }
+
+        private static void EnlargeRowButton(Button button, float minWidth)
+        {
+            button.style.minWidth = minWidth;
+            button.style.minHeight = k_ControlMinHeight;
+            button.style.paddingLeft = 6f;
+            button.style.paddingRight = 6f;
+            button.style.marginLeft = 4f;
+        }
+
+        /// <summary>Make a row label flip its toggle — the label is the biggest thing on
+        /// the row, so it becomes the easy target.</summary>
+        private static void LabelTogglesValue(Label label, Toggle toggle)
+        {
+            label.RegisterCallback<ClickEvent>(_ =>
+            {
+                if (toggle.enabledSelf)
+                    toggle.value = !toggle.value;
+            });
+        }
+
         /// <summary><see cref="GenericMenu"/> reads '/' as a submenu separator with no way to
         /// escape it, so a parameter named "move/speed" would silently become a submenu called
         /// "move" — this is substituted into the LABEL only (the id is what gets stored), which
@@ -1611,13 +1649,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             row.AddToClassList("unity-base-field");
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Center;
+            row.style.minHeight = k_RowMinHeight;
             container.Add(row);
 
             var overridden = IsOverridden(surface, parameter);
 
             var toggle = new Toggle();
             toggle.style.flexShrink = 0f;
-            toggle.style.marginRight = 2f;
+            EnlargeToggle(toggle);
             toggle.tooltip = "Give this state its own value for this parameter. Off: the state uses "
                 + "the default declared alongside it.";
             toggle.SetValueWithoutNotify(overridden);
@@ -1633,6 +1672,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             label.tooltip = unused
                 ? identity + " " + surface.unusedTooltip
                 : identity + ". Default: " + DefaultLabel(parameter);
+            LabelTogglesValue(label, toggle);
             row.Add(label);
 
             var entry = ActiveOverride(surface, parameter);
@@ -1660,7 +1700,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 var pick = new Button { text = live ? k_BoundPrefix + source.name : k_LinkLabel };
                 pick.style.flexShrink = 0f;
-                pick.style.marginLeft = 2f;
+                EnlargeRowButton(pick, k_LinkMinWidth);
                 pick.style.maxWidth = 140f;
                 pick.style.overflow = Overflow.Hidden;
                 pick.style.textOverflow = TextOverflow.Ellipsis;
@@ -1680,7 +1720,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (linked)
             {
                 var unlink = new Button { text = "✕" };
-                unlink.style.width = 22f;
+                unlink.style.width = 26f;
+                unlink.style.minHeight = k_ControlMinHeight;
                 unlink.style.flexShrink = 0f;
                 unlink.tooltip = $"Stop passing a parameter through as '{parameter.name}' — the "
                     + "value in the field is used again.";
@@ -2482,7 +2523,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 var pick = new Button { text = live ? k_BoundPrefix + source.name : k_LinkLabel };
                 pick.style.flexShrink = 0f;
-                pick.style.marginLeft = 2f;
+                EnlargeRowButton(pick, k_LinkMinWidth);
                 pick.style.maxWidth = 140f;
                 pick.style.overflow = Overflow.Hidden;
                 pick.style.textOverflow = TextOverflow.Ellipsis;
@@ -2502,7 +2543,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (binding != null)
             {
                 var unlink = new Button { text = "✕" };
-                unlink.style.width = 22f;
+                unlink.style.width = 26f;
+                unlink.style.minHeight = k_ControlMinHeight;
                 unlink.style.flexShrink = 0f;
                 unlink.tooltip = $"Stop writing '{fieldName}' from a parameter — the value in the "
                     + "field runs again.";
