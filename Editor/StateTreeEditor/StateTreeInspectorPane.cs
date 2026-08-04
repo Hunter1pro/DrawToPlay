@@ -174,15 +174,17 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// entering a state through a path that routes nothing is the normal case the runtime is
     /// deliberately silent about, and only an EMPTY key is a fault.
     ///
-    /// AND WHERE THE WINDOW KNOWS BOTH ENDS OF A NAME, A RENAME FLOWS (M7l). Everything above the
-    /// return flow binds by id and survives renaming; the return flow itself is name-keyed by design,
-    /// which leaves two edits able to disconnect a working wire in silence. Both are now assisted at
-    /// the point they are made. Retyping a route's destination KEY offers to carry the target state's
-    /// entry-time field bindings with it (<see cref="CommitRouteKey"/>) — the shape a parameter
-    /// rename already used, one gesture, one undo step, and a "Keep" that is a real answer. The same
-    /// edit made from the field's own end — retyping a bound row's key — offers to carry the
-    /// incoming routes with it (<see cref="CommitBindingKey"/>), so the wire moves as one no matter
-    /// which end was picked up. And a
+    /// AND WHERE THE WINDOW KNOWS BOTH ENDS OF A NAME, A RENAME FLOWS (M7l/M7m). Everything above
+    /// the return flow binds by id and survives renaming; the return flow itself is name-keyed by
+    /// design, which leaves two edits able to disconnect a working wire in silence. Both now flow
+    /// AUTOMATICALLY, the way a node id's rename does — no dialog, one undo step — because renaming
+    /// half of a wire is never what the author means (their call, M7m: the M7l ask-first dialogs
+    /// were rejected as noise). Retyping a route's destination KEY carries the target state's
+    /// entry-time field bindings with it (<see cref="CommitRouteKey"/>); retyping a bound row's key
+    /// carries the incoming routes and its sibling readers (<see cref="CommitBindingKey"/>). The
+    /// wire moves as one from either end; DETACHING is a different gesture with a different control
+    /// — the link menu rebinds one field, the unlink button frees it, the output dropdown re-aims
+    /// the route. And a
     /// route left stale by an output renamed on the far side offers the repair when it is unambiguous
     /// (<see cref="BuildMissingOutputFix"/>): exactly one output nothing else on the transition
     /// carries, proposed as a button rather than applied, because the break is still the author's to
@@ -250,16 +252,6 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private const string k_RemoveRouteUndo = "Remove Output Route";
         private const string k_EditRouteUndo = "Edit Output Route";
-
-        /// <summary>Title of the dialog a route's key rename asks through. Named after the gesture
-        /// rather than after its consequence, so the author recognises it as the edit they just made
-        /// — the same rule <see cref="k_RenameDialogTitle"/> follows one level up.</summary>
-        private const string k_RouteKeyDialogTitle = "Rename Route Key";
-
-        /// <summary>Title of the dialog a bound FIELD's key rename asks through — the same wire as
-        /// <see cref="k_RouteKeyDialogTitle"/> renamed from its other end, so the same naming rule:
-        /// the gesture, not the consequence.</summary>
-        private const string k_BindingKeyDialogTitle = "Rename Blackboard Key";
 
         /// <summary>What a bound row shows in place of its value. An arrow rather than a word
         /// because it says the direction: the value comes FROM there, and this field is no longer
@@ -2871,9 +2863,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 ? "blackboard key"
                 : resolved;
             key.tooltip = "Blackboard key the value lands under. Leave it empty to write it under "
-                + "the output's own name — rename it here when the target state reads something "
-                + "else, or when two routes would otherwise collide. Fields on the target state that "
-                + "read the old key are offered the rename too.";
+                + "the output's own name. Renaming it here renames the whole wire: fields on the "
+                + "target state that read the old key follow automatically, in the same undo step.";
             key.RegisterValueChangedCallback(
                 evt => CommitRouteKey(transitionIndex, routeIndex, evt.newValue));
             row.Add(key);
@@ -3327,8 +3318,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             key.textEdition.placeholder = "blackboard key";
             key.tooltip = $"The blackboard key '{fieldName}' takes its value from at entry. Type the "
                 + "key a transition routes into this state — or any key the tree writes; matching is "
-                + "by exact text. Retyping a key the incoming routes write offers to rename those "
-                + "routes with it, so the wire moves as one.";
+                + "by exact text. Retyping a key the incoming routes write renames those routes with "
+                + "it — the wire moves as one. To point this field at a different key instead, use "
+                + "the ⚑ button's menu.";
             key.RegisterValueChangedCallback(evt => CommitBindingKey(kind, targetIndex, fieldName,
                 binding, evt.newValue));
             return key;
@@ -4144,15 +4136,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         ///
         /// A key joins two names that were written independently: this route says where the finished
         /// task's value lands, and a field binding on the state the transition leads to says what it
-        /// reads at entry (M7k). Retyping the key here disconnects that field, and disconnects it
+        /// reads at entry (M7k). Retyping the key here would disconnect that field, and disconnect it
         /// SILENTLY — a missing key at entry is the ordinary case the runtime is deliberately quiet
-        /// about, so nothing warns, nothing breaks, and the value simply stops arriving. That is the
-        /// failure this method exists to prevent, in the shape M7h established for renaming a
-        /// parameter: count first, ask, and carry the change across inside the same undo group, so
-        /// one gesture stays one undo.
-        ///
-        /// Declining is a real answer and leaves the tree exactly as the author typed it — the key was
-        /// perhaps retyped BECAUSE it should now feed something else.
+        /// about, so nothing warns, nothing breaks, and the value simply stops arriving. So the
+        /// rename FLOWS, the way a node id's does (<see cref="CommitNodeId"/>): both ends move in one
+        /// undo step, no question asked — renaming half of a wire is never what the author means
+        /// (their call, M7m; the M7l dialog is gone). Pointing the FIELD somewhere else is the link
+        /// menu's job, and pointing the ROUTE somewhere else is a different output or a different
+        /// task — neither is spelled "retype the shared name".
         /// </summary>
         private void CommitRouteKey(int transitionIndex, int routeIndex, string requested)
         {
@@ -4167,10 +4158,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (string.Equals(oldKey, value, StringComparison.Ordinal))
                 return;
 
-            // What the row WILL write, asked through TransitionOutputRoute's own rule rather than
-            // restated here: CLEARING the key does not stop the route, it moves it back onto the
-            // output's own name, and that name is what the target's fields have to follow.
-            var newKey = new TransitionOutputRoute
+            // What the row DID and WILL write, asked through TransitionOutputRoute's own rule rather
+            // than restated here: an empty key is not "no key", it is the output's own name — so a
+            // route that wrote under its output's name and gains a typed key is a rename too, and
+            // CLEARING the key moves the wire back onto the name, not onto nothing.
+            var oldResolved = route.ResolvedKey();
+            var newResolved = new TransitionOutputRoute
             {
                 taskIndex = route.taskIndex,
                 outputName = route.outputName,
@@ -4185,7 +4178,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             // interchangeable while both are taken clean.
             Undo.RecordObject(m_Node, k_EditRouteUndo);
 
-            var retargeted = OfferKeyRetarget(transition, oldKey, newKey);
+            var followed = FollowRouteKeyRename(transition, oldResolved, newResolved);
 
             route.blackboardKey = value;
             EditorUtility.SetDirty(m_Node);
@@ -4194,60 +4187,43 @@ namespace PowerOfFire.DrawToPlay.Editor
             // A retarget rewrites rows this pane may be drawing (a self-transition) or a note it is
             // showing, so it redraws; a plain key edit changes a placeholder the field already holds
             // and does not, which is what keeps typing in this box from rebuilding the world.
-            if (retargeted)
+            if (followed)
                 RebuildPane();
             else
                 m_Edited?.Invoke();
         }
 
         /// <summary>
-        /// Ask whether the fields waiting on the old key should follow it, and rewrite them if so.
+        /// Carry a route-key rename to the fields waiting on the old key.
         ///
-        /// Asked only of the transition's TARGET state, which is the scope in which the two ends are
+        /// Scoped to the transition's TARGET state, which is the scope in which the two ends are
         /// provably the same wire — the same key elsewhere in the tree may be written by a graph, by
         /// a task, or by a different route entirely, and a rename that reached those would be a
-        /// rename the author did not ask for. Asked only when there is something to ask about, for the
-        /// reason <see cref="OfferRetarget"/> gives: a dialog that reports nothing trains authors to
-        /// dismiss dialogs.
+        /// rename the author did not make.
         /// </summary>
         /// <returns>True when rows were actually rewritten — the caller redraws on that.</returns>
-        private bool OfferKeyRetarget(StateTreeTransition transition, string oldKey, string newKey)
+        private bool FollowRouteKeyRename(StateTreeTransition transition, string oldKey,
+            string newKey)
         {
-            // An empty OLD key means the route was writing under its output's name and nothing was
-            // ever pointed at a typed key here; an empty NEW one cannot be retargeted TO, because a
-            // binding with no key is inert and turning a working link into one is not a repair.
+            // An empty resolved key on either side is a route with no output picked yet — there is
+            // no wire to follow. Equal resolved keys mean the raw edit changed nothing the executor
+            // sees (typing the output's own name into an empty slot, or clearing a key that matched).
             if (transition == null || string.IsNullOrEmpty(oldKey) || string.IsNullOrEmpty(newKey)
                 || string.Equals(oldKey, newKey, StringComparison.Ordinal))
                 return false;
 
-            var targetId = transition.targetNodeId;
-            var reads = StateTreeEditorOps.CountEntryBindings(m_Tree, targetId, oldKey);
-            if (reads <= 0)
-                return false;
-
-            var message = $"{reads} linked field(s) on '{targetId}' read '{oldKey}' at entry. "
-                + $"Retarget them to '{newKey}'?\n\nA route and the field that reads it name the key "
-                + "independently, so nothing warns when they stop matching — the field simply keeps "
-                + "its own value on every entry.\n\nOnly fields on the state this transition leads to "
-                + "are offered: the same key elsewhere may be written by something else entirely. "
-                + "The key edit and the retarget are one undo step.";
-
-            if (!EditorUtility.DisplayDialog(k_RouteKeyDialogTitle, message, "Retarget", "Keep"))
-                return false;
-
-            return StateTreeEditorOps.RetargetEntryBindings(m_Tree, targetId, oldKey, newKey,
-                k_EditRouteUndo) > 0;
+            return StateTreeEditorOps.RetargetEntryBindings(m_Tree, transition.targetNodeId,
+                oldKey, newKey, k_EditRouteUndo) > 0;
         }
 
         /// <summary>
         /// Commit a retyped binding key — <see cref="CommitRouteKey"/>'s gesture made from the other
-        /// end of the same wire, with the same offer. The routes that feed this field live on OTHER
+        /// end of the same wire, flowing the same way. The routes that feed this field live on OTHER
         /// states' transitions, which is exactly why retyping the key here used to disconnect them
         /// in silence: nothing the author was looking at changed. This is the one moment the editor
-        /// still knows both names, so it asks.
-        ///
-        /// Declining is a real answer and moves ONLY this row, exactly as typed — the key was
-        /// perhaps retyped BECAUSE this field should now read something else entirely.
+        /// still knows both names, so both move — no question asked (M7m). A field that should read
+        /// a DIFFERENT key is rebound through the link menu, which writes only its own row; the
+        /// inline text is the wire's name, and renaming a name renames it everywhere it is one wire.
         /// </summary>
         private void CommitBindingKey(StateTreeFieldBinding.TargetKind kind, int targetIndex,
             string fieldName, StateTreeFieldBinding binding, string requested)
@@ -4257,7 +4233,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (string.Equals(oldKey, newKey, StringComparison.Ordinal))
                 return;
 
-            if (OfferRouteFollow(oldKey, newKey))
+            if (FollowBindingKeyRename(oldKey, newKey))
             {
                 RebuildPane();
                 return;
@@ -4267,42 +4243,24 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>
-        /// Ask whether the routes writing the old key should follow the field that reads it, and
-        /// rewrite them if so — the reverse of <see cref="OfferKeyRetarget"/>, scoped by the same
-        /// rule: only routes on transitions INTO this state, the one place the two ends are provably
-        /// the same wire.
+        /// Carry a binding-key rename to the routes that write the old key — the reverse of
+        /// <see cref="FollowRouteKeyRename"/>, scoped by the same rule: only routes on transitions
+        /// INTO this state, the one place the two ends are provably the same wire.
         ///
-        /// Accepting renames the routes AND every binding row on this state still reading the old
-        /// key — the edited row included — in one undo step, because a route can feed several fields
-        /// and moving the routes out from under the siblings would break wires the author never
-        /// touched.
+        /// The routes move AND every binding row on this state still reading the old key — the
+        /// edited row included — in one undo step, because a route can feed several fields and
+        /// moving the routes out from under the siblings would break wires the author never touched.
         /// </summary>
         /// <returns>True when the joint rename was applied — the caller redraws instead of writing
         /// the single row itself.</returns>
-        private bool OfferRouteFollow(string oldKey, string newKey)
+        private bool FollowBindingKeyRename(string oldKey, string newKey)
         {
             if (m_Node == null || m_Tree == null
                 || string.IsNullOrEmpty(oldKey) || string.IsNullOrEmpty(newKey))
                 return false;
 
             var nodeId = m_Node.nodeId;
-            var routes = StateTreeEditorOps.CountIncomingRoutes(m_Tree, nodeId, oldKey);
-            if (routes <= 0)
-                return false;
-
-            // Minus the row being edited: the author is told about wires they did NOT touch.
-            var siblings = StateTreeEditorOps.CountEntryBindings(m_Tree, nodeId, oldKey) - 1;
-            var message = $"{routes} route(s) into '{nodeId}' write '{oldKey}'. Rename them to write "
-                + $"'{newKey}' so this field keeps reading them?"
-                + (siblings > 0
-                    ? $"\n\n{siblings} other linked field(s) on this state also read '{oldKey}' and "
-                    + "follow along."
-                    : string.Empty)
-                + "\n\nKeep leaves the routes as they are — this field then reads a key nothing "
-                + "routes here, which is fine if something else writes it. The rename is one undo "
-                + "step.";
-
-            if (!EditorUtility.DisplayDialog(k_BindingKeyDialogTitle, message, "Rename", "Keep"))
+            if (StateTreeEditorOps.CountIncomingRoutes(m_Tree, nodeId, oldKey) <= 0)
                 return false;
 
             var group = StateTreeEditorOps.BeginUndoGroup(k_EditFieldKeyUndo);

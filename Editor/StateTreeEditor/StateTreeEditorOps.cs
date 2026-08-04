@@ -65,10 +65,11 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// (<see cref="RetargetEntryBindings"/> when the route's end is retyped,
     /// <see cref="RetargetIncomingRoutes"/> when the field's is) — so renaming either end of one of
     /// them disconnects it
-    /// with nothing broken enough to report. Only the first is fixed SILENTLY, because a node id is
-    /// an editor-side handle and a rename that skipped it would simply break the tree. The other two
-    /// are name CONTRACTS whose other end may legitimately be meant to stay put, so they are counted,
-    /// offered, and applied inside the caller's own undo group — never done on the tool's initiative.
+    /// with nothing broken enough to report. The node id and the route-chain key are fixed SILENTLY:
+    /// the editor sees both ends of those wires, and renaming half of one is never what the author
+    /// means (M7m — detaching has its own gestures). Only the parameter-name reads are still counted
+    /// and OFFERED, because a task's blackboard read may legitimately be fed by something other than
+    /// the parameter that happens to share its name. All of it inside the caller's own undo group.
     ///
     /// Saving is NOT done here. Callers batch it (see StateTreeEditorWindow) because
     /// AssetDatabase.SaveAssets() on every keystroke stalls the editor on large trees.
