@@ -449,11 +449,12 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         /// <summary>A tree gets re-authored long after the states that call it were configured, so
-        /// a row naming a renamed parameter is wear, not a fault: skipped, never seeded as a key of
-        /// its own, the surviving rows still applied — and WARNED ONCE, because seeding runs on
-        /// every activation and a state re-entered every second must not flood the console.</summary>
+        /// a row whose declaration has been deleted is wear, not a fault: skipped, never seeded as
+        /// a key of its own, the surviving rows still applied — and WARNED ONCE, because seeding
+        /// runs on every activation and a state re-entered every second must not flood the console.
+        /// The row keeps its display name, which is how the warning can name it.</summary>
         [Test]
-        public void StaleOverrideName_WarnsOnceAndIsSkipped()
+        public void StaleOverride_WarnsOnceAndIsSkipped()
         {
             StateTreeAsset childTree = MakeReaderTree("speed");
             childTree.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 3f));
@@ -553,6 +554,10 @@ namespace PowerOfFire.DrawToPlay.Tests
                     Assert.AreEqual(authored.kind, copied.kind);
                     Assert.AreEqual(authored.floatValue, copied.floatValue);
                     Assert.AreEqual(authored.stringValue, copied.stringValue);
+                    // The identity has to survive too, or a running copy would match nothing and
+                    // every override in the tree would read as stale the moment it started.
+                    Assert.AreEqual(authored.id, copied.id, "row " + i + " kept its identity");
+                    Assert.IsNotEmpty(copied.id, "row " + i + " has an identity at all");
                     Assert.AreNotSame(authored, copied, "row " + i + " must be a copy, not an alias");
                 }
                 Assert.AreNotSame(tree.parameters, copy.parameters);
@@ -565,6 +570,132 @@ namespace PowerOfFire.DrawToPlay.Tests
             {
                 StateTreeAsset.DestroyCopy(copy);
             }
+        }
+
+        // ------------------------------------------------------------------ identity (M7h)
+        //
+        // An override binds to a declaration by ID. The NAME stays the blackboard key the sub-tree
+        // reads by — the child reads it as a hand-typed string and always did — but it is never a
+        // matching key. These four cases are the rule from both sides, plus the two ways a row can
+        // be bound to nothing.
+
+        /// <summary>THE identity rule: the id decides, so a row whose display name has gone out of
+        /// date still applies. Name-keyed matching would drop this caller back to the declared
+        /// default the moment someone retyped a parameter in the sub-tree — silently, across every
+        /// state that called it, which is the failure this replaces.</summary>
+        [Test]
+        public void Identity_OverrideAppliesWhenOnlyTheIdAgrees()
+        {
+            // The declaration has been renamed to "moveSpeed"; the row was created back when it was
+            // called "speed" and nobody rewrote it. Only the id still agrees.
+            StateTreeAsset childTree = MakeReaderTree("moveSpeed");
+            childTree.parameters = Params(
+                Param("moveSpeed", GraphTaskParameterKind.Float, 3f, null, "p-speed"));
+
+            RunSubTreeTask task = MakeSubTreeTask(childTree);
+            task.overrides = Overrides(Override("speed", true, 9f, null, "p-speed"));
+            StateTreeContext context = MakeContext("Zombie");
+
+            task.OnEnter(context);
+
+            Assert.AreEqual(9f, SeededFloat(context, "moveSpeed"),
+                "the id bound the row, so the stale display name cost nothing");
+            CollectionAssert.AreEqual(new[] { "moveSpeed:enter:Single(9)" }, Log(context));
+
+            task.OnExit(context, StateTreeStatus.Cancelled);
+        }
+
+        /// <summary>The converse, and the half that makes the rule a rule rather than a fallback: a
+        /// row that agrees on the NAME and not on the id is stale. It has to be — that shape is a
+        /// row left over from a deleted parameter whose name a later one reused, and seeding the
+        /// new parameter with it would publish a number the author last typed against something
+        /// else entirely.</summary>
+        [Test]
+        public void Identity_OverrideIsStaleWhenOnlyTheNameAgrees()
+        {
+            StateTreeAsset childTree = MakeReaderTree("speed");
+            childTree.parameters = Params(
+                Param("speed", GraphTaskParameterKind.Float, 3f, null, "p-speed"));
+
+            RunSubTreeTask task = MakeSubTreeTask(childTree);
+            task.overrides = Overrides(Override("speed", true, 9f, null, "p-deleted"));
+            StateTreeContext context = MakeContext("Zombie");
+
+            LogAssert.Expect(LogType.Warning, new Regex("'speed'"));
+            task.OnEnter(context);
+
+            Assert.AreEqual(3f, SeededFloat(context, "speed"),
+                "the declared default, not the row's 9");
+            task.OnExit(context, StateTreeStatus.Cancelled);
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        /// <summary>The rename, executed rather than asserted about: one authored tree, one set of
+        /// override rows, and the declaration renamed underneath them between two activations. The
+        /// SEEDED KEY moves with the name (the child reads it by string), the row moves not at all,
+        /// and the value survives — which is visible in the trace as the child going from finding
+        /// nothing to finding the caller's 9 under its own key.</summary>
+        [Test]
+        public void Identity_IdBoundOverrideSurvivesADeclarationRename()
+        {
+            StateTreeAsset childTree = MakeReaderTree("moveSpeed");
+            childTree.parameters = Params(
+                Param("speed", GraphTaskParameterKind.Float, 3f, null, "p-speed"));
+
+            RunSubTreeTask task = MakeSubTreeTask(childTree);
+            task.overrides = Overrides(Override("speed", true, 9f, null, "p-speed"));
+            StateTreeContext context = MakeContext("Zombie");
+
+            task.OnEnter(context);
+            Assert.AreEqual(9f, SeededFloat(context, "speed"), "bound by id before the rename");
+            task.OnExit(context, StateTreeStatus.Cancelled);
+
+            // The author renames the declaration. Its id does not change, and the caller's row is
+            // not touched — that is the whole point of the identity.
+            childTree.parameters[0].name = "moveSpeed";
+
+            task.OnEnter(context);
+
+            Assert.AreEqual(9f, SeededFloat(context, "moveSpeed"),
+                "the same row still tunes the same parameter, under its new key");
+            Assert.AreEqual("speed", task.overrides[0].name,
+                "and the rename did not have to rewrite the caller's row to achieve it");
+            CollectionAssert.AreEqual(
+                new[] { "moveSpeed:enter:<absent>", "moveSpeed:exit:Cancelled",
+                    "moveSpeed:enter:Single(9)" },
+                Log(context),
+                "the child's own read follows the name, and finds the caller's value there");
+
+            task.OnExit(context, StateTreeStatus.Cancelled);
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        /// <summary>A row bound to nothing — no id at all — is stale by definition: there is no
+        /// declaration it can claim to be an override OF. Reported like any other stale row (once,
+        /// by whatever label it carries) rather than silently ignored, because the only way to
+        /// produce one is a bug in whatever wrote it.</summary>
+        [Test]
+        public void Identity_RowWithNoIdIsStale()
+        {
+            StateTreeAsset childTree = MakeReaderTree("speed");
+            childTree.parameters = Params(
+                Param("speed", GraphTaskParameterKind.Float, 3f, null, "p-speed"));
+
+            RunSubTreeTask task = MakeSubTreeTask(childTree);
+            task.overrides = Overrides(Override("speed", true, 9f, null, string.Empty));
+            StateTreeContext context = MakeContext("Zombie");
+
+            LogAssert.Expect(LogType.Warning, new Regex("'speed'"));
+            task.OnEnter(context);
+
+            Assert.AreEqual(3f, SeededFloat(context, "speed"),
+                "an unbound row cannot override anything");
+            task.OnExit(context, StateTreeStatus.Cancelled);
+
+            // Once per instance, however many activations re-read the same row.
+            task.OnEnter(context);
+            task.OnExit(context, StateTreeStatus.Cancelled);
+            LogAssert.NoUnexpectedReceived();
         }
 
         // ------------------------------------------------------------------ fixture helpers
@@ -624,12 +755,23 @@ namespace PowerOfFire.DrawToPlay.Tests
             return task;
         }
 
+        /// <summary>Deterministic stand-in for the identity the inspector generates
+        /// (<c>Guid.NewGuid().ToString("N")</c>): readable in a failure message, and — because it
+        /// is derived from the name — identical for a declaration and a row created from the same
+        /// name. That is what lets every case that is NOT about identity keep saying only "speed"
+        /// and still be id-bound, the way real authored data is.</summary>
+        private static string Id(string name)
+        {
+            return string.IsNullOrEmpty(name) ? null : "pid-" + name;
+        }
+
         private static GraphTaskParameter Param(string name, GraphTaskParameterKind kind,
-            float floatValue = 0f, string stringValue = null)
+            float floatValue = 0f, string stringValue = null, string id = null)
         {
             return new GraphTaskParameter
             {
-                name = name, kind = kind, floatValue = floatValue, stringValue = stringValue
+                name = name, kind = kind, floatValue = floatValue, stringValue = stringValue,
+                id = id ?? Id(name)
             };
         }
 
@@ -638,12 +780,16 @@ namespace PowerOfFire.DrawToPlay.Tests
             return new List<GraphTaskParameter>(declared);
         }
 
+        /// <summary>An override row. <paramref name="id"/> is what it BINDS by;
+        /// <paramref name="name"/> is only what the inspector would show — the identity cases pass
+        /// the two deliberately out of step.</summary>
         private static GraphTaskParameterOverride Override(string name, bool enabled,
-            float floatValue = 0f, string stringValue = null)
+            float floatValue = 0f, string stringValue = null, string id = null)
         {
             return new GraphTaskParameterOverride
             {
-                name = name, enabled = enabled, floatValue = floatValue, stringValue = stringValue
+                name = name, enabled = enabled, floatValue = floatValue, stringValue = stringValue,
+                id = id ?? Id(name)
             };
         }
 

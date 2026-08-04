@@ -35,7 +35,6 @@ MonoBehaviour:
         - rid: 4635762715112768251
         - rid: 4635762715112768257
         - rid: 4635762715112768260
-        - rid: 4635762715112768262
         - rid: 4635762715112768269
         - rid: 4635762715112768276
         - rid: 4635762715112768290
@@ -64,7 +63,7 @@ MonoBehaviour:
           x: -21.5
           y: -253.5
           width: 1751.5
-          height: 660
+          height: 558.5
         m_GraphElementMetaData:
         - m_Guid:
             m_Value0: 783875118912323226
@@ -123,14 +122,6 @@ MonoBehaviour:
           m_Category: 0
           m_Index: 4
         - m_Guid:
-            m_Value0: 1995833807483300338
-            m_Value1: 2172710697463250556
-          m_HashGuid:
-            serializedVersion: 2
-            Hash: f2e9c10546a0b21b7cfefc29de04271e
-          m_Category: 0
-          m_Index: 5
-        - m_Guid:
             m_Value0: 12091794826767816542
             m_Value1: 11633910172061983614
           m_HashGuid:
@@ -153,7 +144,7 @@ MonoBehaviour:
             serializedVersion: 2
             Hash: bda329048872342693d9da68a607c549
           m_Category: 0
-          m_Index: 6
+          m_Index: 5
         - m_Guid:
             m_Value0: 5274313907702562692
             m_Value1: 5218382192019038041
@@ -169,7 +160,7 @@ MonoBehaviour:
             serializedVersion: 2
             Hash: 625e34be053517f48b3dc011d4cbe8d3
           m_Category: 0
-          m_Index: 7
+          m_Index: 6
         - m_Guid:
             m_Value0: 3082059033169998215
             m_Value1: 7425708013945628361
@@ -201,7 +192,7 @@ MonoBehaviour:
             serializedVersion: 2
             Hash: 87fa5d1ab80d3e69fc389aa3e3f1ee1e
           m_Category: 0
-          m_Index: 8
+          m_Index: 7
         - m_Guid:
             m_Value0: 12597128589767222455
             m_Value1: 4041189163324645483
@@ -225,7 +216,7 @@ MonoBehaviour:
             serializedVersion: 2
             Hash: 840b81a5b3781c68322b36344cd065e5
           m_Category: 0
-          m_Index: 9
+          m_Index: 8
         - m_Guid:
             m_Value0: 5438456792031904985
             m_Value1: 9244351093432593153
@@ -510,43 +501,6 @@ MonoBehaviour:
           rid: 4635762715112768261
     - rid: 4635762715112768261
       type: {class: OnEnterNode, ns: PowerOfFire.DrawToPlay.GraphEditor, asm: PowerOfFire.DrawToPlay.GraphEditor}
-      data: 
-    - rid: 4635762715112768262
-      type: {class: UserNodeModelImp, ns: Unity.GraphToolkit.Editor.Implementation, asm: UnityEditor.GraphToolkitModule}
-      data:
-        m_Guid:
-          m_Value0: 1995833807483300338
-          m_Value1: 2172710697463250556
-        m_HashGuid:
-          serializedVersion: 2
-          Hash: f2e9c10546a0b21b7cfefc29de04271e
-        m_Version: 2
-        m_Position: {x: 123.23546, y: 319.5523}
-        m_Title: 
-        m_Tooltip: 
-        m_NodePreviewModel:
-          rid: -2
-        m_State: 0
-        m_InputConstantsById:
-          m_KeyList: []
-          m_ValueList: []
-        m_InputPortInfos:
-          expandedPortsById:
-            m_KeyList: []
-            m_ValueList: 
-        m_OutputPortInfos:
-          expandedPortsById:
-            m_KeyList: []
-            m_ValueList: 
-        m_Collapsed: 0
-        m_CurrentModeIndex: 0
-        m_ElementColor:
-          m_Color: {r: 0, g: 0, b: 0, a: 0}
-          m_HasUserColor: 0
-        m_Node:
-          rid: 4635762715112768263
-    - rid: 4635762715112768263
-      type: {class: OnExitNode, ns: PowerOfFire.DrawToPlay.GraphEditor, asm: PowerOfFire.DrawToPlay.GraphEditor}
       data: 
     - rid: 4635762715112768264
       type: {class: VariableDeclarationModel, ns: Unity.GraphToolkit.Editor, asm: UnityEditor.GraphToolkitModule}

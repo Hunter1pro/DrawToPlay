@@ -43,6 +43,11 @@ namespace PowerOfFire.DrawToPlay
     /// speeds. There is no argument list to pass them through, because a tree only ever receives
     /// a value one way: <see cref="OnEnter"/> writes each declared name into the SHARED blackboard
     /// before the child machine starts, so the child's very first OnEnter already reads them.
+    ///
+    /// PARAMETER IDENTITY (M7h): an override binds to a declaration by
+    /// <see cref="GraphTaskParameter.id"/>, so renaming a parameter in the sub-tree keeps every
+    /// caller's tuning — while the NAME stays the blackboard key the child reads, because the
+    /// child reads it by hand-typed string and always did.
     /// </summary>
     [CreateAssetMenu(menuName = "Draw To Play/AI/Tasks/Run Sub Tree", fileName = "RunSubTree")]
     [StateTreeCategory("Tasks/Composite", "Run another state tree as this task")]
@@ -67,11 +72,13 @@ namespace PowerOfFire.DrawToPlay
         public List<string> failureStates = new List<string> { "fail", "failure" };
 
         /// <summary>This state's values for the sub-tree's declared parameters, one row per
-        /// overridden parameter; an unchecked row means "use the tree's declared default", which
-        /// keeps a state that overrides one of five parameters from freezing the other four at
-        /// whatever they happened to be when it was configured. Rows naming a parameter the tree
-        /// no longer declares are KEPT rather than silently dropped (the tree may be mid-edit, and
-        /// the inspector shows them as stale); this task ignores them with one warning.</summary>
+        /// overridden parameter, each bound to a declaration by
+        /// <see cref="GraphTaskParameter.id"/>; an unchecked row means "use the tree's declared
+        /// default", which keeps a state that overrides one of five parameters from freezing the
+        /// other four at whatever they happened to be when it was configured. Rows whose
+        /// declaration no longer exists are KEPT rather than silently dropped (the tree may be
+        /// mid-edit, and the inspector shows them as stale); this task ignores them with one
+        /// warning.</summary>
         public List<GraphTaskParameterOverride> overrides = new List<GraphTaskParameterOverride>();
 
         /// <summary>Live child machine, or null when the entry aborted. Not serialized, so the
@@ -250,7 +257,7 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         private object EffectiveValue(GraphTaskParameter parameter)
         {
-            GraphTaskParameterOverride row = EnabledOverride(parameter.name);
+            GraphTaskParameterOverride row = EnabledOverride(parameter);
             switch (parameter.kind)
             {
                 case GraphTaskParameterKind.String:
@@ -268,31 +275,31 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        /// <summary>The enabled override row for a parameter, or null for "use the declared
-        /// default". The LAST matching row wins, which is what a name-keyed dictionary of the rows
-        /// would do (GraphTaskAsset.cs:364-385) — duplicates are an inspector accident, and the
-        /// two must not disagree about which one the author sees applied. Ordinal comparison, for
-        /// the same reason: parameter names are keys, not prose.</summary>
-        private GraphTaskParameterOverride EnabledOverride(string parameterName)
+        /// <summary>
+        /// The enabled override row for a parameter, or null for "use the declared default".
+        ///
+        /// BOUND BY ID, never by name (M7h): the row carries the
+        /// <see cref="GraphTaskParameter.id"/> it was created against, so renaming the declaration
+        /// keeps every caller that had tuned it — the whole point of the identity — and a row left
+        /// over from a deleted parameter can never capture a later one that happens to reuse the
+        /// name. The rule itself lives on <see cref="GraphTaskParameterOverride"/>
+        /// (<c>Matches</c> / <c>EnabledFor</c>) so this and
+        /// <see cref="GraphTaskAsset.ApplyOverrides"/> cannot come to disagree about which rows are
+        /// live: the LAST enabled match wins in both, because duplicates are an inspector accident
+        /// and the two must not show the author different winners.
+        /// </summary>
+        private GraphTaskParameterOverride EnabledOverride(GraphTaskParameter parameter)
         {
-            if (overrides == null)
-                return null;
-            GraphTaskParameterOverride found = null;
-            for (int i = 0; i < overrides.Count; i++)
-            {
-                GraphTaskParameterOverride row = overrides[i];
-                if (row != null && row.enabled
-                    && string.Equals(row.name, parameterName, StringComparison.Ordinal))
-                    found = row;
-            }
-            return found;
+            return GraphTaskParameterOverride.EnabledFor(overrides, parameter);
         }
 
         /// <summary>A tree gets re-authored long after the states that call it were configured, so
-        /// an override naming a renamed or deleted parameter is normal wear rather than a fault:
-        /// the row is skipped, everything else still applies, and it is a WARNING said once per
-        /// instance — the same rule <c>RunGraphTask</c>'s overrides follow
-        /// (GraphTaskAsset.cs:387-391).</summary>
+        /// an override whose declaration was deleted — or one that was never bound to a declaration
+        /// at all — is normal wear rather than a fault: the row is skipped, everything else still
+        /// applies, and it is a WARNING said once per instance, the same rule <c>RunGraphTask</c>'s
+        /// overrides follow (GraphTaskAsset.cs, ApplyOverrides). Staleness is decided by the SAME
+        /// matching rule that applies the live rows, so a row can never be both ignored and
+        /// unreported.</summary>
         private void WarnStaleOverrides(List<GraphTaskParameter> declared)
         {
             if (overrides == null || m_UnknownOverrideLogged)
@@ -302,34 +309,17 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < overrides.Count; i++)
             {
                 GraphTaskParameterOverride row = overrides[i];
-                if (row == null || !row.enabled || string.IsNullOrEmpty(row.name)
-                    || IsDeclared(declared, row.name))
+                if (row == null || !row.enabled || row.Declaration(declared) != null)
                     continue;
-                unknown = unknown == null
-                    ? "'" + row.name + "'"
-                    : unknown + ", '" + row.name + "'";
+                unknown = unknown == null ? row.Describe(i) : unknown + ", " + row.Describe(i);
             }
 
             if (unknown == null)
                 return;
             m_UnknownOverrideLogged = true;
             Debug.LogWarning($"RunSubTreeTask: override for {unknown} — sub tree " +
-                $"'{subTree.name}' declares no such parameter (renamed or removed?). The row is " +
-                "ignored.", this);
-        }
-
-        private static bool IsDeclared(List<GraphTaskParameter> declared, string parameterName)
-        {
-            if (declared == null)
-                return false;
-            for (int i = 0; i < declared.Count; i++)
-            {
-                GraphTaskParameter parameter = declared[i];
-                if (parameter != null
-                    && string.Equals(parameter.name, parameterName, StringComparison.Ordinal))
-                    return true;
-            }
-            return false;
+                $"'{subTree.name}' declares no parameter with that id (deleted, or the row was " +
+                "never bound). The row is ignored.", this);
         }
 
         private StateTreeStatus Classify(string nodeId)

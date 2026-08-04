@@ -66,6 +66,8 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     ///    variable into three Waits and re-tuning all three from one inspector field is the point.
     ///    Variables of any other type keep the old behaviour (flattened to a constant, with a warning
     ///    naming the variable), because the parameter model has three kinds and no fourth.
+    ///    Each parameter also carries an ID, which is what a state's override binds to — see
+    ///    PARAMETER IDENTITY below.
     /// 3. LIBRARY PARAMETERS ARE CONSTANTS, AND A WIRE INTO ONE IS AN ERROR. A task call bakes a
     ///    CONFIGURED COPY of the library task, so its parameters are baked values, not pins. Wiring a
     ///    computed number into a Chase node's <c>moveSpeed</c> would silently bake the typed-in value
@@ -75,6 +77,37 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     ///    other use of the same variable, so the bake says which route was taken, once per use, as a
     ///    canvas note. (The blackboard is the way to drive a library task from graph logic: several of
     ///    them read one — <c>useBlackboardSpeed</c>, <c>useBlackboardRange</c>.)
+    ///
+    /// ====================================================================================
+    /// PARAMETER IDENTITY, AND WHERE IT COMES FROM
+    /// ====================================================================================
+    /// A state's override of a parameter binds to <c>GraphTaskParameter.id</c>, never to the name, so
+    /// that renaming a variable on the canvas does not silently unbind every state that tuned it. The
+    /// name stays the runtime key — <c>GetParam*</c> instructions carry it and the interpreter
+    /// resolves through it — so the id has exactly one job: survive a rename.
+    ///
+    /// GRAPH TOOLKIT HAS SUCH AN IDENTITY, AND DOES NOT EXPOSE IT. The public
+    /// <see cref="IVariable"/> surface is name, type, kind, connectivity, graph, defaults, nodes —
+    /// no id (UnityEditor.GraphToolkitModule IL, interface at line 21339, members through 21455).
+    /// One layer down there is: the concrete model is <c>VariableDeclarationModelBase</c> (IL 84833,
+    /// <c>implements IVariable</c>) → <c>DeclarationModel</c> (IL 43831) → <c>GraphElementModel</c>
+    /// (IL 45582) → <c>Model</c> (IL 63815), and <c>Model</c> carries a serialized
+    /// <c>m_HashGuid</c> (IL 63824, <c>[SerializeField][HideInInspector]</c>, with the obsolete
+    /// <c>m_Guid</c> at IL 63820 as its migration source) behind a public <c>Guid</c> property
+    /// (property IL 63952, getter IL 63831). It is assigned once in the constructor (IL 63855 calling
+    /// <c>AssignNewGuid</c>, IL 63884) and round-tripped through
+    /// <c>OnBeforeSerialize</c>/<c>OnAfterDeserialize</c> (IL 63915 / 63928) — so it is stable across
+    /// saves, reloads and reimports, and independent of the variable's name. Every one of those types
+    /// is <c>private</c> in IL, i.e. internal, which is why this is read by REFLECTION on a public
+    /// property rather than by a cast: the property is accessible, the type is not.
+    ///
+    /// THE FALLBACK IS THE NAME, AS A VALUE. If that property ever stops being there — a future Graph
+    /// Toolkit release, a variable model this bake has not met — the id becomes
+    /// <c>"name:&lt;variable name&gt;</c>". That is an ID-VALUE choice, not a second matching route:
+    /// nothing anywhere falls back to comparing names, the id is simply derived from one. The
+    /// consequence is the one this whole mechanism exists to avoid, and it comes back only in that
+    /// case: renaming a variable and re-baking mints a different id, so overrides of it strand and the
+    /// inspector reports them as stale rows to delete and re-tick.
     ///
     /// DETERMINISM. Instruction indices are <see cref="Graph.GetNodes"/> order (creation order),
     /// appended constants follow in pin-visit order, parameters are
@@ -102,6 +135,21 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// interpreter's own 64-deep data-cycle guard, so a graph this baker accepts is a graph the
         /// interpreter can evaluate.</summary>
         private const int k_DataWalkDepth = 64;
+
+        /// <summary>The property carrying a graph element's stable guid on Graph Toolkit's internal
+        /// model — see PARAMETER IDENTITY in the type doc for the IL that says so.</summary>
+        private const string k_IdentityProperty = "Guid";
+
+        /// <summary>Marks an id DERIVED from a name, so a baked asset says which route it took. Not a
+        /// matching rule: nothing compares names, this is just what the id is made of when the
+        /// variable model has no identity to offer.</summary>
+        private const string k_NameIdPrefix = "name:";
+
+        /// <summary>Identity property per variable-model type, or null for a type that has none. The
+        /// bake runs on every keystroke, so the reflection lookup happens once per session per type.
+        /// </summary>
+        private static readonly Dictionary<Type, PropertyInfo> s_IdentityProperties =
+            new Dictionary<Type, PropertyInfo>();
 
         // ------------------------------------------------------------------ results
 
@@ -574,6 +622,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         {
             var parameter = new GraphTaskParameter
             {
+                id = ReadParameterId(variable, name),
                 name = name,
                 kind = kind,
                 stringValue = string.Empty
@@ -1150,6 +1199,80 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             {
                 return string.Empty;
             }
+        }
+
+        /// <summary>
+        /// The stable identity a state's override binds to: the variable's own, when Graph Toolkit's
+        /// model will give it up, and otherwise one derived from the name. See PARAMETER IDENTITY in
+        /// the type doc for where each comes from and what the difference costs.
+        /// </summary>
+        /// <param name="variable">The graph variable being baked.</param>
+        /// <param name="name">Its name, already validated as non-empty.</param>
+        /// <returns>An id, never empty.</returns>
+        private static string ReadParameterId(IVariable variable, string name)
+        {
+            string identity = TryReadVariableIdentity(variable);
+            return identity.Length > 0 ? identity : k_NameIdPrefix + name;
+        }
+
+        /// <summary>
+        /// Graph Toolkit's per-variable guid, read off the concrete model by reflection because
+        /// <see cref="IVariable"/> does not carry it and the class that does is internal.
+        ///
+        /// Wrapped like every other read of this surface: a variable mid-edit throws rather than
+        /// answering, and one bad variable must not take down the bake. Cached per model TYPE, not per
+        /// variable — this runs on every keystroke through <c>OnGraphChanged</c>, and the lookup is
+        /// the expensive half.
+        /// </summary>
+        /// <param name="variable">The variable to identify.</param>
+        /// <returns>The identity as text, or empty when the model has none to give.</returns>
+        private static string TryReadVariableIdentity(IVariable variable)
+        {
+            if (variable == null)
+                return string.Empty;
+
+            try
+            {
+                Type type = variable.GetType();
+                if (!s_IdentityProperties.TryGetValue(type, out PropertyInfo property))
+                {
+                    property = type.GetProperty(k_IdentityProperty,
+                        BindingFlags.Public | BindingFlags.Instance);
+                    if (property != null
+                        && (!property.CanRead || property.GetIndexParameters().Length > 0))
+                        property = null;
+
+                    s_IdentityProperties[type] = property;
+                }
+
+                if (property == null)
+                    return string.Empty;
+
+                object value = property.GetValue(variable);
+                string text = value != null ? value.ToString() : string.Empty;
+                return IsUsableIdentity(text) ? text : string.Empty;
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
+        }
+
+        /// <summary>Whether an identity read back is worth baking. A hash that was never assigned
+        /// prints as all zeros, and an id every unassigned variable shares is worse than no id at all
+        /// — every override in the project would bind to the same one.</summary>
+        private static bool IsUsableIdentity(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return false;
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (text[i] != '0')
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>A variable's declared type, or null when it has none or refuses to answer.</summary>

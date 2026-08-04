@@ -159,6 +159,7 @@ MonoBehaviour:
   treeName: Zombie
   treeKind: enemy_ai
   root: {fileID: -808449643597999803}
+  parameters: []
 --- !u!114 &1399373950816261304
 MonoBehaviour:
   m_ObjectHideFlags: 0

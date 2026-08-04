@@ -136,6 +136,29 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Default for String.</summary>
         public string stringValue;
+
+        /// <summary>
+        /// Stable IDENTITY of this declaration, and the ONLY thing an override row binds to (M7h).
+        /// The <see cref="name"/> is a label the author retypes; the identity is what survives them
+        /// doing it, so renaming "speed" to "moveSpeed" keeps every state that had tuned it rather
+        /// than silently dropping them all back to the default — the failure mode name-keyed
+        /// overrides have, and the reason this field exists.
+        ///
+        /// The name stays the RUNTIME key: the blackboard and the <c>GetParam*</c> nodes are read
+        /// by hand-typed name, so the identity is an authoring-time concern that never appears in a
+        /// running tree's data.
+        ///
+        /// Written ONCE, when the row is created — <c>System.Guid.NewGuid().ToString("N")</c> for a
+        /// sub-tree declaration, the baker's per-variable identity for a graph one — and never
+        /// regenerated, or a rename would orphan exactly what it is here to protect. A declaration
+        /// with no id cannot be overridden at all (nothing can bind to it); it still resolves and
+        /// still seeds, because that is the name's job, not the id's.
+        ///
+        /// Appended LAST deliberately: Unity serialization is by field name, but leaving the
+        /// existing four where they are keeps every serialized asset diff-clean until something
+        /// actually writes an id.
+        /// </summary>
+        public string id;
     }
 
     /// <summary>
@@ -146,11 +169,19 @@ namespace PowerOfFire.DrawToPlay
     /// <see cref="enabled"/> is the override itself, not a value: an unchecked row means "use the
     /// graph default", which keeps a state that only overrides one of five parameters from freezing
     /// the other four at whatever they happened to be when it was configured.
+    ///
+    /// BINDING IS BY <see cref="id"/> ONLY (M7h). <see cref="name"/> is carried for display — an
+    /// override row has to say what it overrides even when the declaration it points at is gone —
+    /// and is never compared. Both appliers (<see cref="GraphTaskAsset.ApplyOverrides"/> and
+    /// <see cref="RunSubTreeTask"/>) route every match through <see cref="Matches"/>, so the two
+    /// cannot drift apart on what "this row overrides that parameter" means.
     /// </summary>
     [Serializable]
     public sealed class GraphTaskParameterOverride
     {
-        /// <summary>Name of the <see cref="GraphTaskParameter"/> this row overrides.</summary>
+        /// <summary>Display name of the parameter this row overrides — what the inspector shows,
+        /// including for a stale row whose declaration no longer exists. NOT a matching key: see
+        /// <see cref="id"/>.</summary>
         public string name;
 
         /// <summary>False = fall through to the graph default.</summary>
@@ -161,6 +192,79 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Value for a String parameter.</summary>
         public string stringValue;
+
+        /// <summary><see cref="GraphTaskParameter.id"/> of the declaration this row overrides —
+        /// copied from the declaration when the row is created and never rewritten, which is what
+        /// lets the declaration be renamed underneath it. Empty means the row is bound to nothing:
+        /// it is stale, reported once and skipped, exactly like an id that names a declaration that
+        /// has since been deleted.</summary>
+        public string id;
+
+        /// <summary>
+        /// THE matching rule, in one place because two appliers implement it and a disagreement
+        /// between them would show as an override that the inspector says is live and the runtime
+        /// ignores. A row binds to a declaration when both carry the SAME non-empty id — no name
+        /// comparison anywhere, so a rename cannot break the binding and cannot forge one either.
+        ///
+        /// A declaration with no NAME is deliberately unmatchable: it is an inspector row mid-edit
+        /// rather than a parameter, it is skipped by everything that seeds or reads parameters
+        /// (<c>GraphTaskAsset.EffectiveParameters</c>, <c>RunSubTreeTask.SeedParameters</c>),
+        /// and letting a row bind to one would make "is this row live?" answer differently in the
+        /// two directions this rule is asked in.
+        /// </summary>
+        public bool Matches(GraphTaskParameter parameter)
+        {
+            return parameter != null
+                && !string.IsNullOrEmpty(id)
+                && !string.IsNullOrEmpty(parameter.name)
+                && string.Equals(parameter.id, id, StringComparison.Ordinal);
+        }
+
+        /// <summary>The declaration this row overrides, or null for STALE — the row is bound to
+        /// nothing (no id) or to something that no longer exists. Ids are unique per declaration
+        /// list, so the first match is the only one.</summary>
+        public GraphTaskParameter Declaration(List<GraphTaskParameter> declared)
+        {
+            if (declared == null || string.IsNullOrEmpty(id))
+                return null;
+            for (int i = 0; i < declared.Count; i++)
+            {
+                if (Matches(declared[i]))
+                    return declared[i];
+            }
+            return null;
+        }
+
+        /// <summary>The row that supplies <paramref name="parameter"/>'s value, or null for "use
+        /// the declared default". The LAST enabled match wins, which is what a dictionary built
+        /// from the rows would do — duplicates are an inspector accident, and the applier and the
+        /// inspector must not disagree about which of them the author sees take effect.</summary>
+        public static GraphTaskParameterOverride EnabledFor(List<GraphTaskParameterOverride> rows,
+            GraphTaskParameter parameter)
+        {
+            if (rows == null)
+                return null;
+            GraphTaskParameterOverride found = null;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                GraphTaskParameterOverride row = rows[i];
+                if (row != null && row.enabled && row.Matches(parameter))
+                    found = row;
+            }
+            return found;
+        }
+
+        /// <summary>How a stale row is named in a diagnostic: the label the author sees in the
+        /// inspector, falling back to the id (and then to the row's position) when there is none —
+        /// a warning nobody can trace back to a row is not worth logging.</summary>
+        public string Describe(int index)
+        {
+            if (!string.IsNullOrEmpty(name))
+                return "'" + name + "'";
+            if (!string.IsNullOrEmpty(id))
+                return "id " + id;
+            return "the unbound row at index " + index;
+        }
     }
 
     /// <summary>
@@ -348,11 +452,16 @@ namespace PowerOfFire.DrawToPlay
         ///
         /// Calling it again re-derives everything from the defaults first: applying a second set of
         /// overrides must not leave the first set's values standing.
+        ///
+        /// Rows bind to declarations BY ID (M7h), through
+        /// <see cref="GraphTaskParameterOverride.Matches"/> — never by name — so a graph variable
+        /// renamed after a state was tuned keeps that state's value, and a row that happens to
+        /// carry a name matching some other parameter cannot capture it.
         /// </summary>
         /// <param name="overrides">The owning state's override rows; null, empty, or all-disabled
-        /// means "the graph defaults". A row naming a parameter this graph no longer has is
-        /// reported once and ignored — a graph gets re-authored long after the states that use it
-        /// were configured, and that must not stop them running.</param>
+        /// means "the graph defaults". A row bound to a parameter this graph no longer declares —
+        /// or bound to nothing at all — is reported once and ignored: a graph gets re-authored long
+        /// after the states that use it were configured, and that must not stop them running.</param>
         public void ApplyOverrides(List<GraphTaskParameterOverride> overrides)
         {
             m_Parameters = null;
@@ -364,15 +473,21 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < overrides.Count; i++)
             {
                 GraphTaskParameterOverride row = overrides[i];
-                if (row == null || !row.enabled || string.IsNullOrEmpty(row.name))
+                if (row == null || !row.enabled)
                     continue;
 
-                GraphTaskParameter parameter;
-                if (!effective.TryGetValue(row.name, out parameter))
+                // The AUTHORED list resolves the identity; the effective set (keyed by the runtime
+                // name) holds the copy the GetParam* pulls read, so the row's value lands where the
+                // graph will look for it.
+                GraphTaskParameter declared = row.Declaration(parameters);
+                GraphTaskParameter parameter = null;
+                if (declared != null)
+                    effective.TryGetValue(declared.name, out parameter);
+                if (parameter == null)
                 {
                     unknown = unknown == null
-                        ? "'" + row.name + "'"
-                        : unknown + ", '" + row.name + "'";
+                        ? row.Describe(i)
+                        : unknown + ", " + row.Describe(i);
                     continue;
                 }
 
@@ -387,8 +502,9 @@ namespace PowerOfFire.DrawToPlay
             if (unknown == null || m_UnknownOverrideLogged)
                 return;
             m_UnknownOverrideLogged = true;
-            Debug.LogWarning($"GraphTaskAsset '{name}': override for {unknown} — the graph has " +
-                "no such parameter (renamed or removed?). Using the graph default.", this);
+            Debug.LogWarning($"GraphTaskAsset '{name}': override for {unknown} — this graph " +
+                "declares no parameter with that id (deleted, or the row was never bound). Using " +
+                "the graph default.", this);
         }
 
         /// <summary>The effective set, built from the authored defaults on first use.</summary>
@@ -411,7 +527,11 @@ namespace PowerOfFire.DrawToPlay
                     name = authored.name,
                     kind = authored.kind,
                     floatValue = authored.floatValue,
-                    stringValue = authored.stringValue
+                    stringValue = authored.stringValue,
+                    // Carried so the copy is a faithful stand-in for the declaration; the identity
+                    // itself is resolved against the authored list, which is the one an editor and
+                    // a baker both write.
+                    id = authored.id
                 };
             }
             return m_Parameters;

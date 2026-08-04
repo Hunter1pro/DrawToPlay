@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
@@ -212,6 +213,120 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (touched)
                     EditorUtility.SetDirty(node);
             }
+        }
+
+        /// <summary>
+        /// How many authored text fields in this tree hold <paramref name="name"/> — the question
+        /// <see cref="RetargetBlackboardReads"/> is offered on the strength of, asked without
+        /// changing anything.
+        /// </summary>
+        /// <param name="tree">The tree to scan.</param>
+        /// <param name="name">The blackboard key to look for.</param>
+        /// <returns>The number of matching fields.</returns>
+        internal static int CountBlackboardReads(StateTreeAsset tree, string name)
+            => ScanBlackboardReads(tree, name, null, false, null);
+
+        /// <summary>
+        /// Rewrite every authored text field in this tree that holds <paramref name="oldName"/> so it
+        /// holds <paramref name="newName"/> — the assisted half of renaming a declared parameter.
+        ///
+        /// A parameter's NAME is the blackboard key, and the tasks and conditions that read it hold
+        /// that key as plain authored text. So unlike <see cref="RetargetTransitions"/> — which fixes
+        /// the tree silently, because a node id is an editor-side handle and a rename that skipped it
+        /// would simply break the tree — this is OFFERED rather than done: the callers of a renamed
+        /// parameter are bound by id and need nothing, while the readers inside the tree may or may
+        /// not be meant to follow. The caller asks; this executes.
+        ///
+        /// MATCHING IS BY VALUE, NOT BY FIELD NAME. The key fields are called <c>key</c>,
+        /// <c>cooldownKey</c>, <c>timerKey</c>, <c>payloadKey</c> … and a library component added
+        /// tomorrow will invent another name, so a list of field names is a list that goes out of
+        /// date silently. The cost is the other direction: a text field holding that exact string for
+        /// an unrelated reason (a cue name, a compare operator) is rewritten too. That is why the
+        /// count is reported before the fact and the whole thing is one undo step.
+        ///
+        /// Only <c>string</c> fields, and only on this tree's own task and condition sub-assets.
+        /// A <c>List&lt;string&gt;</c> (a composite task's success/failure state ids) is therefore
+        /// never touched, which is correct — those are node ids, not blackboard keys — and neither is
+        /// a logic graph this tree runs, because the graph is a separate asset whose keys are baked
+        /// from its own canvas.
+        /// </summary>
+        /// <param name="tree">The tree whose sub-assets are rewritten.</param>
+        /// <param name="oldName">The key to replace.</param>
+        /// <param name="newName">The key to replace it with.</param>
+        /// <param name="undoName">Undo label recorded on each touched sub-asset.</param>
+        /// <returns>The number of fields rewritten.</returns>
+        internal static int RetargetBlackboardReads(StateTreeAsset tree, string oldName,
+            string newName, string undoName)
+            => ScanBlackboardReads(tree, oldName, newName, true, undoName);
+
+        /// <summary>The one walk both entry points share, so "how many would change" and "change
+        /// them" can never disagree about what counts as a match.</summary>
+        private static int ScanBlackboardReads(StateTreeAsset tree, string oldName, string newName,
+            bool apply, string undoName)
+        {
+            if (tree == null || string.IsNullOrEmpty(oldName))
+                return 0;
+            if (apply && (newName == null || string.Equals(newName, oldName, StringComparison.Ordinal)))
+                return 0;
+
+            var count = 0;
+            var nodes = CollectNodes(tree);
+            for (var i = 0; i < nodes.Count; ++i)
+            {
+                var node = nodes[i];
+
+                for (var t = 0; t < node.tasks.Count; ++t)
+                    count += RewriteStringFields(node.tasks[t], oldName, newName, apply, undoName);
+
+                for (var t = 0; t < node.transitions.Count; ++t)
+                {
+                    count += RewriteStringFields(node.transitions[t]?.condition, oldName, newName,
+                        apply, undoName);
+                }
+            }
+
+            return count;
+        }
+
+        /// <summary>Count (and optionally rewrite) the serialized text fields of one sub-asset whose
+        /// value is exactly <paramref name="oldValue"/>. The undo record is taken once per object and
+        /// only when something actually changes, so a scan that matches nothing adds no undo entry
+        /// and dirties nothing.</summary>
+        private static int RewriteStringFields(UnityEngine.Object target, string oldValue,
+            string newValue, bool apply, string undoName)
+        {
+            if (target == null)
+                return 0;
+
+            var fields = target.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance);
+            var count = 0;
+            var touched = false;
+
+            for (var i = 0; i < fields.Length; ++i)
+            {
+                var field = fields[i];
+                if (field.FieldType != typeof(string) || field.IsNotSerialized)
+                    continue;
+                if (!string.Equals(field.GetValue(target) as string, oldValue, StringComparison.Ordinal))
+                    continue;
+
+                ++count;
+                if (!apply)
+                    continue;
+
+                if (!touched)
+                {
+                    Undo.RecordObject(target, undoName);
+                    touched = true;
+                }
+
+                field.SetValue(target, newValue);
+            }
+
+            if (touched)
+                EditorUtility.SetDirty(target);
+
+            return count;
         }
 
         // --- sub-asset lifecycle ----------------------------------------------------------

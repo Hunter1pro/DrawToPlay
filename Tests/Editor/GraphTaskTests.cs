@@ -770,11 +770,12 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         /// <summary>A graph gets re-authored long after the states that use it were configured, so
-        /// an override naming a renamed (or deleted) parameter is normal wear, not a crash: the row
-        /// is ignored, the surviving overrides still apply, and it is a WARNING said once — a state
-        /// re-entered every second must not turn a stale row into a console flood.</summary>
+        /// an override bound to a parameter that has since been DELETED is normal wear, not a
+        /// crash: the row is ignored, the surviving overrides still apply, and it is a WARNING said
+        /// once — a state re-entered every second must not turn a stale row into a console flood.
+        /// The row still carries a display name, which is how the warning can name it.</summary>
         [Test]
-        public void Parameters_StaleOverrideNameWarnsOnceAndLeavesTheRestApplied()
+        public void Parameters_UnmatchedIdWarnsOnceAndLeavesTheRestApplied()
         {
             GraphTaskAsset graph = MakeGraph(
                 new GraphTaskNode
@@ -889,7 +890,134 @@ namespace PowerOfFire.DrawToPlay.Tests
             slow.OnExit(slowContext, StateTreeStatus.Cancelled);
         }
 
+        // ------------------------------------------------------------------ identity (M7h)
+        //
+        // An override binds to a declaration by ID. The name is a label the author retypes and the
+        // key the running graph reads by; it is never a matching key. These four cases are the rule
+        // from both sides — it applies when only the id agrees, it does NOT apply when only the
+        // name does — plus the two ways a row can be bound to nothing.
+
+        /// <summary>THE identity rule: the id decides, so a row whose display name has gone out of
+        /// date (its declaration was renamed and nobody rewrote the row) still applies. Name-keyed
+        /// matching would drop this state back to the graph default the moment someone retyped a
+        /// variable — silently, which is the whole failure this replaces.</summary>
+        [Test]
+        public void Identity_OverrideAppliesWhenOnlyTheIdAgrees()
+        {
+            // The declaration has been renamed to "moveSpeed"; the row was created back when it was
+            // called "speed" and nobody rewrote it. Only the id still agrees.
+            GraphTaskAsset graph = ParamGraph("moveSpeed", 3f, "p-speed");
+
+            graph.ApplyOverrides(Overrides(Override("speed", true, 9f, null, "p-speed")));
+
+            Assert.AreEqual(9f, RunOnce(graph),
+                "the id bound the row, so the stale display name cost nothing");
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        /// <summary>The converse, and the half that makes the rule a rule rather than a fallback: a
+        /// row that agrees on the NAME and not on the id is stale. It has to be — that shape is a
+        /// row left over from a deleted parameter whose name a later one reused, and quietly
+        /// handing it the new parameter's value would apply a number the author last typed against
+        /// something else entirely.</summary>
+        [Test]
+        public void Identity_OverrideIsStaleWhenOnlyTheNameAgrees()
+        {
+            GraphTaskAsset graph = ParamGraph("speed", 3f, "p-speed");
+
+            LogAssert.Expect(LogType.Warning, new Regex("'speed'"));
+            graph.ApplyOverrides(Overrides(Override("speed", true, 9f, null, "p-deleted")));
+
+            Assert.AreEqual(3f, RunOnce(graph), "the graph default, not the row's 9");
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        /// <summary>The rename, executed rather than asserted about: one authored graph, one set of
+        /// override rows, and the declaration renamed underneath them between two activations. The
+        /// graph's own read moves with the declaration (the name IS the runtime key, and a rebake
+        /// rewrites the GetParam node), the row does not move at all, and the value survives.</summary>
+        [Test]
+        public void Identity_IdBoundOverrideSurvivesADeclarationRename()
+        {
+            GraphTaskAsset graph = ParamGraph("speed", 3f, "p-speed");
+            List<GraphTaskParameterOverride> rows =
+                Overrides(Override("speed", true, 9f, null, "p-speed"));
+
+            graph.ApplyOverrides(rows);
+            Assert.AreEqual(9f, RunOnce(graph), "before the rename");
+
+            // What the editor does on a rename: the declaration's name changes, its id does not,
+            // and the in-graph reads are retargeted at the new name. The override row is untouched.
+            graph.parameters[0].name = "moveSpeed";
+            graph.nodes[1].stringValue = "moveSpeed";
+
+            graph.ApplyOverrides(rows);
+            Assert.AreEqual(9f, RunOnce(graph),
+                "the same rows still tune the same parameter after the rename");
+            Assert.AreEqual("speed", rows[0].name,
+                "and the rename did not have to rewrite the caller's row to achieve it");
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        /// <summary>A row bound to nothing — no id at all — is stale by definition: there is no
+        /// declaration it can claim to be an override OF. It is reported like any other stale row
+        /// (once, by whatever label it carries) rather than silently ignored, because the only way
+        /// to produce one is a bug in whatever wrote it.</summary>
+        [Test]
+        public void Identity_RowWithNoIdIsStale()
+        {
+            GraphTaskAsset graph = ParamGraph("speed", 3f, "p-speed");
+
+            LogAssert.Expect(LogType.Warning, new Regex("'speed'"));
+            graph.ApplyOverrides(Overrides(Override("speed", true, 9f, null, string.Empty)));
+
+            Assert.AreEqual(3f, RunOnce(graph), "an unbound row cannot override anything");
+
+            // Once per instance, however many activations re-apply it.
+            graph.ApplyOverrides(Overrides(Override("speed", true, 9f, null, string.Empty)));
+            LogAssert.NoUnexpectedReceived();
+        }
+
         // ------------------------------------------------------------------ fixture helpers
+
+        /// <summary>Blackboard key the identity fixture reports its parameter under. Deliberately
+        /// NOT the parameter's own name: these cases rename the declaration mid-test, and an output
+        /// key that moved with it would confuse "the override was lost" with "we looked in the
+        /// wrong place".</summary>
+        private const string k_ParamOut = "out";
+
+        /// <summary>The smallest graph that makes one parameter observable: read it, write it to
+        /// <see cref="k_ParamOut"/>, stop. Node 1 is the GetParam node, so a test can retarget the
+        /// graph's own read the way a rebake would after a rename.</summary>
+        private GraphTaskAsset ParamGraph(string parameterName, float declaredDefault, string id)
+        {
+            GraphTaskAsset graph = MakeGraph(
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.SetBlackboardFloat, stringValue = k_ParamOut,
+                    data = new[] { 1 }, exec = new[] { -1 }
+                },
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.GetParamFloat, stringValue = parameterName
+                });
+            graph.tickEntry = 0;
+            graph.parameters = Params(
+                Param(parameterName, GraphTaskParameterKind.Float, declaredDefault, null, id));
+            return graph;
+        }
+
+        /// <summary>One enter/tick/exit cycle on a fresh context, returning what the graph wrote —
+        /// the effective value of the parameter, as the running program saw it.</summary>
+        private float RunOnce(GraphTaskAsset graph)
+        {
+            StateTreeContext context = MakeContext();
+            graph.OnEnter(context);
+            graph.OnTick(context, 0.1f);
+            float value = Float(context, k_ParamOut);
+            graph.OnExit(context, StateTreeStatus.Cancelled);
+            return value;
+        }
 
         private GraphTaskAsset MakeGraph(params GraphTaskNode[] program)
         {
@@ -912,24 +1040,37 @@ namespace PowerOfFire.DrawToPlay.Tests
             };
         }
 
+        /// <summary>Deterministic stand-in for the identity the editor generates
+        /// (<c>Guid.NewGuid().ToString("N")</c>): readable in a failure message, and — because it
+        /// is derived from the name — identical for a declaration and a row created from the same
+        /// name. That is what lets every case that is NOT about identity keep saying only "speed"
+        /// and still be id-bound, the way real authored data is.</summary>
+        private static string Id(string name)
+            => string.IsNullOrEmpty(name) ? null : "pid-" + name;
+
         private static GraphTaskParameter Param(string name, GraphTaskParameterKind kind,
-            float floatValue = 0f, string stringValue = null)
+            float floatValue = 0f, string stringValue = null, string id = null)
         {
             return new GraphTaskParameter
             {
-                name = name, kind = kind, floatValue = floatValue, stringValue = stringValue
+                name = name, kind = kind, floatValue = floatValue, stringValue = stringValue,
+                id = id ?? Id(name)
             };
         }
 
         private static List<GraphTaskParameter> Params(params GraphTaskParameter[] declared)
             => new List<GraphTaskParameter>(declared);
 
+        /// <summary>An override row. <paramref name="id"/> is what it BINDS by;
+        /// <paramref name="name"/> is only what the inspector would show — the identity cases pass
+        /// the two deliberately out of step.</summary>
         private static GraphTaskParameterOverride Override(string name, bool enabled,
-            float floatValue = 0f, string stringValue = null)
+            float floatValue = 0f, string stringValue = null, string id = null)
         {
             return new GraphTaskParameterOverride
             {
-                name = name, enabled = enabled, floatValue = floatValue, stringValue = stringValue
+                name = name, enabled = enabled, floatValue = floatValue, stringValue = stringValue,
+                id = id ?? Id(name)
             };
         }
 

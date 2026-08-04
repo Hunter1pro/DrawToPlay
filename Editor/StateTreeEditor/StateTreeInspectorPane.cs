@@ -84,12 +84,32 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// that behaves differently in the purple box than in the teal one is a bug the author has to
     /// discover, and a second copy of this logic is where that bug comes from.
     ///
-    /// With no state selected the pane edits the TREE: its name, its kind, the toggle that makes it
-    /// appear in every other tree's task picker, and ITS OWN PARAMETER DECLARATION. Those fields
-    /// exist nowhere else in the window, "mark this tree as a task" is the whole entry point to
-    /// composition, and the parameter list is the other half of it: the declaration is what the
-    /// override rows above are drawn against, and it doubles as the tree's blackboard contract —
-    /// the keys it reads, written down where a caller can see them.
+    /// With no state selected the pane edits the TREE: its name, its kind, and the toggle that makes
+    /// it appear in every other tree's task picker. Those fields exist nowhere else in the window and
+    /// "mark this tree as a task" is the whole entry point to composition.
+    ///
+    /// THE TREE'S OWN PARAMETER DECLARATION IS NOT ONE OF THEM — it is above everything, in both
+    /// views, from one builder (<see cref="BuildTreeParameters"/>) mounted twice. Declaring a
+    /// parameter is not a tree-settings chore done once before the states exist; it is what an author
+    /// reaches for WHILE wiring a state — "this number wants to be tunable" — and a list reachable
+    /// only by deselecting everything is a list that gets skipped, with the raw ScriptableObject
+    /// inspector as the fallback. It is a foldout so the cost of that promotion is one row when the
+    /// author is working on something else, and the open/closed choice is remembered for the session.
+    ///
+    /// AN OVERRIDE BINDS TO A PARAMETER'S ID, NEVER TO ITS NAME. A declaration carries a GUID minted
+    /// when the row is added (a baked graph's carries the identity of the variable it came from), and
+    /// the rows above, both interpreters and the stale detection all resolve through it. That is what
+    /// makes RENAMING a parameter safe: every state that overrides it follows automatically, because
+    /// none of them ever knew the name. What does NOT follow is the other half — the name IS the
+    /// blackboard key, so the tasks and conditions INSIDE the tree read it as authored text — which is
+    /// why a rename offers to retarget those reads and reports how many it found, rather than doing it
+    /// silently (a value match can be a coincidence) or not at all (a rename that half-works is worse
+    /// than one that refuses).
+    ///
+    /// Rows that predate ids are healed on sight: drawing a declaration with an empty id stamps one,
+    /// and drawing an override with an empty id adopts the id of the one declaration that carries its
+    /// name. Both write without an undo entry, because neither is something the author did — it is the
+    /// asset catching up with the model the first time it is opened, after which the name is decoration.
     /// </summary>
     internal sealed class StateTreeInspectorPane
     {
@@ -125,6 +145,15 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const string k_RemoveParameterUndo = "Remove Tree Parameter";
         private const string k_EditParameterUndo = "Edit Tree Parameter";
 
+        /// <summary>Its own undo label rather than <see cref="k_EditParameterUndo"/>: a rename can
+        /// carry a retarget across every task and condition in the tree, and one gesture that
+        /// rewrites twenty sub-assets should say what it was in the undo history.</summary>
+        private const string k_RenameParameterUndo = "Rename Tree Parameter";
+
+        /// <summary>Title of the rename dialog — the one place this window asks a question whose
+        /// "no" is a perfectly good answer.</summary>
+        private const string k_RenameDialogTitle = "Rename Parameter";
+
         /// <summary>Kind choices in ENUM ORDER, so a dropdown's index IS the kind — the same
         /// index-addressing the transition target picker uses, and for the same reason: matching a
         /// label back to a value breaks the day someone rewords a label. They are the words the
@@ -147,6 +176,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// rather than assumed, so un-ticking the toggle on a "player_flow" tree does not quietly
         /// turn it into an enemy AI tree.</summary>
         private string m_LastNonTaskKind = StateTreeEditorOps.DefaultTreeKind;
+
+        /// <summary>Whether the declaration foldout is open. Remembered on the pane rather than on
+        /// the element, because the pane is rebuilt from scratch on every structural edit and a
+        /// foldout that sprang back open each time a state was added would be worse than one that
+        /// could not be closed at all. Open by default: a declaration nobody can see is the problem
+        /// this section exists to fix.</summary>
+        private bool m_ParametersOpen = true;
 
         internal StateTreeInspectorPane(ScrollView root, Action structuralChanged, Action edited)
         {
@@ -173,6 +209,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 BuildTreeSettings();
                 return;
             }
+
+            // Above the state, not below it: the declaration belongs to the TREE, and a section that
+            // followed the state's own tasks would read as part of that state.
+            m_Root.Add(BuildTreeParameters());
 
             BuildHeader();
             BuildIdentity();
@@ -262,7 +302,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     HelpBoxMessageType.Warning));
             }
 
-            BuildTreeParameters();
+            m_Root.Add(BuildTreeParameters());
 
             m_Root.Add(SectionLabel("States"));
             var nodes = StateTreeEditorOps.CollectNodes(m_Tree);
@@ -295,13 +335,38 @@ namespace PowerOfFire.DrawToPlay.Editor
         ///
         /// A row is name, kind and default, in that order, because that is the order the author
         /// thinks in: the name is the contract, the kind decides what the default field even is.
+        ///
+        /// ONE BUILDER, TWO MOUNTS — the tree-settings view and the top of every state's view. It is
+        /// a <see cref="Foldout"/> rather than a section because of the second mount: with a state
+        /// selected this is context above the subject, so it has to be collapsible, and the choice is
+        /// remembered on the pane (<see cref="m_ParametersOpen"/>) because the pane is rebuilt on
+        /// every edit. The title carries the tree's name for the same reason — sitting above a state's
+        /// own sections, "Parameters" alone would read as that state's.
         /// </summary>
-        private void BuildTreeParameters()
+        /// <returns>The foldout, to be mounted by the caller.</returns>
+        private VisualElement BuildTreeParameters()
         {
+            HealDeclarationIds(m_Tree);
+
             var parameters = m_Tree.parameters;
             var count = parameters != null ? parameters.Count : 0;
 
-            m_Root.Add(SectionLabel($"Parameters ({count})"));
+            var foldout = new Foldout
+            {
+                text = $"Parameters · {StateTreeEditorOps.TreeDisplayName(m_Tree)} ({count})",
+                value = m_ParametersOpen
+            };
+            foldout.style.marginTop = 6f;
+            foldout.style.marginBottom = 4f;
+
+            // Every Toggle inside this foldout — the checkbox kind's default field — sends a
+            // ChangeEvent<bool> that bubbles right through here, so the foldout's own state is the
+            // only one this listens to.
+            foldout.RegisterValueChangedCallback(evt =>
+            {
+                if (evt.target == foldout)
+                    m_ParametersOpen = evt.newValue;
+            });
 
             var note = Hint(count == 0
                 ? "None declared. A parameter is a blackboard key this tree reads, with the default "
@@ -311,19 +376,21 @@ namespace PowerOfFire.DrawToPlay.Editor
                 + "task sees these as its parameters and may override any of them; the effective "
                 + "value is written to the shared blackboard every time that state is entered.");
             note.style.marginBottom = 4f;
-            m_Root.Add(note);
+            foldout.Add(note);
 
             for (var i = 0; i < count; ++i)
             {
                 if (parameters[i] != null)
-                    m_Root.Add(BuildDeclarationRow(i));
+                    foldout.Add(BuildDeclarationRow(i));
             }
 
             var add = new Button(AddTreeParameter) { text = "Add Parameter" };
             add.style.marginTop = 4f;
             add.tooltip = "Declare a blackboard key this tree reads, with the default it takes when "
                 + "nothing overrides it.";
-            m_Root.Add(add);
+            foldout.Add(add);
+
+            return foldout;
         }
 
         /// <summary>One declared parameter. The refusal box below the row is why this returns a
@@ -358,8 +425,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             };
             name.style.flexGrow = 1f;
             name.style.marginRight = 2f;
-            name.tooltip = "The blackboard key. Tasks, conditions and graphs inside this tree read "
-                + "it by this exact name, so renaming it here does NOT rename it there.";
+            name.tooltip = "The blackboard key. States that override this parameter are bound to it "
+                + "by id and follow a rename by themselves; the tasks and conditions INSIDE this tree "
+                + "read the key as text, so renaming offers to retarget those.";
             name.RegisterValueChangedCallback(
                 evt => RenameTreeParameter(index, evt.newValue, name, refusal, reserved));
             row.Add(name);
@@ -438,6 +506,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// A blank name is refused for the same reason rather than treated as "unnamed": the empty
         /// string is a perfectly valid dictionary key, so a blank row would seed one and every other
         /// blank row would collide with it.
+        ///
+        /// THE ID IS NOT TOUCHED, which is the whole point of having one: every state that overrides
+        /// this parameter — in this tree or any other, opened or not — keeps overriding it, because
+        /// none of them resolved by name in the first place. What a rename DOES strand is the readers
+        /// inside this tree, whose blackboard key is authored text, so the author is offered the
+        /// retarget and told how many fields it would rewrite. Declining leaves the tree reading the
+        /// old key, which is occasionally exactly right (the parameter was renamed because it now
+        /// means something else) and is in any case the author's call to make, not this window's.
         /// </summary>
         private void RenameTreeParameter(int index, string requested, TextField field,
             HelpBox refusal, HelpBox reserved)
@@ -472,9 +548,54 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             Refuse(refusal, null);
-            CommitDeclaration(index, e => e.name = trimmed);
+
+            // One gesture, one undo step — including the retarget, which is part of the same answer
+            // to the same question and would be maddening to undo separately.
+            var group = StateTreeEditorOps.BeginUndoGroup(k_RenameParameterUndo);
+            Undo.RecordObject(m_Tree, k_RenameParameterUndo);
+            entry.name = trimmed;
+            EditorUtility.SetDirty(m_Tree);
+
+            OfferRetarget(current, trimmed);
+
+            StateTreeEditorOps.EndUndoGroup(group);
+            m_Edited?.Invoke();
+
             field.SetValueWithoutNotify(trimmed);
             UpdateReservedWarning(reserved, trimmed);
+        }
+
+        /// <summary>
+        /// Ask whether the tree's own readers should follow the rename, and rewrite them if so. Asked
+        /// only when there is something to ask about: a parameter nothing in this tree reads is the
+        /// common case for a tree that exists to be CALLED, and a dialog that says "0 fields found"
+        /// is a dialog that trains authors to dismiss dialogs.
+        ///
+        /// The count is quoted before the fact rather than reported after, because it is the whole
+        /// basis for the decision — matching is by value, so the number includes any text field that
+        /// happens to hold the old name, and an author who sees "7" where they expected "2" should be
+        /// able to say no.
+        /// </summary>
+        private void OfferRetarget(string oldName, string newName)
+        {
+            var reads = StateTreeEditorOps.CountBlackboardReads(m_Tree, oldName);
+            if (reads <= 0)
+                return;
+
+            var message = $"'{oldName}' is now '{newName}'.\n\nStates that override this parameter "
+                + "follow the rename by themselves — they are bound to it by id. The tasks and "
+                + "conditions inside this tree are not: the name IS the blackboard key, and they hold "
+                + "it as text.\n\n"
+                + $"{reads} field(s) in this tree hold exactly '{oldName}'. Retarget them to "
+                + $"'{newName}'?\n\nMatching is by value, so a field holding that text for an "
+                + "unrelated reason is included too. Logic graphs this tree runs are separate assets "
+                + "and are never touched. The rename and the retarget are one undo step.";
+
+            if (!EditorUtility.DisplayDialog(k_RenameDialogTitle, message, "Retarget", "Rename Only"))
+                return;
+
+            StateTreeEditorOps.RetargetBlackboardReads(m_Tree, oldName, newName,
+                k_RenameParameterUndo);
         }
 
         /// <summary>
@@ -587,6 +708,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             m_Tree.parameters.Add(new GraphTaskParameter
             {
+                id = NewParameterId(),
                 name = UniqueParameterName(),
                 kind = GraphTaskParameterKind.Float,
                 stringValue = string.Empty
@@ -594,7 +716,48 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             EditorUtility.SetDirty(m_Tree);
             StateTreeEditorOps.EndUndoGroup(group);
-            RebuildTreeSettings();
+            RebuildParameters();
+        }
+
+        /// <summary>A declaration's identity, minted once when the row is created and never again —
+        /// not on rename, not on retype, not on reorder. Everything that binds to a parameter binds
+        /// to this, so regenerating it anywhere would silently unbind every state that overrides it.
+        /// </summary>
+        private static string NewParameterId() => Guid.NewGuid().ToString("N");
+
+        /// <summary>
+        /// Give an id to any declaration that has none — the one-time upgrade for lists authored
+        /// before parameters had identity, run when the list is drawn, which is the first moment
+        /// anything can go wrong for the lack of one.
+        ///
+        /// No <see cref="Undo"/> record: the author did not do this, and an undo step for "the file
+        /// caught up with the model" would sit in the history looking like a change they could revert
+        /// into a broken state. Dirty-only, once, and thereafter the name is decoration.
+        ///
+        /// Only lists on assets this window OWNS get here — a tree the author opened, and the sub-tree
+        /// a composite task points at. A baked graph's declarations are import artifacts: minting ids
+        /// into one would be undone by the next reimport, and mint DIFFERENT ids each time, which is
+        /// worse than leaving them alone. Those get their ids from the bake.
+        /// </summary>
+        private static void HealDeclarationIds(StateTreeAsset tree)
+        {
+            var parameters = tree != null ? tree.parameters : null;
+            if (parameters == null)
+                return;
+
+            var healed = false;
+            for (var i = 0; i < parameters.Count; ++i)
+            {
+                var entry = parameters[i];
+                if (entry == null || !string.IsNullOrEmpty(entry.id))
+                    continue;
+
+                entry.id = NewParameterId();
+                healed = true;
+            }
+
+            if (healed)
+                EditorUtility.SetDirty(tree);
         }
 
         private void RemoveTreeParameter(int index)
@@ -607,7 +770,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Tree.parameters.RemoveAt(index);
             EditorUtility.SetDirty(m_Tree);
             StateTreeEditorOps.EndUndoGroup(group);
-            RebuildTreeSettings();
+            RebuildParameters();
         }
 
         /// <summary>Every write to one declared row, in one place: record the TREE (the list lives
@@ -657,15 +820,17 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>Adding or removing a row changes the list the whole section is built from, so
-        /// the section is rebuilt — deferred, because the button that asked for it is a child of
-        /// what is about to be cleared.</summary>
-        private void RebuildTreeSettings()
+        /// the pane is rebuilt — deferred, because the button that asked for it is a child of what
+        /// is about to be cleared. Whatever is selected stays selected: the declaration is edited
+        /// from both views now, and an add that bounced the author back to the tree view would be a
+        /// worse surprise than the one row it saves redrawing.</summary>
+        private void RebuildParameters()
         {
             m_Edited?.Invoke();
             m_Root.schedule.Execute(() =>
             {
-                if (m_Tree != null && m_Node == null)
-                    Rebuild(m_Tree, null);
+                if (m_Tree != null)
+                    Rebuild(m_Tree, m_Node);
             }).ExecuteLater(0);
         }
 
@@ -1127,10 +1292,19 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>The sub-tree surface: the nested tree's declared blackboard keys, seeded on
         /// every entry. Same rows, same storage, different vocabulary — and no "unused" claim,
-        /// because a blackboard key can be read by anything the sub-tree reaches.</summary>
+        /// because a blackboard key can be read by anything the sub-tree reaches.
+        ///
+        /// The callee's declarations are healed here rather than only in its own window: the rows
+        /// below cannot bind to a parameter that has no id, and waiting until somebody happens to
+        /// open that tree would mean every override on this state read as stale in the meantime.
+        /// The sub-tree is a real asset when it declares anything at all — a tree baked from a
+        /// <c>.statetree</c> graph carries no declarations — so this writes to a file the author
+        /// owns.</summary>
         private static ParameterSurface SurfaceOf(RunSubTreeTask composite)
         {
             var subTree = composite.subTree;
+            HealDeclarationIds(subTree);
+
             return new ParameterSurface
             {
                 owner = composite,
@@ -1161,13 +1335,18 @@ namespace PowerOfFire.DrawToPlay.Editor
         ///
         /// The section is built from the declaration, never from the override list, so a row exists
         /// for every knob whether or not this state has touched it — a knob nobody knows about is a
-        /// knob nobody turns. Overrides naming something no longer declared are the exception,
-        /// listed after the rows as warnings with a way to delete them: renaming on the far side
-        /// strands them silently otherwise, and the runtime's answer is a single log line nobody
-        /// reads.
+        /// knob nobody turns. Overrides that resolve to nothing are the exception, listed after the
+        /// rows as warnings with a way to delete them: deleting on the far side strands them silently
+        /// otherwise, and the runtime's answer is a single log line nobody reads.
+        ///
+        /// EVERY BINDING HERE IS BY ID. A row finds its override by the declaration's id and by
+        /// nothing else, which is what lets the callee's author rename a parameter without reaching
+        /// into every state that overrides it. The name is what the row SHOWS, never what it matches.
         /// </summary>
         private VisualElement BuildParameterOverrides(ParameterSurface surface)
         {
+            HealOverrideIds(surface);
+
             var container = new VisualElement();
 
             var parameters = surface.declared;
@@ -1191,8 +1370,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 for (var i = 0; i < count; ++i)
                 {
                     var parameter = parameters[i];
-                    if (parameter != null && !string.IsNullOrEmpty(parameter.name))
-                        container.Add(BuildParameterRow(surface, parameter));
+                    if (parameter == null || string.IsNullOrEmpty(parameter.name))
+                        continue;
+
+                    container.Add(string.IsNullOrEmpty(parameter.id)
+                        ? BuildIdlessParameterRow(parameter)
+                        : BuildParameterRow(surface, parameter));
                 }
             }
 
@@ -1200,6 +1383,91 @@ namespace PowerOfFire.DrawToPlay.Editor
                 container.Add(BuildStaleOverrideRow(surface, stale[i]));
 
             return container;
+        }
+
+        /// <summary>
+        /// A declared parameter with no id, which cannot be overridden and says so where the row
+        /// would have been.
+        ///
+        /// Only a BAKED declaration reaches this: a tree's own list is healed when it is drawn, so an
+        /// idless one came from a graph baked before parameters had identity. Minting an id here would
+        /// be worse than useless — the artifact is rebuilt on every reimport, so the id would change
+        /// underneath any override that adopted it — and the fix is one gesture on the far side, which
+        /// is what the row says instead.
+        /// </summary>
+        private static VisualElement BuildIdlessParameterRow(GraphTaskParameter parameter)
+        {
+            var help = new HelpBox($"'{parameter.name}' was baked before parameters had ids, so this "
+                + "state cannot override it. Open the graph and save it — the re-bake gives it one, "
+                + $"and its default ({DefaultLabel(parameter)}) is what runs until then.",
+                HelpBoxMessageType.Warning);
+            help.style.marginTop = 2f;
+            return help;
+        }
+
+        /// <summary>
+        /// Adopt an id for any override that has none — the other half of the one-time upgrade, and
+        /// the reason a state configured before ids existed keeps running exactly as it did.
+        ///
+        /// EXACTLY ONE declaration may carry the name, or the row is left alone to be reported as
+        /// stale. Two declarations sharing a name is already refused by the declaration editor and
+        /// only reachable through hand-edited YAML, and guessing which of them an old override meant
+        /// would silently pick a value the author never chose — the one outcome worse than a warning.
+        ///
+        /// No undo record, same reasoning as <see cref="HealDeclarationIds"/>: the author did not do
+        /// this. The owner is a task sub-asset of the open tree, so it is always writable.
+        /// </summary>
+        private static void HealOverrideIds(ParameterSurface surface)
+        {
+            var overrides = surface.read();
+            if (overrides == null)
+                return;
+
+            var healed = false;
+            for (var i = 0; i < overrides.Count; ++i)
+            {
+                var entry = overrides[i];
+                if (entry == null || !string.IsNullOrEmpty(entry.id)
+                    || string.IsNullOrEmpty(entry.name))
+                    continue;
+
+                var id = SoleDeclaredId(surface, entry.name);
+                if (string.IsNullOrEmpty(id))
+                    continue;
+
+                entry.id = id;
+                healed = true;
+            }
+
+            if (healed)
+                EditorUtility.SetDirty(surface.owner);
+        }
+
+        /// <summary>The id of the ONE declaration carrying this name, or empty when none does, when
+        /// several do, or when the one that does has no id of its own.</summary>
+        private static string SoleDeclaredId(ParameterSurface surface, string name)
+        {
+            var parameters = surface.declared;
+            if (parameters == null)
+                return string.Empty;
+
+            // Counted rather than inferred from the id found so far: a first match that is itself
+            // idless would otherwise let a second one through as if it were the only one.
+            var matches = 0;
+            var found = string.Empty;
+            for (var i = 0; i < parameters.Count; ++i)
+            {
+                var parameter = parameters[i];
+                if (parameter == null
+                    || !string.Equals(parameter.name, name, StringComparison.Ordinal))
+                    continue;
+                if (++matches > 1)
+                    return string.Empty;
+
+                found = parameter.id ?? string.Empty;
+            }
+
+            return found;
         }
 
         /// <summary>One knob: the override checkbox, the name, and the value field for its kind.
@@ -1213,7 +1481,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Center;
 
-            var overridden = IsOverridden(surface, parameter.name);
+            var overridden = IsOverridden(surface, parameter);
 
             var toggle = new Toggle();
             toggle.style.flexShrink = 0f;
@@ -1293,7 +1561,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static void WriteParameterInput(VisualElement input, ParameterSurface surface,
             GraphTaskParameter parameter)
         {
-            var entry = ActiveOverride(surface, parameter.name);
+            var entry = ActiveOverride(surface, parameter);
 
             switch (parameter.kind)
             {
@@ -1324,7 +1592,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Turn an override on or off. On seeds the entry from the callee's current default,
         /// so ticking the box and typing nothing pins the value the author was already looking at;
         /// off DELETES the entry, because an override that exists but does nothing is the state this
-        /// UI cannot show and the runtime would still carry.</summary>
+        /// UI cannot show and the runtime would still carry.
+        ///
+        /// A new entry stores the name beside the id. Nothing resolves through it — that is the
+        /// point of the id — but an override row in a YAML diff, or in the stale warning after the
+        /// declaration is deleted, has to say WHICH knob it was, and a bare GUID says nothing.
+        /// </summary>
         private void SetOverride(ParameterSurface surface, GraphTaskParameter parameter, bool on)
         {
             var undoName = on ? k_SetOverrideUndo : k_ClearOverrideUndo;
@@ -1333,11 +1606,12 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var overrides = surface.write();
 
-            var index = IndexOfOverride(surface, parameter.name);
+            var index = IndexOfOverride(surface, parameter);
             if (on && index < 0)
             {
                 overrides.Add(new GraphTaskParameterOverride
                 {
+                    id = parameter.id,
                     name = parameter.name,
                     enabled = true,
                     floatValue = parameter.floatValue,
@@ -1347,15 +1621,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             else if (on)
             {
                 // An entry left behind switched off — hand-edited YAML, or a merge. Re-arm it in
-                // place rather than adding a second entry with the same name.
+                // place rather than adding a second entry for the same parameter.
                 overrides[index].enabled = true;
             }
             else
             {
-                // EVERY row with the name, not just the resolved one: unticking the box has to make
-                // "this state does not override that parameter" true, and a second row left behind
-                // would quietly keep overriding it.
-                RemoveOverrideRows(overrides, parameter.name);
+                // EVERY row for the parameter, not just the resolved one: unticking the box has to
+                // make "this state does not override that parameter" true, and a second row left
+                // behind would quietly keep overriding it.
+                RemoveOverrideRows(overrides, parameter);
             }
 
             EditorUtility.SetDirty(surface.owner);
@@ -1366,7 +1640,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private void CommitOverride(ParameterSurface surface, GraphTaskParameter parameter,
             Action<GraphTaskParameterOverride> write)
         {
-            var entry = ActiveOverride(surface, parameter.name);
+            var entry = ActiveOverride(surface, parameter);
             if (entry == null)
                 return;
 
@@ -1378,17 +1652,21 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Edited?.Invoke();
         }
 
-        /// <summary>An override naming a parameter the callee no longer declares — almost always
-        /// renamed or deleted on the far side. It is dead weight the runtime warns about once, so it
-        /// is surfaced here where it can be deleted instead.</summary>
-        private VisualElement BuildStaleOverrideRow(ParameterSurface surface, string name)
+        /// <summary>An override that resolves to no declared parameter — deleted on the far side, or
+        /// written before ids existed and no longer matchable by name. It is dead weight the runtime
+        /// warns about once, so it is surfaced here where it can be deleted instead. The row holds the
+        /// ENTRY, not an index or a name: an id-less row has no name worth matching on and the list
+        /// shifts under every removal.</summary>
+        private VisualElement BuildStaleOverrideRow(ParameterSurface surface,
+            GraphTaskParameterOverride entry)
         {
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Center;
             row.style.marginTop = 2f;
 
-            var help = new HelpBox(surface.staleMessage(name), HelpBoxMessageType.Warning);
+            var name = string.IsNullOrEmpty(entry.name) ? "(unnamed)" : entry.name;
+            var help = new HelpBox(StaleMessage(surface, entry, name), HelpBoxMessageType.Warning);
             help.style.flexGrow = 1f;
             row.Add(help);
 
@@ -1397,7 +1675,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             remove.tooltip = $"Delete the '{name}' override from this task.";
             remove.clicked += () =>
             {
-                RemoveOverride(surface, name);
+                RemoveOverride(surface, entry);
                 row.RemoveFromHierarchy();
             };
             row.Add(remove);
@@ -1405,7 +1683,23 @@ namespace PowerOfFire.DrawToPlay.Editor
             return row;
         }
 
-        private void RemoveOverride(ParameterSurface surface, string name)
+        /// <summary>Why a row is stale, which is two different stories. An override with an id names
+        /// a parameter that was DELETED, and the fix is on the callee — that is
+        /// <see cref="ParameterSurface.staleMessage"/>, the one message whose wording differs by kind.
+        /// An override with no id at all is older than the model: it could not be matched to a
+        /// declaration by name either, so nothing can be recovered from it and the honest advice is to
+        /// delete it and tick the parameter again.</summary>
+        private static string StaleMessage(ParameterSurface surface,
+            GraphTaskParameterOverride entry, string name)
+        {
+            return string.IsNullOrEmpty(entry.id)
+                ? $"'{name}' was overridden before parameters had ids, and no parameter of that name "
+                + "is declared any more — so there is nothing left to attach it to. Delete it and "
+                + "tick the parameter you meant."
+                : surface.staleMessage(name);
+        }
+
+        private void RemoveOverride(ParameterSurface surface, GraphTaskParameterOverride entry)
         {
             var overrides = surface.read();
             if (overrides == null)
@@ -1413,71 +1707,60 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var group = StateTreeEditorOps.BeginUndoGroup(k_ClearOverrideUndo);
             Undo.RecordObject(surface.owner, k_ClearOverrideUndo);
-            RemoveOverrideRows(overrides, name);
+            overrides.Remove(entry);
             EditorUtility.SetDirty(surface.owner);
             StateTreeEditorOps.EndUndoGroup(group);
             m_Edited?.Invoke();
         }
 
-        /// <summary>Drop every row carrying a name. Every, because both callers are answering a
-        /// question about the NAME — "stop overriding this" and "delete this stale row" — and
-        /// leaving a duplicate behind would answer neither.</summary>
+        /// <summary>Drop every row bound to a parameter. Every, because the caller is answering a
+        /// question about the PARAMETER — "stop overriding this" — and leaving a duplicate behind
+        /// would answer it with a row that keeps overriding.</summary>
         private static void RemoveOverrideRows(List<GraphTaskParameterOverride> overrides,
-            string name)
+            GraphTaskParameter parameter)
         {
             for (var i = overrides.Count - 1; i >= 0; --i)
             {
                 var entry = overrides[i];
-                if (entry != null && string.Equals(entry.name, name, StringComparison.Ordinal))
+                if (entry != null && entry.Matches(parameter))
                     overrides.RemoveAt(i);
             }
         }
 
-        /// <summary>Override names this task carries that the callee does not declare, in list order
-        /// and without repeats.</summary>
-        private static List<string> CollectStaleOverrides(ParameterSurface surface)
+        /// <summary>Override rows this task carries that bind to nothing the callee declares, in list
+        /// order. <c>Declaration</c> is the runtime's own answer to that question, so a row this
+        /// window offers to delete is exactly a row the runtime would skip.</summary>
+        private static List<GraphTaskParameterOverride> CollectStaleOverrides(
+            ParameterSurface surface)
         {
-            var stale = new List<string>();
+            var stale = new List<GraphTaskParameterOverride>();
             var overrides = surface.read();
             if (overrides == null)
                 return stale;
 
-            var declared = new HashSet<string>(StringComparer.Ordinal);
-            var parameters = surface.declared;
-            if (parameters != null)
-            {
-                for (var i = 0; i < parameters.Count; ++i)
-                {
-                    if (parameters[i] != null && parameters[i].name != null)
-                        declared.Add(parameters[i].name);
-                }
-            }
-
             for (var i = 0; i < overrides.Count; ++i)
             {
                 var entry = overrides[i];
-                if (entry == null || string.IsNullOrEmpty(entry.name))
-                    continue;
-                if (declared.Contains(entry.name) || stale.Contains(entry.name))
-                    continue;
-                stale.Add(entry.name);
+                if (entry != null && entry.Declaration(surface.declared) == null)
+                    stale.Add(entry);
             }
 
             return stale;
         }
 
         /// <summary>
-        /// The row the RUNTIME resolves for a name: the LAST enabled one, falling back to the last
+        /// The row this window EDITS for a parameter: the last enabled one, falling back to the last
         /// row of any kind so a leftover switched-off entry is re-armed in place rather than
-        /// duplicated.
+        /// duplicated. Only <see cref="SetOverride"/> needs the fallback — everything that asks what
+        /// the state actually runs goes through <see cref="ActiveOverride"/>, which is the runtime's
+        /// own resolver.
         ///
-        /// Last, not first, because that is what both interpreters do — they walk the list applying
-        /// as they go, so a later row overwrites an earlier one
-        /// (GraphTaskAsset.ApplyOverrides, RunSubTreeTask.EnabledOverride). Duplicate names are only
-        /// reachable through hand-edited YAML or a merge, and that is exactly when the inspector
-        /// must not show a different value from the one that runs.
+        /// Last, not first, because that is what the appliers do — they walk the list applying as
+        /// they go, so a later row overwrites an earlier one. Duplicate rows are only reachable
+        /// through hand-edited YAML or a merge, and that is exactly when the inspector must not show
+        /// a different value from the one that runs.
         /// </summary>
-        private static int IndexOfOverride(ParameterSurface surface, string name)
+        private static int IndexOfOverride(ParameterSurface surface, GraphTaskParameter parameter)
         {
             var overrides = surface.read();
             if (overrides == null)
@@ -1487,7 +1770,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (var i = overrides.Count - 1; i >= 0; --i)
             {
                 var entry = overrides[i];
-                if (entry == null || !string.Equals(entry.name, name, StringComparison.Ordinal))
+                if (entry == null || !entry.Matches(parameter))
                     continue;
                 if (entry.enabled)
                     return i;
@@ -1498,21 +1781,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             return fallback;
         }
 
-        /// <summary>The override entry that is actually in force for a parameter — present AND
-        /// switched on, which is what the runtime applies.</summary>
+        /// <summary>The override entry actually in force for a parameter — the RUNTIME's answer,
+        /// called rather than reimplemented so this window cannot show a value the interpreter does
+        /// not use.</summary>
         private static GraphTaskParameterOverride ActiveOverride(ParameterSurface surface,
-            string name)
-        {
-            var index = IndexOfOverride(surface, name);
-            if (index < 0)
-                return null;
+            GraphTaskParameter parameter)
+            => GraphTaskParameterOverride.EnabledFor(surface.read(), parameter);
 
-            var entry = surface.read()[index];
-            return entry != null && entry.enabled ? entry : null;
-        }
-
-        private static bool IsOverridden(ParameterSurface surface, string name)
-            => ActiveOverride(surface, name) != null;
+        private static bool IsOverridden(ParameterSurface surface, GraphTaskParameter parameter)
+            => ActiveOverride(surface, parameter) != null;
 
         /// <summary>Whether any instruction in the baked program pulls this parameter. A declared
         /// variable no node reads produces a knob that does nothing, which the row says out loud
