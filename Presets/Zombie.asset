@@ -120,6 +120,12 @@ MonoBehaviour:
     parameterId: 
     sourceKind: 1
     blackboardKey: OutputFlow
+  - targetKind: 1
+    targetIndex: 1
+    fieldName: range
+    parameterId: 
+    sourceKind: 1
+    blackboardKey: OutputFlow
 --- !u!114 &-808449643597999803
 MonoBehaviour:
   m_ObjectHideFlags: 0
