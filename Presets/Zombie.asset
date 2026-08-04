@@ -147,13 +147,7 @@ MonoBehaviour:
   m_Name: Task idle Graph:IdleTask
   m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.RunGraphTask
   graph: {fileID: -4015433371749376189, guid: 6fa73e79d0ffa4b7b86dbd72610bec32, type: 3}
-  overrides:
-  - name: Range
-    enabled: 1
-    floatValue: 20
-    stringValue: 
-    id: 5ed7667254afcea77ee38e92a9f373a1
-    sourceParameterId: 
+  overrides: []
 --- !u!114 &11400000
 MonoBehaviour:
   m_ObjectHideFlags: 0

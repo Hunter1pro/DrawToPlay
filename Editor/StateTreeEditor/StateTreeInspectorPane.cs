@@ -1201,22 +1201,42 @@ namespace PowerOfFire.DrawToPlay.Editor
                     // ObjectField below, which is the path that can produce a loop — so that one
                     // property (and only that one, or every keystroke in the state lists would
                     // rebuild the pane under the author's cursor) re-runs the guard.
+                    //
+                    // Compared BY ASSET PATH, not object identity: a .taskgraph reimport (which
+                    // the debounced SaveAssets triggers ~0.75s after ANY pane edit while a graph
+                    // is open) RECREATES the imported main asset, so the reference "changes"
+                    // without the author re-pointing anything — and rebuilding on that tore the
+                    // pane down under the cursor on every typing pause (user-reported). Only an
+                    // actual re-point (different file) is structural.
+                    var subTreePath = AssetDatabase.GetAssetPath(composite.subTree);
                     fields.RegisterCallback<SerializedPropertyChangeEvent>(evt =>
                     {
-                        if (evt.changedProperty != null
-                            && evt.changedProperty.propertyPath == k_SubTreeProperty)
-                            DeferStructuralChange();
+                        if (evt.changedProperty == null
+                            || evt.changedProperty.propertyPath != k_SubTreeProperty)
+                            return;
+                        var nowPath = AssetDatabase.GetAssetPath(composite.subTree);
+                        if (nowPath == subTreePath)
+                            return;
+                        subTreePath = nowPath;
+                        DeferStructuralChange();
                     });
                 }
                 else if (program != null)
                 {
-                    // Same reasoning for the wrapper's graph field: the row is named after it and
-                    // its Open button is built from it, so re-pointing it has to rebuild the row.
+                    // Same reasoning for the wrapper's graph field — and this is the row where the
+                    // path comparison is load-bearing, because .taskgraph mains are ScriptedImporter
+                    // artifacts and DO get recreated by every save-triggered reimport.
+                    var graphPath = AssetDatabase.GetAssetPath(program.graph);
                     fields.RegisterCallback<SerializedPropertyChangeEvent>(evt =>
                     {
-                        if (evt.changedProperty != null
-                            && evt.changedProperty.propertyPath == k_GraphProperty)
-                            DeferStructuralChange();
+                        if (evt.changedProperty == null
+                            || evt.changedProperty.propertyPath != k_GraphProperty)
+                            return;
+                        var nowPath = AssetDatabase.GetAssetPath(program.graph);
+                        if (nowPath == graphPath)
+                            return;
+                        graphPath = nowPath;
+                        DeferStructuralChange();
                     });
                 }
 
