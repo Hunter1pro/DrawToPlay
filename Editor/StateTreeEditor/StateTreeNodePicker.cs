@@ -494,6 +494,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 var folder = FolderNameOf(path);
                 var states = StateTreeEditorOps.CollectNodes(tree).Count;
 
+                // A declared parameter is a knob the calling state gets to turn, so it belongs in
+                // the one line the author reads BEFORE picking: "5 states" and "5 states · 2 params"
+                // are different offers. Silent at zero — most trees declare nothing, and a "· 0
+                // params" on every row would cost more attention than it returns.
+                var parameters = CountParameters(tree);
+
                 m_Entries.Add(new Entry
                 {
                     tree = tree,
@@ -503,12 +509,34 @@ namespace PowerOfFire.DrawToPlay.Editor
                     category = folder.Length > 0
                         ? k_AuthoredCategory + "/" + folder
                         : k_AuthoredCategory,
-                    description = $"Composite: {states} states",
+                    description = parameters > 0
+                        ? $"Composite: {states} states · {parameters} params"
+                        : $"Composite: {states} states",
                     persistKey = k_GuidKeyPrefix + guids[i],
                     qualifier = folder,
                     identity = path
                 });
             }
+        }
+
+        /// <summary>How many parameters a tree declares. Blank rows are not counted: a parameter is
+        /// its name (the blackboard key it seeds), so a nameless entry — only reachable through
+        /// hand-edited YAML, since the declaration editor refuses one — is not a knob anybody can
+        /// turn.</summary>
+        private static int CountParameters(StateTreeAsset tree)
+        {
+            var parameters = tree.parameters;
+            if (parameters == null)
+                return 0;
+
+            var count = 0;
+            for (var i = 0; i < parameters.Count; ++i)
+            {
+                if (parameters[i] != null && !string.IsNullOrEmpty(parameters[i].name))
+                    ++count;
+            }
+
+            return count;
         }
 
         /// <summary>The second authored half: every <c>.taskgraph</c> file, listed by the

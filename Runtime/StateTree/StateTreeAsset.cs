@@ -13,6 +13,32 @@ namespace PowerOfFire.DrawToPlay
         public string treeKind = "enemy_ai";
         public StateTreeNodeAsset root;
 
+        /// <summary>
+        /// The tree's PARAMETERS, and therefore its BLACKBOARD CONTRACT (M7g). A tree has no
+        /// argument list of its own — the only way a state inside it receives a value is by
+        /// reading a blackboard key — so declaring a parameter here does two jobs at once: it
+        /// documents "this tree expects a key called X" and it becomes the knob the caller turns.
+        /// <see cref="RunSubTreeTask"/> seeds each declared name into the shared blackboard on
+        /// every activation, at the caller's override or at the default declared here, which is
+        /// the same Blueprint-instance model <see cref="RunGraphTask"/> gives a logic graph.
+        ///
+        /// The row type is REUSED from the graph-task parameter model
+        /// (<see cref="GraphTaskParameter"/> / <see cref="GraphTaskParameterKind"/>) rather than
+        /// cloned: both authored-task flavours then present ONE parameter vocabulary to the
+        /// inspector, the picker and the author, and a Bool still rides in
+        /// <see cref="GraphTaskParameter.floatValue"/> (!= 0).
+        ///
+        /// Declared on EVERY tree, not only <c>treeKind == "task"</c> ones: a root tree's
+        /// declaration is the documentation of the ambient keys it assumes exist.
+        ///
+        /// Empty for every tree authored before M7g, which is exactly what "no parameters" means
+        /// — the extension is additive and nothing above it moved. <see cref="DeepCopy"/> carries
+        /// it with no change of its own: <c>Instantiate</c> clones the SERIALIZED data, and a
+        /// <c>List&lt;[Serializable] class&gt;</c> is serialized data (the same mechanism that
+        /// carries <see cref="treeName"/>), so the copy gets its own list of its own rows.
+        /// </summary>
+        public List<GraphTaskParameter> parameters = new List<GraphTaskParameter>();
+
         /// <summary>Deep-copy the whole tree (nodes, tasks, conditions) — the
         /// data.duplicate(true) mirror that keeps shared assets from sharing task
         /// instance state across runners.</summary>

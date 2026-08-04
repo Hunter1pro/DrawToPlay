@@ -35,6 +35,14 @@ namespace PowerOfFire.DrawToPlay
     /// The walk is O(reachable trees) per state entry, capped by depth, on authoring-scale
     /// graphs — a diamond-shaped composition is walked more than once by design (a path stack,
     /// not a visited set, is what detects cycles).
+    ///
+    /// PARAMETERS (M7g): a sub-tree's declared parameters
+    /// (<see cref="StateTreeAsset.parameters"/>) are the arguments of this call, and
+    /// <see cref="overrides"/> is what this particular state passes — parity with
+    /// <see cref="RunGraphTask"/>, so one authored "patrol" tree serves three states at three
+    /// speeds. There is no argument list to pass them through, because a tree only ever receives
+    /// a value one way: <see cref="OnEnter"/> writes each declared name into the SHARED blackboard
+    /// before the child machine starts, so the child's very first OnEnter already reads them.
     /// </summary>
     [CreateAssetMenu(menuName = "Draw To Play/AI/Tasks/Run Sub Tree", fileName = "RunSubTree")]
     [StateTreeCategory("Tasks/Composite", "Run another state tree as this task")]
@@ -58,6 +66,14 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Sub-tree state ids that end this task with Failure.</summary>
         public List<string> failureStates = new List<string> { "fail", "failure" };
 
+        /// <summary>This state's values for the sub-tree's declared parameters, one row per
+        /// overridden parameter; an unchecked row means "use the tree's declared default", which
+        /// keeps a state that overrides one of five parameters from freezing the other four at
+        /// whatever they happened to be when it was configured. Rows naming a parameter the tree
+        /// no longer declares are KEPT rather than silently dropped (the tree may be mid-edit, and
+        /// the inspector shows them as stale); this task ignores them with one warning.</summary>
+        public List<GraphTaskParameterOverride> overrides = new List<GraphTaskParameterOverride>();
+
         /// <summary>Live child machine, or null when the entry aborted. Not serialized, so the
         /// runner's DeepCopy hands every copy a clean one.</summary>
         private StateTreeExecutor m_Executor;
@@ -65,6 +81,11 @@ namespace PowerOfFire.DrawToPlay
         private bool m_Aborted;
         private bool m_DepthPushed;
         private int m_PreviousDepth;
+
+        /// <summary>One stale-override report per instance. Deliberately NOT reset by
+        /// <see cref="OnEnter"/>: seeding runs on every activation, and a state re-entered every
+        /// second must not turn one wrong row into a console flood.</summary>
+        private bool m_UnknownOverrideLogged;
 
         public override void OnEnter(StateTreeContext context)
         {
@@ -104,6 +125,11 @@ namespace PowerOfFire.DrawToPlay
             m_PreviousDepth = depth;
             context.domainContext[depthKey] = depth + 1;
             m_DepthPushed = true;
+
+            // Every guard has passed, so this activation really happens: publish the arguments
+            // BEFORE the child machine starts, or its entry state's OnEnter would read the
+            // previous activation's values (or nothing at all).
+            SeedParameters(context);
 
             m_Executor = new StateTreeExecutor
             {
@@ -154,6 +180,156 @@ namespace PowerOfFire.DrawToPlay
                 m_DepthPushed = false;
             }
             m_Aborted = false;
+        }
+
+        // ---------------------------------------------------------------- parameters
+
+        /// <summary>
+        /// Writes this activation's argument values into the SHARED blackboard: every parameter
+        /// the sub-tree declares, at this state's enabled override or at the tree's declared
+        /// default. Called once per activation, after the entry guards and before the child
+        /// machine starts.
+        ///
+        /// RE-SEEDING EVERY ACTIVATION is the point, not an accident. A state re-entered after
+        /// its sub-tree spent the last run counting a key down must start from the value the
+        /// author configured, not from wherever the previous run left it — the arguments of a
+        /// call do not persist across calls.
+        ///
+        /// THE DECLARATION IS READ FROM THE AUTHORED ASSET (<c>subTree.parameters</c>), not from
+        /// a copy: <see cref="StateTreeExecutor.StartTree"/> deep-copies the tree for itself, and
+        /// this reference survives the runner's own DeepCopy pointing at the same authored asset,
+        /// so both ends agree on what is declared however many copies are in between.
+        ///
+        /// NO SAVE/RESTORE of whatever the key held before (v1): the declaration IS the tree's
+        /// claim on that key, so two sub-trees declaring one name are sharing it on purpose.
+        /// Scoped keys are a v2 question, and one this can grow into without changing the
+        /// authored data.
+        /// </summary>
+        private void SeedParameters(StateTreeContext context)
+        {
+            List<GraphTaskParameter> declared = subTree.parameters;
+            if (declared != null)
+            {
+                for (int i = 0; i < declared.Count; i++)
+                {
+                    GraphTaskParameter parameter = declared[i];
+                    // A nameless row is an inspector row mid-edit, not a key.
+                    if (parameter == null || string.IsNullOrEmpty(parameter.name))
+                        continue;
+                    context.blackboard[parameter.name] = EffectiveValue(parameter);
+                }
+            }
+            WarnStaleOverrides(declared);
+        }
+
+        /// <summary>
+        /// The value one parameter is seeded with, BOXED AS THE TYPE THE CONSUMERS ALREADY READ.
+        /// The blackboard is <c>Dictionary&lt;string, object&gt;</c>, so the boxed type is a real
+        /// contract and picking it by taste breaks readers silently:
+        /// <list type="bullet">
+        /// <item>Float =&gt; <c>float</c>. What the only other library writer boxes
+        /// (SetBlackboardTask.cs:65, StateTreeLibraryUtil.cs:184) and what every reader
+        /// accepts.</item>
+        /// <item>String =&gt; <c>string</c> (SetBlackboardTask.cs:68); null is normalised to
+        /// empty, matching how a graph parameter reads (GraphTaskAsset.cs:450-452).</item>
+        /// <item>Bool =&gt; <c>float</c> 1/0, NOT a boxed <c>bool</c>. This is the one that has to
+        /// be argued: <c>GraphTaskAsset.ReadBlackboardFloat</c> would accept either
+        /// (GraphTaskAsset.cs:946-949 reads bool as 1/0), but
+        /// <c>StateTreeLibraryUtil.TryGetFloat</c> accepts float/int/double and NOTHING else
+        /// (StateTreeLibraryUtil.cs:164-177), and that is the path
+        /// <see cref="BlackboardCompareCondition"/> reads through
+        /// (BlackboardCompareCondition.cs:45). A boxed bool would therefore make every transition
+        /// gated on a declared Bool parameter read false forever, with no diagnostic. A float 1/0
+        /// is read correctly by BOTH, it is what a Bool parameter already IS in this model
+        /// (GraphTaskAsset.cs:134-135, and GetParamBool/GetParamFloat resolve identically at
+        /// GraphTaskAsset.cs:845-849), and <c>HasBlackboardKey</c> only asks whether the key
+        /// exists (GraphTaskAsset.cs:852-854), so it is indifferent. No library reader today
+        /// boxes or expects a <c>bool</c> on the blackboard — the test stubs' own flags are the
+        /// only ones, and they are not parameters.</item>
+        /// </list>
+        /// </summary>
+        private object EffectiveValue(GraphTaskParameter parameter)
+        {
+            GraphTaskParameterOverride row = EnabledOverride(parameter.name);
+            switch (parameter.kind)
+            {
+                case GraphTaskParameterKind.String:
+                {
+                    string text = row != null ? row.stringValue : parameter.stringValue;
+                    return text ?? string.Empty;
+                }
+                case GraphTaskParameterKind.Bool:
+                {
+                    float number = row != null ? row.floatValue : parameter.floatValue;
+                    return number != 0f ? 1f : 0f;
+                }
+                default:
+                    return row != null ? row.floatValue : parameter.floatValue;
+            }
+        }
+
+        /// <summary>The enabled override row for a parameter, or null for "use the declared
+        /// default". The LAST matching row wins, which is what a name-keyed dictionary of the rows
+        /// would do (GraphTaskAsset.cs:364-385) — duplicates are an inspector accident, and the
+        /// two must not disagree about which one the author sees applied. Ordinal comparison, for
+        /// the same reason: parameter names are keys, not prose.</summary>
+        private GraphTaskParameterOverride EnabledOverride(string parameterName)
+        {
+            if (overrides == null)
+                return null;
+            GraphTaskParameterOverride found = null;
+            for (int i = 0; i < overrides.Count; i++)
+            {
+                GraphTaskParameterOverride row = overrides[i];
+                if (row != null && row.enabled
+                    && string.Equals(row.name, parameterName, StringComparison.Ordinal))
+                    found = row;
+            }
+            return found;
+        }
+
+        /// <summary>A tree gets re-authored long after the states that call it were configured, so
+        /// an override naming a renamed or deleted parameter is normal wear rather than a fault:
+        /// the row is skipped, everything else still applies, and it is a WARNING said once per
+        /// instance — the same rule <c>RunGraphTask</c>'s overrides follow
+        /// (GraphTaskAsset.cs:387-391).</summary>
+        private void WarnStaleOverrides(List<GraphTaskParameter> declared)
+        {
+            if (overrides == null || m_UnknownOverrideLogged)
+                return;
+
+            string unknown = null;
+            for (int i = 0; i < overrides.Count; i++)
+            {
+                GraphTaskParameterOverride row = overrides[i];
+                if (row == null || !row.enabled || string.IsNullOrEmpty(row.name)
+                    || IsDeclared(declared, row.name))
+                    continue;
+                unknown = unknown == null
+                    ? "'" + row.name + "'"
+                    : unknown + ", '" + row.name + "'";
+            }
+
+            if (unknown == null)
+                return;
+            m_UnknownOverrideLogged = true;
+            Debug.LogWarning($"RunSubTreeTask: override for {unknown} — sub tree " +
+                $"'{subTree.name}' declares no such parameter (renamed or removed?). The row is " +
+                "ignored.", this);
+        }
+
+        private static bool IsDeclared(List<GraphTaskParameter> declared, string parameterName)
+        {
+            if (declared == null)
+                return false;
+            for (int i = 0; i < declared.Count; i++)
+            {
+                GraphTaskParameter parameter = declared[i];
+                if (parameter != null
+                    && string.Equals(parameter.name, parameterName, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
         }
 
         private StateTreeStatus Classify(string nodeId)

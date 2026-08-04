@@ -1,10 +1,72 @@
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 
 namespace PowerOfFire.DrawToPlay.Tests
 {
+    /// <summary>
+    /// Task stub that reports WHAT IT FOUND on the blackboard under one key, boxed type included,
+    /// and can overwrite it. The parameter tests need both halves: the seeded value has to be read
+    /// from INSIDE the sub-tree (the caller reading its own blackboard would prove nothing about
+    /// the child seeing it, and nothing about the ordering against the child's OnEnter), and the
+    /// re-entry case needs the child to move the key first.
+    ///
+    /// It logs the runtime type name because the boxed type IS the contract on a
+    /// <c>Dictionary&lt;string, object&gt;</c>: "Single(1)" and "Boolean(True)" are the same value
+    /// to a human and a different one to <c>StateTreeLibraryUtil.TryGetFloat</c>, which accepts the
+    /// first and rejects the second (StateTreeLibraryUtil.cs:164-177). Putting it in the trace
+    /// makes a regression there read as a failing log line rather than as a mystery.
+    ///
+    /// It lives in this file rather than beside the other stubs because agent-vm3 owns exactly
+    /// three files this round — the same reason <see cref="GraphCountingTask"/> lives in
+    /// GraphTaskTests.cs.
+    /// </summary>
+    internal sealed class StubBlackboardReadTask : StateTreeTaskAsset
+    {
+        /// <summary>Prefix of every log entry this task writes.</summary>
+        public string taskId = "read";
+
+        /// <summary>Blackboard key to report.</summary>
+        public string key = "";
+
+        /// <summary>Overwrite <see cref="key"/> with <see cref="writeValue"/> after reporting it
+        /// on tick — the "the child moved the key mid-run" half of the re-entry case.</summary>
+        public bool writeOnTick;
+
+        public float writeValue;
+
+        public override void OnEnter(StateTreeContext context)
+        {
+            StateTreeTestLog.Record(context, taskId + ":enter:" + Describe(context));
+        }
+
+        public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
+        {
+            StateTreeTestLog.Record(context, taskId + ":tick:" + Describe(context));
+            if (writeOnTick)
+                context.blackboard[key] = writeValue;
+            return StateTreeStatus.Running;
+        }
+
+        public override void OnExit(StateTreeContext context, StateTreeStatus status)
+        {
+            StateTreeTestLog.Record(context, taskId + ":exit:" + status);
+        }
+
+        /// <summary>"Single(3)" / "String(calm)" / "&lt;absent&gt;".</summary>
+        private string Describe(StateTreeContext context)
+        {
+            object value;
+            if (context == null || !context.blackboard.TryGetValue(key, out value) || value == null)
+                return "<absent>";
+            return value.GetType().Name + "("
+                + System.Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)
+                + ")";
+        }
+    }
+
     /// <summary>
     /// EditMode coverage of <see cref="RunSubTreeTask"/> — a tree running as a task inside
     /// another tree (M7c). Same rules as <see cref="StateTreeRunnerTests"/>: trees are built in
@@ -19,6 +81,12 @@ namespace PowerOfFire.DrawToPlay.Tests
     /// Two of the four cases drive the task directly (OnEnter/OnTick/OnExit) rather than through
     /// a runner: for the guard cases the task's own returned status IS the assertion, and a
     /// parent tree would only hide it behind a transition.
+    ///
+    /// The PARAMETERS section (M7g) is the same shape one level up: a sub-tree's declared
+    /// parameters are the arguments of the call, and the shared blackboard is the only channel
+    /// they can travel through — so every one of those cases reads the value from inside the
+    /// sub-tree, through <see cref="StubBlackboardReadTask"/>, rather than from the caller's own
+    /// dictionary.
     /// </summary>
     [TestFixture]
     public sealed class SubTreeTaskTests
@@ -298,6 +366,207 @@ namespace PowerOfFire.DrawToPlay.Tests
                 new[] { "attack:enter", "attack:tick1", "attack:tick2" }, Log(second));
         }
 
+        // ------------------------------------------------------------------ M7g parameters
+
+        /// <summary>A tree declares "speed", nobody overrides it, and the task inside the SUB-tree
+        /// reads the declared default off the shared blackboard — at its own OnEnter, which is the
+        /// ordering half of the claim: seeding happens before the child machine starts, not after
+        /// its entry state has already run.</summary>
+        [Test]
+        public void DeclaredParameter_DefaultIsSeededBeforeTheChildTaskEnters()
+        {
+            StateTreeAsset childTree = MakeReaderTree("speed");
+            childTree.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 3f));
+
+            RunSubTreeTask task = MakeSubTreeTask(childTree);
+            StateTreeContext context = MakeContext("Zombie");
+
+            task.OnEnter(context);
+
+            CollectionAssert.AreEqual(new[] { "speed:enter:Single(3)" }, Log(context),
+                "the child's OnEnter must already see the declared default");
+            Assert.AreEqual(3f, SeededFloat(context, "speed"));
+
+            task.OnExit(context, StateTreeStatus.Cancelled);
+        }
+
+        /// <summary>The Blueprint-instance model: the caller's ENABLED row wins over the tree's
+        /// declared default, and an unchecked row is not a value — it falls through to the
+        /// default, so a state that overrides one parameter does not freeze the others.</summary>
+        [TestCase(true, 9f)]
+        [TestCase(false, 3f)]
+        public void EnabledOverride_WinsOverTheDeclaredDefault(bool enabled, float expected)
+        {
+            StateTreeAsset childTree = MakeReaderTree("speed");
+            childTree.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 3f));
+
+            RunSubTreeTask task = MakeSubTreeTask(childTree);
+            task.overrides = Overrides(Override("speed", enabled, 9f));
+            StateTreeContext context = MakeContext("Zombie");
+
+            task.OnEnter(context);
+
+            CollectionAssert.AreEqual(new[] { "speed:enter:Single(" + expected + ")" }, Log(context));
+            Assert.AreEqual(expected, SeededFloat(context, "speed"));
+            Assert.AreEqual(3f, childTree.parameters[0].floatValue,
+                "the authored tree must never be written to");
+
+            task.OnExit(context, StateTreeStatus.Cancelled);
+        }
+
+        /// <summary>Arguments do not persist across calls. The sub-tree counts the key somewhere
+        /// else while it runs; re-entering the state must hand it the configured value again, not
+        /// whatever the previous run left behind.</summary>
+        [Test]
+        public void ReEntry_ReSeedsAfterTheChildMutatedTheKey()
+        {
+            StateTreeAsset childTree = MakeReaderTree("speed", writeOnTick: true, writeValue: 99f);
+            childTree.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 3f));
+
+            RunSubTreeTask task = MakeSubTreeTask(childTree);
+            task.overrides = Overrides(Override("speed", true, 7f));
+            StateTreeContext context = MakeContext("Zombie");
+
+            task.OnEnter(context);
+            Assert.AreEqual(7f, SeededFloat(context, "speed"), "the override seeded the first run");
+
+            Assert.AreEqual(StateTreeStatus.Running, task.OnTick(context, 0.1f));
+            Assert.AreEqual(99f, SeededFloat(context, "speed"), "the child moved the key mid-run");
+            task.OnExit(context, StateTreeStatus.Cancelled);
+            Assert.AreEqual(99f, SeededFloat(context, "speed"),
+                "and exiting leaves it there — v1 does not save/restore the caller's keys");
+
+            task.OnEnter(context);
+
+            Assert.AreEqual(7f, SeededFloat(context, "speed"), "re-entry re-seeds the effective value");
+            CollectionAssert.AreEqual(
+                new[] { "speed:enter:Single(7)", "speed:tick:Single(7)", "speed:exit:Cancelled",
+                    "speed:enter:Single(7)" },
+                Log(context),
+                "the second activation's child reads 7, not the 99 it wrote itself");
+
+            task.OnExit(context, StateTreeStatus.Cancelled);
+        }
+
+        /// <summary>A tree gets re-authored long after the states that call it were configured, so
+        /// a row naming a renamed parameter is wear, not a fault: skipped, never seeded as a key of
+        /// its own, the surviving rows still applied — and WARNED ONCE, because seeding runs on
+        /// every activation and a state re-entered every second must not flood the console.</summary>
+        [Test]
+        public void StaleOverrideName_WarnsOnceAndIsSkipped()
+        {
+            StateTreeAsset childTree = MakeReaderTree("speed");
+            childTree.parameters = Params(Param("speed", GraphTaskParameterKind.Float, 3f));
+
+            RunSubTreeTask task = MakeSubTreeTask(childTree);
+            task.overrides = Overrides(Override("spede", true, 99f), Override("speed", true, 7f));
+            StateTreeContext context = MakeContext("Zombie");
+
+            LogAssert.Expect(LogType.Warning, new Regex("'spede'"));
+            task.OnEnter(context);
+
+            Assert.AreEqual(7f, SeededFloat(context, "speed"),
+                "the stale row is dropped, the good one still applies");
+            Assert.IsFalse(context.blackboard.ContainsKey("spede"),
+                "an undeclared name must not become a blackboard key of its own");
+            task.OnExit(context, StateTreeStatus.Cancelled);
+
+            // Second activation: same stale row, no second warning.
+            task.OnEnter(context);
+            task.OnExit(context, StateTreeStatus.Cancelled);
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        /// <summary>
+        /// The other two kinds, and the boxed type each one lands as — the part of this that is a
+        /// real decision rather than plumbing. A String seeds as a <c>string</c>; a Bool seeds as a
+        /// <c>float</c> 1/0, NOT as a boxed <c>bool</c>, because
+        /// <c>StateTreeLibraryUtil.TryGetFloat</c> accepts float/int/double and nothing else
+        /// (StateTreeLibraryUtil.cs:164-177) and that is the path
+        /// <see cref="BlackboardCompareCondition"/> reads through — a boxed bool would make every
+        /// transition gated on a declared Bool parameter read false forever, silently. Asserting
+        /// the runtime type is what pins that down: the values compare equal either way.
+        ///
+        /// Both kinds run twice on ONE task — defaults first, then with overrides — which also
+        /// pins down that a second activation re-derives from the declarations instead of layering
+        /// onto what the last one left.
+        /// </summary>
+        [Test]
+        public void StringAndBoolParameters_SeedTheBoxedTypesTheLibraryReads()
+        {
+            var work = MakeNode("work",
+                MakeReader("mood", "mood"),
+                MakeReader("angry", "angry"));
+            StateTreeAsset childTree = MakeTree(work, "MoodTree");
+            childTree.parameters = Params(
+                Param("mood", GraphTaskParameterKind.String, 0f, "calm"),
+                Param("angry", GraphTaskParameterKind.Bool));
+
+            RunSubTreeTask task = MakeSubTreeTask(childTree);
+            StateTreeContext context = MakeContext("Zombie");
+
+            task.OnEnter(context);
+            Assert.AreEqual("calm", SeededString(context, "mood"));
+            Assert.AreEqual(0f, SeededFloat(context, "angry"), "a Bool default of false is 0f");
+            task.OnExit(context, StateTreeStatus.Cancelled);
+
+            task.overrides = Overrides(
+                Override("mood", true, 0f, "furious"),
+                Override("angry", true, 1f));
+            task.OnEnter(context);
+
+            Assert.AreEqual("furious", SeededString(context, "mood"));
+            Assert.AreEqual(1f, SeededFloat(context, "angry"), "a Bool override of true is 1f");
+            CollectionAssert.AreEqual(
+                new[] { "mood:enter:String(calm)", "angry:enter:Single(0)",
+                    "mood:exit:Cancelled", "angry:exit:Cancelled",
+                    "mood:enter:String(furious)", "angry:enter:Single(1)" },
+                Log(context));
+
+            task.OnExit(context, StateTreeStatus.Cancelled);
+        }
+
+        /// <summary>The declaration has to survive <see cref="StateTreeAsset.DeepCopy"/> — the
+        /// copy every executor runs — or a tree would forget its own contract the moment it was
+        /// started. Instantiate clones SERIALIZED data and a <c>List&lt;[Serializable] class&gt;</c>
+        /// is serialized data, so the copy must come out with its own rows: same values, separate
+        /// objects, and writing to one must not reach the other.</summary>
+        [Test]
+        public void DeclaredParameters_SurviveDeepCopyAsIndependentRows()
+        {
+            StateTreeAsset tree = MakeTree(MakeNode("work", MakeTask("work")), "DeclaringTree");
+            tree.parameters = Params(
+                Param("speed", GraphTaskParameterKind.Float, 3f),
+                Param("mood", GraphTaskParameterKind.String, 0f, "calm"),
+                Param("angry", GraphTaskParameterKind.Bool, 1f));
+
+            StateTreeAsset copy = tree.DeepCopy();
+            try
+            {
+                Assert.IsNotNull(copy.parameters);
+                Assert.AreEqual(3, copy.parameters.Count, "every declared row survived the copy");
+                for (int i = 0; i < tree.parameters.Count; i++)
+                {
+                    GraphTaskParameter authored = tree.parameters[i];
+                    GraphTaskParameter copied = copy.parameters[i];
+                    Assert.AreEqual(authored.name, copied.name);
+                    Assert.AreEqual(authored.kind, copied.kind);
+                    Assert.AreEqual(authored.floatValue, copied.floatValue);
+                    Assert.AreEqual(authored.stringValue, copied.stringValue);
+                    Assert.AreNotSame(authored, copied, "row " + i + " must be a copy, not an alias");
+                }
+                Assert.AreNotSame(tree.parameters, copy.parameters);
+
+                copy.parameters[0].floatValue = 99f;
+                Assert.AreEqual(3f, tree.parameters[0].floatValue,
+                    "writing to a running copy must never reach the asset on disk");
+            }
+            finally
+            {
+                StateTreeAsset.DestroyCopy(copy);
+            }
+        }
+
         // ------------------------------------------------------------------ fixture helpers
 
         /// <summary>Sub-tree shape used by the success case: an attack state that finishes, then
@@ -332,6 +601,83 @@ namespace PowerOfFire.DrawToPlay.Tests
             task.finishStatus = finishStatus;
             m_Assets.Add(task);
             return task;
+        }
+
+        /// <summary>Single-state sub-tree whose one task reports <paramref name="key"/>.</summary>
+        private StateTreeAsset MakeReaderTree(string key, bool writeOnTick = false,
+            float writeValue = 0f)
+        {
+            var work = MakeNode("work", MakeReader(key, key, writeOnTick, writeValue));
+            return MakeTree(work, "ReaderTree");
+        }
+
+        private StubBlackboardReadTask MakeReader(string id, string key, bool writeOnTick = false,
+            float writeValue = 0f)
+        {
+            var task = ScriptableObject.CreateInstance<StubBlackboardReadTask>();
+            task.name = id + "Reader";
+            task.taskId = id;
+            task.key = key;
+            task.writeOnTick = writeOnTick;
+            task.writeValue = writeValue;
+            m_Assets.Add(task);
+            return task;
+        }
+
+        private static GraphTaskParameter Param(string name, GraphTaskParameterKind kind,
+            float floatValue = 0f, string stringValue = null)
+        {
+            return new GraphTaskParameter
+            {
+                name = name, kind = kind, floatValue = floatValue, stringValue = stringValue
+            };
+        }
+
+        private static List<GraphTaskParameter> Params(params GraphTaskParameter[] declared)
+        {
+            return new List<GraphTaskParameter>(declared);
+        }
+
+        private static GraphTaskParameterOverride Override(string name, bool enabled,
+            float floatValue = 0f, string stringValue = null)
+        {
+            return new GraphTaskParameterOverride
+            {
+                name = name, enabled = enabled, floatValue = floatValue, stringValue = stringValue
+            };
+        }
+
+        private static List<GraphTaskParameterOverride> Overrides(
+            params GraphTaskParameterOverride[] rows)
+        {
+            return new List<GraphTaskParameterOverride>(rows);
+        }
+
+        /// <summary>The seeded value AND its boxed type — see
+        /// <see cref="StringAndBoolParameters_SeedTheBoxedTypesTheLibraryReads"/> for why the type
+        /// is asserted rather than just the number.</summary>
+        private static float SeededFloat(StateTreeContext context, string key)
+        {
+            object value = Seeded(context, key);
+            Assert.IsInstanceOf<float>(value,
+                "'" + key + "' must be boxed as a float — StateTreeLibraryUtil.TryGetFloat "
+                + "(the BlackboardCompareCondition path) reads float/int/double and nothing else");
+            return (float)value;
+        }
+
+        private static string SeededString(StateTreeContext context, string key)
+        {
+            object value = Seeded(context, key);
+            Assert.IsInstanceOf<string>(value, "'" + key + "' must be boxed as a string");
+            return (string)value;
+        }
+
+        private static object Seeded(StateTreeContext context, string key)
+        {
+            object value;
+            Assert.IsTrue(context.blackboard.TryGetValue(key, out value),
+                "the blackboard carries no key '" + key + "'");
+            return value;
         }
 
         private StubFlagCondition MakeFlagCondition(string flagKey, bool invert = false)
