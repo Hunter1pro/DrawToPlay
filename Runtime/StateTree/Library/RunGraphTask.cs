@@ -29,7 +29,7 @@ namespace PowerOfFire.DrawToPlay
     /// frame's value into them would turn a wire back into a constant.
     /// </summary>
     [StateTreeCategory("Tasks/Composite", "Run a logic-graph task by live reference")]
-    public sealed class RunGraphTask : StateTreeTaskAsset
+    public sealed class RunGraphTask : StateTreeTaskAsset, IStateTreeOutputSource
     {
         /// <summary>The .taskgraph file's main (baked) asset.</summary>
         public GraphTaskAsset graph;
@@ -100,6 +100,29 @@ namespace PowerOfFire.DrawToPlay
                 return;
             m_Instance.OnExit(context, status);
             DestroyInstance();
+        }
+
+        /// <summary>
+        /// The graph's return values, forwarded from the per-activation instance (M7j). The wrapper
+        /// is what the STATE holds and therefore what a transition's route names, but the values were
+        /// produced by the program running inside it — so this is a pass-through and nothing else:
+        /// the wrapper declares no outputs of its own and adds no interpretation to the graph's.
+        ///
+        /// ORDERING, and the reason this can be a pass-through at all: the executor collects at the
+        /// moment the task returns a terminal status, INSIDE its tick loop and one statement before
+        /// it calls <see cref="OnExit"/> (StateTreeExecutor.TickTree, step 2). At that point
+        /// <see cref="m_Instance"/> is still alive; one statement later OnExit has destroyed it and
+        /// this would return nothing. Anything that moves the capture after the OnExit call silently
+        /// empties every graph task's outputs, which is why the executor's capture site carries the
+        /// matching comment.
+        ///
+        /// A null instance — the graph was never assigned, or the wrapper is being asked outside an
+        /// activation — returns false rather than throwing: an absent return value is the same
+        /// non-event as a task that simply returned nothing.
+        /// </summary>
+        public bool TryCollectOutputs(List<TaskOutputValue> into)
+        {
+            return m_Instance != null && m_Instance.TryCollectOutputs(into);
         }
 
         private void OnDestroy()

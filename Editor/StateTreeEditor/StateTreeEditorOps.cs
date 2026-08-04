@@ -44,6 +44,19 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// index, which is its own case (<see cref="PruneBindings"/>). <see cref="RemoveNode"/>
     /// destroys the node that carries the rows, so there is nothing left to remap.
     ///
+    /// THE OUTPUT ROUTES (M7j) ARE THE SAME PROBLEM WITH A DIFFERENT ADDRESS, and the difference is
+    /// what makes the list of sites SHORTER rather than longer. A route
+    /// (<c>StateTreeTransition.outputRoutes</c>) lives ON a transition and names a TASK by index, so
+    /// only the TASK list can move underneath it — the two sites are exactly the two task mutations
+    /// that are not appends: <see cref="RemoveTask"/> (drop and renumber,
+    /// <see cref="DropRoutesAt"/>) and <see cref="CreateGraphTaskReference"/> with an insertion
+    /// point (<see cref="ShiftRoutesFrom"/>). Every TRANSITION mutation is deliberately left alone
+    /// and each says so where it happens: <see cref="RemoveTransition"/> destroys the rows with
+    /// their transition, <see cref="MoveTransition"/> carries them along in the object it swaps, and
+    /// <see cref="SetTransitionCondition"/> replaces a condition, which no route addresses. The
+    /// routes are walked across ALL of the node's transitions in both helpers, because a task index
+    /// is a fact about the state, not about the transition the row happens to sit on.
+    ///
     /// Saving is NOT done here. Callers batch it (see StateTreeEditorWindow) because
     /// AssetDatabase.SaveAssets() on every keystroke stalls the editor on large trees.
     /// </summary>
@@ -476,8 +489,24 @@ namespace PowerOfFire.DrawToPlay.Editor
                 BindingFlags.Public | BindingFlags.Instance);
             if (field == null || field.IsNotSerialized || field.IsInitOnly)
                 return false;
+            // An output is not an input: binding a parameter INTO a return field would be
+            // overwritten by the task and read as a working link that does nothing.
+            if (field.IsDefined(typeof(TaskOutputAttribute), true))
+                return false;
 
             return TryGetBindableKind(field.FieldType, out kind);
+        }
+
+        /// <summary>True when the named public field on <paramref name="target"/> carries
+        /// [TaskOutput] — the pane hides such fields from the editable list (they are return
+        /// values, surfaced through the transition Route outputs dropdowns instead).</summary>
+        internal static bool IsTaskOutputField(UnityEngine.Object target, string fieldName)
+        {
+            if (target == null || string.IsNullOrEmpty(fieldName))
+                return false;
+            var field = target.GetType().GetField(fieldName,
+                BindingFlags.Public | BindingFlags.Instance);
+            return field != null && field.IsDefined(typeof(TaskOutputAttribute), true);
         }
 
         internal static bool TryGetBindableKind(Type fieldType, out GraphTaskParameterKind kind)
@@ -636,6 +665,206 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
         }
 
+        // --- transition output routes -----------------------------------------------------
+
+        /// <summary>
+        /// Add a route to one transition: "when you fire, take output X of task N and write it to
+        /// the blackboard" — the M7j return flow, and the other half of the M7i input bindings. A
+        /// binding writes a parameter INTO a task before the tree runs; a route reads a value OUT of
+        /// a task that has finished, at the moment the state is left.
+        ///
+        /// Rows are ADDED, never uniqued, unlike <see cref="SetFieldBinding"/>: two routes carrying
+        /// the same output to two different blackboard keys is a legitimate thing to author (the
+        /// runtime writes both), whereas two links into one field is a contradiction. The only
+        /// key that ever collides is <c>blackboardKey</c>, and last-writer-wins there is the same
+        /// rule every other blackboard write in this toolset follows.
+        ///
+        /// <paramref name="taskIndex"/> is a position in <c>node.tasks</c>, which is why this file
+        /// has to renumber routes whenever that list moves — see <see cref="DropRoutesAt"/> and
+        /// <see cref="ShiftRoutesFrom"/>.
+        /// </summary>
+        /// <param name="node">The state that owns the transition — and the undo target, because the
+        /// transition is a plain serialized class, not an asset of its own.</param>
+        /// <param name="transitionIndex">Index into <c>node.transitions</c>.</param>
+        /// <param name="taskIndex">Index into <c>node.tasks</c> — the task whose output is read.</param>
+        /// <param name="outputName">The output's contract name. Empty is allowed: a row can be
+        /// added before the author has picked one, and the inspector says so.</param>
+        /// <param name="undoName">Undo label recorded on the node asset.</param>
+        /// <returns>False when the arguments describe no row at all, so the caller reports rather
+        /// than believing a mutation happened.</returns>
+        internal static bool AddOutputRoute(StateTreeNodeAsset node, int transitionIndex,
+            int taskIndex, string outputName, string undoName)
+        {
+            var transition = TransitionAt(node, transitionIndex);
+            if (transition == null || taskIndex < 0)
+                return false;
+
+            Undo.RecordObject(node, undoName);
+
+            if (transition.outputRoutes == null)
+                transition.outputRoutes = new List<TransitionOutputRoute>();
+
+            transition.outputRoutes.Add(new TransitionOutputRoute
+            {
+                taskIndex = taskIndex,
+                outputName = outputName ?? string.Empty,
+
+                // Empty means "under the output's own name" (the runtime rule), which is what the
+                // author almost always wants — and pre-filling it with the name would turn a
+                // later rename of the output into two edits instead of one.
+                blackboardKey = string.Empty
+            });
+
+            EditorUtility.SetDirty(node);
+            return true;
+        }
+
+        /// <summary>Drop one route. Addressed by its position in the transition's own list rather
+        /// than by content: rows are deliberately not unique (see <see cref="AddOutputRoute"/>), so
+        /// "the row the author pressed ✕ on" is the only unambiguous way to say which one.</summary>
+        /// <returns>False when there was nothing to remove — no undo entry is added in that
+        /// case.</returns>
+        internal static bool RemoveOutputRoute(StateTreeNodeAsset node, int transitionIndex,
+            int routeIndex, string undoName)
+        {
+            var transition = TransitionAt(node, transitionIndex);
+            var rows = transition != null ? transition.outputRoutes : null;
+            if (rows == null || routeIndex < 0 || routeIndex >= rows.Count)
+                return false;
+
+            Undo.RecordObject(node, undoName);
+            rows.RemoveAt(routeIndex);
+            EditorUtility.SetDirty(node);
+            return true;
+        }
+
+        /// <summary>The transition at one index, or null. Shared by the route helpers and the
+        /// inspector so a stale index is answered the same way everywhere.</summary>
+        internal static StateTreeTransition TransitionAt(StateTreeNodeAsset node, int index)
+        {
+            if (node == null || index < 0 || index >= node.transitions.Count)
+                return null;
+
+            return node.transitions[index];
+        }
+
+        /// <summary>
+        /// The outputs one task publishes, as the inspector offers them — the editor's half of the
+        /// M7j capture rule, and deliberately written to mirror it rather than to be permissive.
+        ///
+        /// Two sources, mirroring the executor's two producers. A task that answers for itself at run
+        /// time (<see cref="IStateTreeOutputSource"/> — a graph, and the wrapper that forwards one)
+        /// has no fields to read, so what it will produce is known only from the bake:
+        /// <c>GraphTaskAsset.declaredOutputs</c>, asked of the graph a <see cref="RunGraphTask"/>
+        /// points at rather than of the wrapper. Everything else is a plain C# task whose outputs are
+        /// its <c>[TaskOutput]</c> fields — the same <c>IsDefined(…, inherit: true)</c> over
+        /// <c>Public | Instance</c> the executor reflects over at completion, so what is offered here
+        /// and what is captured there cannot drift.
+        ///
+        /// Fields of a type the capture cannot carry are LEFT OUT rather than listed and refused:
+        /// <c>[TaskOutput]</c> on a Vector2 is an authoring mistake this window cannot fix, and
+        /// offering it would promise a route that silently never writes. An empty result is not the
+        /// same as "no outputs" — a graph that has not been re-baked also answers nothing, and so
+        /// would a future <see cref="IStateTreeOutputSource"/> with no declaration to read — which is
+        /// why the inspector falls back to a free-text name rather than to a disabled row.
+        /// </summary>
+        /// <returns>A fresh list, never null; names in declaration order, duplicates included
+        /// exactly as declared (a graph that sets one name twice is one output, and the baker is
+        /// what decides that — this only reports).</returns>
+        internal static List<TaskOutputValue> CollectTaskOutputs(StateTreeTaskAsset task)
+        {
+            var found = new List<TaskOutputValue>();
+            if (task == null)
+                return found;
+
+            var graph = task as GraphTaskAsset;
+            if (graph == null && task is RunGraphTask wrapper)
+                graph = wrapper.graph;
+
+            if (graph != null)
+            {
+                var declared = graph.declaredOutputs;
+                for (var i = 0; declared != null && i < declared.Count; ++i)
+                {
+                    if (!string.IsNullOrEmpty(declared[i].name))
+                        found.Add(declared[i]);
+                }
+
+                return found;
+            }
+
+            // Public instance only, matching the executor's own GetFields flags: an output the
+            // capture cannot reach must not be offered as one.
+            var fields = task.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance);
+            for (var i = 0; i < fields.Length; ++i)
+            {
+                var field = fields[i];
+                if (!field.IsDefined(typeof(TaskOutputAttribute), true))
+                    continue;
+                if (!TryGetBindableKind(field.FieldType, out var kind))
+                    continue;
+
+                found.Add(new TaskOutputValue { name = field.Name, kind = kind });
+            }
+
+            return found;
+        }
+
+        /// <summary>The route half of the index remap for a task REMOVAL: rows that read the removed
+        /// task die with it, and every row past it follows its task down one. Walks every transition
+        /// of the state, because the index is a fact about the state's task list and a row for it can
+        /// sit on any transition.
+        ///
+        /// Records nothing and takes no undo label, for the same reason the binding helpers do not:
+        /// the mutation that calls it has already recorded the node, and recording again after the
+        /// list changed would capture the mutated state as the state to undo to.</summary>
+        private static void DropRoutesAt(StateTreeNodeAsset node, int taskIndex)
+        {
+            if (node == null || taskIndex < 0)
+                return;
+
+            for (var t = 0; t < node.transitions.Count; ++t)
+            {
+                var rows = node.transitions[t] != null ? node.transitions[t].outputRoutes : null;
+                if (rows == null)
+                    continue;
+
+                for (var i = rows.Count - 1; i >= 0; --i)
+                {
+                    var row = rows[i];
+                    if (row == null)
+                        continue;
+
+                    if (row.taskIndex == taskIndex)
+                        rows.RemoveAt(i);
+                    else if (row.taskIndex > taskIndex)
+                        --row.taskIndex;
+                }
+            }
+        }
+
+        /// <summary>The route half of the index remap for a task INSERTION: every row at or past the
+        /// insertion point reads one slot later than it did.</summary>
+        private static void ShiftRoutesFrom(StateTreeNodeAsset node, int taskIndex)
+        {
+            if (node == null || taskIndex < 0)
+                return;
+
+            for (var t = 0; t < node.transitions.Count; ++t)
+            {
+                var rows = node.transitions[t] != null ? node.transitions[t].outputRoutes : null;
+                if (rows == null)
+                    continue;
+
+                for (var i = 0; i < rows.Count; ++i)
+                {
+                    var row = rows[i];
+                    if (row != null && row.taskIndex >= taskIndex)
+                        ++row.taskIndex;
+                }
+            }
+        }
+
         // --- sub-asset lifecycle ----------------------------------------------------------
 
         /// <summary>Create a state under <paramref name="parent"/> (null = become the tree
@@ -756,8 +985,10 @@ namespace PowerOfFire.DrawToPlay.Editor
 
                 // The one task mutation in this file that is not an append, and therefore the one
                 // that moves existing task indices — every parameter link at or past the insertion
-                // point now addresses the task after the one it was authored against.
+                // point now addresses the task after the one it was authored against, and so does
+                // every output route, which names its source task the same way.
                 ShiftBindingsFrom(node, StateTreeFieldBinding.TargetKind.Task, insertAt);
+                ShiftRoutesFrom(node, insertAt);
             }
             else
             {
@@ -833,7 +1064,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             // authored against the old condition's fields would either dangle or — worse — hit a
             // same-named field of the new one that means something else. Rows the replacement can
             // still satisfy survive, which is what makes re-picking the same type (the picker
-            // allows it) a no-op here too.
+            // allows it) a no-op here too. The output routes are untouched: a condition decides
+            // WHETHER the transition fires, and a route only says what it carries when it does.
             PruneBindings(node, StateTreeFieldBinding.TargetKind.TransitionCondition,
                 node.transitions.IndexOf(transition), created);
             EditorUtility.SetDirty(node);
@@ -853,11 +1085,14 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             Undo.RecordObject(node, undoName);
 
-            // Read the index BEFORE the removal: it is what the surviving parameter links are
-            // renumbered against, and afterwards the list no longer knows where the task was.
+            // Read the index BEFORE the removal: it is what the surviving parameter links and
+            // output routes are renumbered against, and afterwards the list no longer knows where
+            // the task was. Both are dropped-and-renumbered, and both have to be: a route left
+            // behind would carry the NEXT task's output forward under the deleted task's name.
             var index = node.tasks.IndexOf(task);
             node.tasks.Remove(task);
             DropBindingsAt(node, StateTreeFieldBinding.TargetKind.Task, index);
+            DropRoutesAt(node, index);
             EditorUtility.SetDirty(node);
 
             DestroySubAsset(task);
@@ -875,6 +1110,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             Undo.RecordObject(node, undoName);
             node.transitions.RemoveAt(index);
             DropBindingsAt(node, StateTreeFieldBinding.TargetKind.TransitionCondition, index);
+
+            // The output routes need nothing here: they are a field OF the transition just removed,
+            // so they went with it, and they name tasks — a list this mutation does not touch.
             EditorUtility.SetDirty(node);
 
             DestroySubAsset(transition?.condition);
@@ -919,7 +1157,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             node.transitions[target] = moved;
 
             // The conditions moved with their transitions, so the parameter links have to move too
-            // — a reorder that left them behind would silently retarget both of them.
+            // — a reorder that left them behind would silently retarget both of them. The output
+            // routes are the opposite case and need nothing: they are stored ON the transition
+            // object this swap moved, and what they address is the TASK list, which has not moved.
             SwapBindings(node, StateTreeFieldBinding.TargetKind.TransitionCondition, index, target);
             EditorUtility.SetDirty(node);
             if (tree != null)

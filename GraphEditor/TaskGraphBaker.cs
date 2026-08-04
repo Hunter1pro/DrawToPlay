@@ -31,6 +31,12 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     /// <c>exec[0]</c> next.</item>
     /// <item>SetBlackboardString — <c>stringValue</c> key, <c>data[0]</c> value or
     /// <c>stringValue2</c>; <c>exec[0]</c> next.</item>
+    /// <item>SetOutputFloat — <c>stringValue</c> output NAME, <c>data[0]</c> value or
+    /// <c>floatValue</c>; <c>exec[0]</c> next.</item>
+    /// <item>SetOutputString — <c>stringValue</c> output NAME, <c>data[0]</c> value or
+    /// <c>stringValue2</c>; <c>exec[0]</c> next.</item>
+    /// <item>SetOutputBool — <c>stringValue</c> output NAME, <c>data[0]</c> value or
+    /// <c>floatValue</c> (1/0); <c>exec[0]</c> next.</item>
     /// <item>DoTask — <c>task</c> a configured sub-asset; <c>exec[0]</c> after Success,
     /// <c>exec[1]</c> after Failure. Latent.</item>
     /// <item>Wait — <c>data[0]</c> seconds or <c>floatValue</c>; <c>exec[0]</c> next. Latent.</item>
@@ -48,11 +54,11 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     /// </list>
     ///
     /// ====================================================================================
-    /// THREE THINGS THIS BAKE DOES THAT ARE NOT MECHANICAL
+    /// FOUR THINGS THIS BAKE DOES THAT ARE NOT MECHANICAL
     /// ====================================================================================
-    /// 1. LITERALS THAT WOULD OTHERWISE BE LOST GET A CONSTANT INSTRUCTION. Only four data pins have
-    ///    a literal slot in the program model (a Set's value, a Wait's seconds, a Compare's
-    ///    right-hand side). Type <c>true</c> into a Branch's condition, or a number into a Compare's
+    /// 1. LITERALS THAT WOULD OTHERWISE BE LOST GET A CONSTANT INSTRUCTION. Only the Set nodes' value
+    ///    pins, a Wait's seconds and a Compare's right-hand side have a literal slot in the program
+    ///    model. Type <c>true</c> into a Branch's condition, or a number into a Compare's
     ///    LEFT side, and there is nowhere in the instruction to put it — so the bake appends a
     ///    ConstBool/ConstFloat instruction and wires the pin to it. The author's value survives, the
     ///    interpreter needs no special case, and the appended instructions are deterministic because
@@ -77,6 +83,14 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     ///    other use of the same variable, so the bake says which route was taken, once per use, as a
     ///    canvas note. (The blackboard is the way to drive a library task from graph logic: several of
     ///    them read one — <c>useBlackboardSpeed</c>, <c>useBlackboardRange</c>.)
+    /// 4. THE SET OUTPUT INSTRUCTIONS ARE ALSO THE DECLARATION OF WHAT THIS TASK RETURNS. There is no
+    ///    output panel to fill in and no second list to keep in step: a Set Output node names an
+    ///    output, and the bake collects the distinct names it finds into
+    ///    <c>GraphTaskAsset.declaredOutputs</c> so the transition inspector can offer them as a
+    ///    dropdown. Distinct BY NAME — setting <c>result</c> on both sides of a branch is one return
+    ///    value written from two paths — and the first instruction's type wins if two disagree, with a
+    ///    warning, because a name is one contract. The list is display-only; the runtime routes by the
+    ///    names the instructions actually wrote.
     ///
     /// ====================================================================================
     /// PARAMETER IDENTITY, AND WHERE IT COMES FROM
@@ -321,6 +335,9 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             program.name = ReadProgramName(graph);
             program.nodes = context.program;
             program.parameters = context.parameters;
+            // Filled by the pin pass above (every Set Output declares itself as it resolves its name),
+            // so this assignment has to follow the Resolve loop, not precede it.
+            program.declaredOutputs = context.declaredOutputs;
             program.enterEntry = ResolveEntry(context, graph, typeof(OnEnterNode));
             program.tickEntry = ResolveEntry(context, graph, typeof(OnTickNode));
             program.exitEntry = ResolveEntry(context, graph, typeof(OnExitNode));
@@ -483,6 +500,18 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             public readonly Dictionary<string, GraphTaskParameterKind> parameterKinds =
                 new Dictionary<string, GraphTaskParameterKind>(StringComparer.Ordinal);
 
+            /// <summary>What this graph RETURNS, one row per distinct output name, in the order the
+            /// Set Output instructions were visited (graph order, so it is deterministic). Values are
+            /// unused — a declaration is a name and a type, and the value only exists at runtime.
+            /// </summary>
+            public readonly List<TaskOutputValue> declaredOutputs = new List<TaskOutputValue>();
+
+            /// <summary>Position in <see cref="declaredOutputs"/> of each name already declared.
+            /// Needed because a merge has to find the existing row to compare its kind, and because a
+            /// graph with fifty Set Outputs should not be a fifty-squared scan.</summary>
+            private readonly Dictionary<string, int> m_OutputIndices =
+                new Dictionary<string, int>(StringComparer.Ordinal);
+
             public readonly BakeResult result;
 
             private readonly StateTreeGraphBaker.IBakeLog m_Log;
@@ -511,6 +540,42 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             {
                 (m_Log as IBakeNote)?.Note(message, node);
                 result.noteCount++;
+            }
+
+            /// <summary>
+            /// Record that this graph returns <paramref name="name"/>. Called once per Set Output
+            /// instruction, and DISTINCT BY NAME: setting the same output from both sides of a branch
+            /// is the normal shape of "compute a result", not two return values, so the second write
+            /// merges into the first row rather than adding one.
+            ///
+            /// The kinds have to agree, and when they do not the FIRST one stands. A name is one
+            /// contract — the transition inspector offers one row per name and the route that binds to
+            /// it writes one type into the blackboard — so a graph returning <c>result</c> as a number
+            /// on one path and as text on another has no single answer to give. It still bakes (both
+            /// instructions run and the runtime buffer carries whatever was written last, so nothing
+            /// is silently dropped at execution time); the warning is that the DECLARATION the author
+            /// sees in the inspector can only show one of the two.
+            /// </summary>
+            /// <param name="name">The output's name; already checked non-empty.</param>
+            /// <param name="kind">The type this instruction returns it as.</param>
+            /// <param name="node">The instruction, for the diagnostic.</param>
+            public void DeclareOutput(string name, GraphTaskParameterKind kind, INode node)
+            {
+                if (m_OutputIndices.TryGetValue(name, out int existing))
+                {
+                    GraphTaskParameterKind first = declaredOutputs[existing].kind;
+                    if (first != kind)
+                    {
+                        Warning($"'{Describe(node)}' returns '{name}' as a {kind}, but another Set "
+                            + $"Output in this graph already returns it as a {first}. An output name "
+                            + "is one contract: the transition that routes it is offered the first "
+                            + "type only. Give one of them a different name.", node);
+                    }
+                    return;
+                }
+
+                m_OutputIndices[name] = declaredOutputs.Count;
+                declaredOutputs.Add(new TaskOutputValue { name = name, kind = kind });
             }
         }
 
@@ -705,6 +770,9 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     return 2;
                 case GraphTaskNodeKind.SetBlackboardFloat:
                 case GraphTaskNodeKind.SetBlackboardString:
+                case GraphTaskNodeKind.SetOutputFloat:
+                case GraphTaskNodeKind.SetOutputString:
+                case GraphTaskNodeKind.SetOutputBool:
                 case GraphTaskNodeKind.Wait:
                 case GraphTaskNodeKind.FireCue:
                     return 1;
@@ -724,6 +792,9 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 case GraphTaskNodeKind.Branch:
                 case GraphTaskNodeKind.SetBlackboardFloat:
                 case GraphTaskNodeKind.SetBlackboardString:
+                case GraphTaskNodeKind.SetOutputFloat:
+                case GraphTaskNodeKind.SetOutputString:
+                case GraphTaskNodeKind.SetOutputBool:
                 case GraphTaskNodeKind.Wait:
                 case GraphTaskNodeKind.BoolNot:
                     return 1;
@@ -762,6 +833,32 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     node.stringValue = ReadKey(context, source, SetBlackboardStringNode.KeyPortName);
                     node.data[0] = ResolveData(context, source, SetBlackboardStringNode.ValuePortName,
                         typeof(string), LiteralSlot.SecondString, ref node);
+                    node.exec[0] = ResolveExec(context, source, TaskGraphPorts.ExecOutPortName);
+                    break;
+
+                case GraphTaskNodeKind.SetOutputFloat:
+                    node.stringValue = ReadOutputName(context, source,
+                        SetOutputFloatNode.OutputNamePortName, GraphTaskParameterKind.Float);
+                    node.data[0] = ResolveData(context, source, SetOutputFloatNode.ValuePortName,
+                        typeof(float), LiteralSlot.Float, ref node);
+                    node.exec[0] = ResolveExec(context, source, TaskGraphPorts.ExecOutPortName);
+                    break;
+
+                case GraphTaskNodeKind.SetOutputString:
+                    node.stringValue = ReadOutputName(context, source,
+                        SetOutputStringNode.OutputNamePortName, GraphTaskParameterKind.String);
+                    node.data[0] = ResolveData(context, source, SetOutputStringNode.ValuePortName,
+                        typeof(string), LiteralSlot.SecondString, ref node);
+                    node.exec[0] = ResolveExec(context, source, TaskGraphPorts.ExecOutPortName);
+                    break;
+
+                case GraphTaskNodeKind.SetOutputBool:
+                    node.stringValue = ReadOutputName(context, source,
+                        SetOutputBoolNode.OutputNamePortName, GraphTaskParameterKind.Bool);
+                    // The bool literal goes in floatValue as 1/0 — the program model's only numeric
+                    // slot, and the same encoding the captured value record uses for a bool.
+                    node.data[0] = ResolveData(context, source, SetOutputBoolNode.ValuePortName,
+                        typeof(bool), LiteralSlot.Float, ref node);
                     node.exec[0] = ResolveExec(context, source, TaskGraphPorts.ExecOutPortName);
                     break;
 
@@ -1073,6 +1170,34 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     + "an unnamed slot. Type the key into its Key field.", owner);
             }
             return key;
+        }
+
+        /// <summary>
+        /// An OUTPUT NAME: a constant string, required, never a wire — a blackboard key's rules, for a
+        /// stronger reason. An output name is the CONTRACT a transition's route binds to (name-keyed
+        /// by design, like a function's return value and unlike the id-keyed input parameters), so a
+        /// computed name would be a contract nothing could be written against, and an empty one would
+        /// declare a return value no route could ever name.
+        ///
+        /// Also the one place that knows what this graph returns, so it is where the declaration list
+        /// is built: <see cref="BakeContext.DeclareOutput"/> merges the name into
+        /// <see cref="GraphTaskAsset.declaredOutputs"/>, which exists so the transition inspector can
+        /// offer this task's outputs in a dropdown instead of asking the author to retype them.
+        /// </summary>
+        private static string ReadOutputName(BakeContext context, INode owner, string portName,
+            GraphTaskParameterKind kind)
+        {
+            string name = ReadConstantString(context, owner, portName);
+            if (string.IsNullOrEmpty(name))
+            {
+                context.Error($"'{Describe(owner)}' has no output name, so it would return a value "
+                    + "under no name and no transition could route it. Type the name into its Output "
+                    + "field.", owner);
+                return string.Empty;
+            }
+
+            context.DeclareOutput(name, kind, owner);
+            return name;
         }
 
         private static string ReadConstantString(BakeContext context, INode owner, string portName)
@@ -1555,8 +1680,25 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     context.Warning($"'{Describe(source)}' is in the On Enter / On Exit chain, which "
                         + "has no status to return: it ends the chain and nothing else.", source);
                 }
+                else if (IsOutputKind(node.kind) && exitChain.Contains(i) && !enterChain.Contains(i))
+                {
+                    // A task's outputs are read the instant it finishes, and On Exit is teardown that
+                    // runs after — the same "returned, then cleaned up" order a function has. A Set
+                    // Output there therefore writes into a buffer nobody looks at again.
+                    context.Warning($"'{Describe(source)}' only runs in the On Exit chain, and this "
+                        + "task's outputs are captured the moment it finishes — before On Exit runs. "
+                        + "Nothing can route this value. Set it in the On Enter or On Tick chain, "
+                        + "before whatever returns.", source);
+                }
             }
         }
+
+        /// <summary>Whether an instruction writes one of this task's return values.</summary>
+        /// <param name="kind">The instruction to classify.</param>
+        /// <returns>True for the three Set Output instructions.</returns>
+        private static bool IsOutputKind(GraphTaskNodeKind kind)
+            => kind == GraphTaskNodeKind.SetOutputFloat || kind == GraphTaskNodeKind.SetOutputString
+                || kind == GraphTaskNodeKind.SetOutputBool;
 
         /// <summary>Every instruction an exec chain can reach from <paramref name="entry"/>. Iterative
         /// and visited-guarded, so a loop in the graph — which is legal and useful — terminates.</summary>

@@ -31,8 +31,11 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <summary>Bump to force every task graph in the project to re-bake after a change to the
         /// baker (the import result is cached against this number).</summary>
         // 2: parameters carry stable ids (M7h) — bump forces the one-shot reimport that
-        // mints ids on every existing baked graph.
-        private const int k_Version = 2;
+        //    mints ids on every existing baked graph.
+        // 3: the bake declares what a graph RETURNS (M7j) — every already-imported graph has an empty
+        //    declaredOutputs until it re-bakes, and an empty one is indistinguishable from "returns
+        //    nothing", so the transition inspector would offer no outputs on any existing graph.
+        private const int k_Version = 3;
 
         /// <summary>Identifier of the baked program inside the imported asset. Sub-objects are keyed
         /// by instruction index (see <see cref="TaskGraphBaker"/>), so they cannot collide with

@@ -70,6 +70,94 @@ namespace PowerOfFire.DrawToPlay
         public string targetNodeId = "";
         public StateTreeConditionAsset condition;
         public bool checkWhileRunning;
+
+        /// <summary>
+        /// Where this transition puts the OUTPUTS of the tasks that finished in the state it leaves
+        /// (M7j). Empty — every transition authored before M7j — means "the returns are discarded",
+        /// which is what a call whose result nobody assigns does everywhere else.
+        ///
+        /// THE ROUTING LIVES ON THE TRANSITION, not on the task, because the transition is the only
+        /// authored thing that knows both halves: which tasks have finished (it is the reason the
+        /// state is ending) and where the tree is going next (so what the next state will want to
+        /// read). Two transitions out of one state may route the same output to different keys, or
+        /// one of them to nothing — the "attack succeeded" edge stores the damage, the "target lost"
+        /// edge does not — and a task cannot express that about itself.
+        ///
+        /// Applied by <see cref="StateTreeExecutor"/> after the transition has fired and before the
+        /// state is exited, so the values are on the blackboard before the next state's first
+        /// OnEnter.
+        /// </summary>
+        public List<TransitionOutputRoute> outputRoutes = new List<TransitionOutputRoute>();
+    }
+
+    /// <summary>
+    /// ONE wire from a finished task's named output to a blackboard key, carried by the transition
+    /// that fires (M7j) — the assignment half of "the task returns a value".
+    ///
+    /// THE TASK IS AN INDEX and the output a NAME, and the asymmetry is deliberate. The task is
+    /// identified positionally because it is an element of <see cref="StateTreeNodeAsset.tasks"/>
+    /// with no identity of its own, exactly as <see cref="StateTreeFieldBinding.targetIndex"/> is —
+    /// and the same Ops-layer remapping keeps it pointing at the same task when the list is
+    /// reordered. The OUTPUT is named because a name is what the task's author published: a
+    /// <c>[TaskOutput]</c> field name or a graph's typed-in Set Output name, neither of which has an
+    /// id to bind to, and both of which are contracts a rename is supposed to break loudly rather
+    /// than survive quietly (see <see cref="TaskOutputAttribute"/>).
+    /// </summary>
+    [Serializable]
+    public sealed class TransitionOutputRoute
+    {
+        /// <summary>Index into the SOURCE state's <c>tasks</c> — the task whose return value this
+        /// row reads. Out of range, or a task that did not finish, is one warning and the row is
+        /// skipped: the transition still fires, because a missing return is not a reason to strand
+        /// the tree in the state it was leaving.</summary>
+        public int taskIndex;
+
+        /// <summary>The output's contract name, as the task publishes it. Matched
+        /// ordinally.</summary>
+        public string outputName;
+
+        /// <summary>Blackboard key to write. EMPTY MEANS <see cref="outputName"/>, so the common
+        /// case — route "damage" to "damage" — needs nothing typed, and a key is only spelled out
+        /// when the author actually wants a different name from the one the task returned.</summary>
+        public string blackboardKey;
+
+        /// <summary>The key this row writes: <see cref="blackboardKey"/>, or the output's own name
+        /// when none is given. One place, because the inspector shows it as a placeholder and the
+        /// executor writes it, and a disagreement between those two would be invisible.</summary>
+        public string ResolvedKey()
+        {
+            return string.IsNullOrEmpty(blackboardKey) ? outputName : blackboardKey;
+        }
+
+        /// <summary>How this row is named in a diagnostic — a warning nobody can trace back to a row
+        /// is not worth logging.</summary>
+        public string Describe()
+        {
+            string named = string.IsNullOrEmpty(outputName) ? "(unnamed)" : "'" + outputName + "'";
+            return "output " + named + " of task " + taskIndex;
+        }
+
+        /// <summary>A by-value copy of a route list, for <see cref="StateTreeAsset.DeepCopy"/>.
+        /// Lives here rather than there because these are the rows' own semantics: the executor runs
+        /// a COPY of the tree, so a route that did not survive the copy would be a route that never
+        /// fires, and the copy owns its rows so nothing it does can reach the authored asset.</summary>
+        public static List<TransitionOutputRoute> CopyList(List<TransitionOutputRoute> routes)
+        {
+            if (routes == null)
+                return new List<TransitionOutputRoute>();
+            var copy = new List<TransitionOutputRoute>(routes.Count);
+            for (int i = 0; i < routes.Count; i++)
+            {
+                TransitionOutputRoute route = routes[i];
+                copy.Add(route == null ? null : new TransitionOutputRoute
+                {
+                    taskIndex = route.taskIndex,
+                    outputName = route.outputName,
+                    blackboardKey = route.blackboardKey
+                });
+            }
+            return copy;
+        }
     }
 
 }

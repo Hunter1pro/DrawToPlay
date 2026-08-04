@@ -132,6 +132,27 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// numbers that have to be kept equal by hand. Stale links on either control read exactly like a
     /// stale override: a warning that says what broke, what runs instead, and offers the one gesture
     /// that clears it.
+    ///
+    /// AND VALUES COME BACK. Everything above is the way IN — a parameter reaching a field before the
+    /// tree runs. A task that has finished also has something to say (how much damage it dealt, what
+    /// it found, how long it took), and until M7j the only way to carry that to the next state was for
+    /// the task to write a blackboard key it hard-codes, which makes the key an implementation detail
+    /// two classes have to agree on in silence. So a task DECLARES its outputs — <c>[TaskOutput]</c>
+    /// fields on a C# task, Set Output nodes in a graph — and the TRANSITION chooses which of them to
+    /// carry, in a "Route outputs" foldout at the bottom of each transition box: source task, output,
+    /// and the blackboard key it lands under. The transition is the right owner because leaving a
+    /// state is exactly the moment the answer exists and the next state does not yet: routing is what
+    /// a function's <c>return</c> statement does, written where the jump is.
+    ///
+    /// A ROUTE IS NAME-KEYED, not id-keyed — the one place in this window that is. That is deliberate
+    /// and it is the difference between a knob and a contract: a parameter is tuned by whoever calls
+    /// you and may be renamed freely because nothing outside points at it, while an output is what
+    /// you PROMISE, so renaming one is a breaking change and has to read as one. The inspector shows
+    /// an unrecognised name as stale rather than repairing it, and says why.
+    ///
+    /// Routes address their source task by POSITION, exactly like the parameter links, and are
+    /// renumbered by the same file for the same reason — with a shorter list of sites, because a
+    /// route rides on the transition it belongs to and only the TASK list can move beneath it.
     /// </summary>
     internal sealed class StateTreeInspectorPane
     {
@@ -147,6 +168,12 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private const string k_NoConditionChoice = "None (always passes)";
         private const string k_NoTargetChoice = "<none>";
+
+        /// <summary>What a route with no output picked shows. The same angle-bracket vocabulary as
+        /// <see cref="k_NoTargetChoice"/>, because it means the same thing: a slot the author has
+        /// not filled in yet, which the runner will skip.</summary>
+        private const string k_NoOutputChoice = "<none>";
+
         private const string k_SubTreeProperty = "subTree";
 
         /// <summary>The wrapper field an author can re-point by dropping a graph on it — the one
@@ -171,6 +198,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const string k_UnlinkFieldUndo = "Unlink Field";
         private const string k_LinkSourceUndo = "Link Parameter To Tree Parameter";
         private const string k_UnlinkSourceUndo = "Unlink Parameter";
+
+        /// <summary>Routing is its own gesture on its own list, so it gets its own labels rather
+        /// than riding on the transition's — "undo Add Route" and "undo Add Transition" are two
+        /// different amounts of work to lose.</summary>
+        private const string k_AddRouteUndo = "Add Output Route";
+
+        private const string k_RemoveRouteUndo = "Remove Output Route";
+        private const string k_EditRouteUndo = "Edit Output Route";
 
         /// <summary>What a bound row shows in place of its value. An arrow rather than a word
         /// because it says the direction: the value comes FROM there, and this field is no longer
@@ -268,6 +303,18 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// could not be closed at all. Open by default: a declaration nobody can see is the problem
         /// this section exists to fix.</summary>
         private bool m_ParametersOpen = true;
+
+        /// <summary>Which transitions' "Route outputs" foldouts the author has opened, by transition
+        /// index. Remembered on the pane for the same reason <see cref="m_ParametersOpen"/> is —
+        /// adding a route rebuilds the pane, and a foldout that closed itself each time would make
+        /// the second route harder to add than the first.
+        ///
+        /// Keyed by INDEX rather than by identity, so reordering transitions carries the open state
+        /// to whatever now sits at that position. That is a display nicety and nothing else: unlike
+        /// the route rows themselves, which <see cref="StateTreeEditorOps"/> renumbers, a foldout
+        /// opening one box too far costs a click. Closed by default, opened by content: a transition
+        /// that already routes something shows it without being asked.</summary>
+        private readonly HashSet<int> m_OpenRouteFoldouts = new HashSet<int>();
 
         internal StateTreeInspectorPane(ScrollView root, Action structuralChanged, Action edited)
         {
@@ -1039,6 +1086,21 @@ namespace PowerOfFire.DrawToPlay.Editor
                     problems.Add(problem);
             }
 
+            // Routes are reported here as well as beside the row they belong to, because the row is
+            // inside a foldout: a route that silently carries nothing must be visible from the state
+            // without the author first guessing which transition to open.
+            for (var i = 0; i < m_Node.transitions.Count; ++i)
+            {
+                var transition = m_Node.transitions[i];
+                var routes = transition != null ? transition.outputRoutes : null;
+                for (var r = 0; routes != null && r < routes.Count; ++r)
+                {
+                    var problem = DescribeRouteProblem(routes[r]);
+                    if (problem != null)
+                        problems.Add($"Transition {i + 1}: {problem}");
+                }
+            }
+
             if (problems.Count == 0)
                 return;
 
@@ -1106,6 +1168,71 @@ namespace PowerOfFire.DrawToPlay.Editor
             return null;
         }
 
+        /// <summary>
+        /// What is wrong with one output route, or null when nothing is. Written as a standalone
+        /// sentence so the SAME text serves both mounts — the state's validation box prefixes the
+        /// transition it belongs to, and the row itself needs no prefix because it is sitting on it.
+        ///
+        /// The tests are in the order the runtime hits them (task, then output), so the first thing
+        /// that stops the write is the first thing reported. The last two are editor-only knowledge
+        /// the runtime cannot express as cheaply: a sub-tree task publishes nothing at all in v1, and
+        /// an output name the source does not declare is the one failure this model makes possible —
+        /// routes are matched BY NAME, so renaming an output is a breaking change, and saying so here
+        /// is the whole reason the editor knows what a task publishes.
+        /// </summary>
+        private string DescribeRouteProblem(TransitionOutputRoute route)
+        {
+            if (route == null)
+                return "a route row is empty. The runner skips it.";
+
+            if (route.taskIndex < 0 || route.taskIndex >= m_Node.tasks.Count)
+            {
+                return $"a route reads task {route.taskIndex + 1}, which this state does not have "
+                    + "— the task it was made on was deleted. The runner skips it.";
+            }
+
+            var task = m_Node.tasks[route.taskIndex];
+            if (task == null)
+            {
+                return $"a route reads task slot {route.taskIndex + 1}, which is empty. The runner "
+                    + "skips it.";
+            }
+
+            if (string.IsNullOrEmpty(route.outputName))
+                return "a route has no output picked, so it carries nothing forward.";
+
+            if (task is RunSubTreeTask)
+            {
+                return $"'{route.outputName}' is routed out of {TaskBoxLabel(task)}, and a sub-tree "
+                    + "task publishes no outputs — a nested tree's own states route internally. "
+                    + "Nothing is written.";
+            }
+
+            // An EMPTY list is not evidence: a graph that has not been re-baked declares nothing
+            // either, and calling every route on it stale would be noise the author cannot act on.
+            // Only a source that publishes SOMETHING can say a name is not one of them.
+            var outputs = StateTreeEditorOps.CollectTaskOutputs(task);
+            if (outputs.Count > 0 && !PublishesOutput(outputs, route.outputName))
+            {
+                return $"'{route.outputName}' is routed out of {TaskBoxLabel(task)}, which does not "
+                    + "publish it. Outputs are matched by NAME, so renaming one breaks every route "
+                    + "that carried it. The runner warns once and skips it.";
+            }
+
+            return null;
+        }
+
+        private static bool PublishesOutput(List<TaskOutputValue> outputs, string name)
+        {
+            for (var i = 0; i < outputs.Count; ++i)
+            {
+                if (string.Equals(outputs[i].name, name, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
         private void BuildTasks()
         {
             m_Root.Add(SectionLabel($"Tasks ({m_Node.tasks.Count})"));
@@ -1139,9 +1266,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 header.style.flexDirection = FlexDirection.Row;
                 header.style.alignItems = Align.Center;
 
-                var label = new Label(program != null
-                    ? ProgramLabel(program.graph)
-                    : TaskLabel(task));
+                var label = new Label(TaskBoxLabel(task));
                 label.style.unityFontStyleAndWeight = FontStyle.Bold;
                 label.style.flexGrow = 1f;
                 label.style.overflow = Overflow.Hidden;
@@ -1357,6 +1482,15 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static string ProgramLabel(GraphTaskAsset graph)
         {
             return $"Task Graph · {StateTreeEditorOps.GraphTaskDisplayName(graph)}";
+        }
+
+        /// <summary>What the box at the top of a task says, in one place — because it is now said in
+        /// two: the task list, and the source dropdown of an output route. A route naming its source
+        /// anything other than what the box above it says would make the author match them up by
+        /// counting.</summary>
+        private static string TaskBoxLabel(StateTreeTaskAsset task)
+        {
+            return task is RunGraphTask program ? ProgramLabel(program.graph) : TaskLabel(task);
         }
 
         /// <summary>What the box says under the title. The unassigned case is an error rather than
@@ -2269,6 +2403,10 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var nodes = StateTreeEditorOps.CollectNodes(m_Tree);
 
+            // The source choices are the same for every transition of this state, so they are built
+            // once — and they are the TASK BOXES' labels, so a route reads as "task 2, the one above".
+            var tasks = TaskChoiceLabels();
+
             for (var i = 0; i < m_Node.transitions.Count; ++i)
             {
                 var index = i;
@@ -2286,6 +2424,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 box.Add(BuildTransitionCondition(transition));
                 box.Add(BuildParameterFields(transition.condition, null,
                     StateTreeFieldBinding.TargetKind.TransitionCondition, index));
+
+                // Last in the box, because it is last in time: everything above decides WHETHER this
+                // transition fires, and this decides what it carries when it does.
+                box.Add(BuildOutputRoutes(index, transition, tasks));
 
                 m_Root.Add(box);
             }
@@ -2433,6 +2575,305 @@ namespace PowerOfFire.DrawToPlay.Editor
             return row;
         }
 
+        // --- transition output routes -----------------------------------------------------
+
+        /// <summary>
+        /// The return flow, on the transition that carries it. Each row says: take THIS output of
+        /// THAT finished task and write it to the blackboard under this key.
+        ///
+        /// A foldout, and closed until it holds something, because routing is the exception rather
+        /// than the rule — most transitions carry nothing, and three controls per transition that
+        /// most states never use would push the wiring this section exists for off the screen. A
+        /// transition that DOES route opens by itself, so the exception is never hidden.
+        ///
+        /// The rules the author has to know are in the note rather than in a tooltip, because both
+        /// of them are surprising and neither is discoverable by trying: a route reads a task that
+        /// FINISHED (an interrupt therefore carries only the tasks that were already done, and a
+        /// cancelled task carries nothing), and the values are written on the way out, before the
+        /// target state is entered — which is what makes them readable there.
+        /// </summary>
+        /// <param name="transitionIndex">Which transition this belongs to — what the Ops helpers
+        /// address, and what the foldout's remembered open state is keyed by.</param>
+        /// <param name="transition">The transition itself, already known non-null by the caller.</param>
+        /// <param name="taskLabels">This state's task boxes' labels, built once by the caller.</param>
+        private VisualElement BuildOutputRoutes(int transitionIndex, StateTreeTransition transition,
+            List<string> taskLabels)
+        {
+            var routes = transition.outputRoutes;
+            var count = routes != null ? routes.Count : 0;
+
+            var foldout = new Foldout
+            {
+                text = count == 0 ? "Route outputs" : $"Route outputs ({count})",
+                value = count > 0 || m_OpenRouteFoldouts.Contains(transitionIndex)
+            };
+            foldout.style.marginTop = 2f;
+
+            // Every Toggle and every dropdown inside sends its own change event straight through
+            // here, so the foldout listens only for its own — the same guard BuildTreeParameters
+            // needs for the same reason.
+            foldout.RegisterValueChangedCallback(evt =>
+            {
+                if (evt.target != foldout)
+                    return;
+
+                if (evt.newValue)
+                    m_OpenRouteFoldouts.Add(transitionIndex);
+                else
+                    m_OpenRouteFoldouts.Remove(transitionIndex);
+            });
+
+            if (count == 0 && taskLabels.Count == 0)
+            {
+                foldout.Add(Hint("This state runs no tasks, so there is nothing to carry forward. "
+                    + "Outputs come from a finished task — add one above first."));
+                return foldout;
+            }
+
+            var note = Hint(count == 0
+                ? "Nothing routed. A route copies a value a finished task produced onto the "
+                + "blackboard as this transition fires, so the state it leads to can read it."
+                : "Written as this transition fires, before the target state is entered. Only tasks "
+                + "that FINISHED have outputs — an interrupt carries the ones that were already "
+                + "done, and a cancelled task carries nothing.");
+            note.style.marginBottom = 4f;
+            foldout.Add(note);
+
+            // Drawn before the "no tasks" case is answered, deliberately: rows can outlive every
+            // task they read if the list was emptied by something other than this window (a merge,
+            // hand-edited YAML), and a foldout that hid them would leave the author with a warning
+            // in the validation box and no ✕ to press.
+            for (var i = 0; i < count; ++i)
+                foldout.Add(BuildOutputRouteRow(transitionIndex, i, routes[i], taskLabels));
+
+            if (taskLabels.Count == 0)
+            {
+                foldout.Add(Hint("This state runs no tasks any more, so none of these rows reads "
+                    + "anything. Remove them, or add back the task they were made against."));
+                return foldout;
+            }
+
+            var add = new Button(() => AddOutputRoute(transitionIndex)) { text = "Add Route" };
+            add.style.marginTop = 4f;
+            add.tooltip = "Carry one of this state's finished tasks' outputs onto the blackboard "
+                + "when this transition fires.";
+            foldout.Add(add);
+
+            return foldout;
+        }
+
+        /// <summary>
+        /// One route: source task, output, destination key, remove. Three controls of equal weight
+        /// on one row, because they are read left to right as one sentence — and the row is where
+        /// its own problem is reported, so a route that carries nothing says so beside the thing
+        /// that broke rather than only in the state's validation box.
+        ///
+        /// Both dropdowns are INDEX-addressed and never matched back by label, the same rule the
+        /// transition target picker follows: two tasks of one class carry the same label, and an
+        /// output name is authored text that may repeat across tasks.
+        /// </summary>
+        private VisualElement BuildOutputRouteRow(int transitionIndex, int routeIndex,
+            TransitionOutputRoute route, List<string> taskLabels)
+        {
+            var container = new VisualElement();
+
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.minHeight = k_RowMinHeight;
+            container.Add(row);
+
+            if (route == null)
+            {
+                var empty = Hint("Empty route row.");
+                empty.style.flexGrow = 1f;
+                row.Add(empty);
+                row.Add(RemoveRouteButton(transitionIndex, routeIndex));
+                return container;
+            }
+
+            var labels = new List<string>(taskLabels);
+            var taskChoice = route.taskIndex;
+            if (taskChoice < 0 || taskChoice >= labels.Count)
+            {
+                labels.Add($"<missing: task {route.taskIndex + 1}>");
+                taskChoice = labels.Count - 1;
+            }
+
+            var source = new DropdownField(labels, taskChoice);
+            source.style.flexGrow = 1f;
+            source.style.flexBasis = 0f;
+            source.style.marginRight = 2f;
+            source.style.minHeight = k_ControlMinHeight;
+            source.tooltip = "Which of this state's tasks the value comes from. A task that was "
+                + "cancelled by an interrupt produces nothing, the same way an abandoned function "
+                + "call returns nothing.";
+            source.RegisterValueChangedCallback(evt =>
+            {
+                var choice = source.index;
+                if (choice < 0 || choice >= m_Node.tasks.Count)
+                    return;
+
+                CommitRoute(transitionIndex, routeIndex, entry => entry.taskIndex = choice);
+
+                // A different task publishes different outputs, so the control beside this one is
+                // now drawn against the wrong list — and may not even be the same KIND of control.
+                RebuildPane();
+            });
+            row.Add(source);
+
+            var task = route.taskIndex >= 0 && route.taskIndex < m_Node.tasks.Count
+                ? m_Node.tasks[route.taskIndex]
+                : null;
+            row.Add(BuildRouteOutput(transitionIndex, routeIndex, route, task));
+
+            var key = new TextField
+            {
+                value = route.blackboardKey ?? string.Empty,
+                isDelayed = true
+            };
+            key.style.flexGrow = 1f;
+            key.style.flexBasis = 0f;
+            key.style.marginRight = 2f;
+            key.style.minHeight = k_ControlMinHeight;
+
+            // The placeholder IS the rule: empty writes under the output's own name, so showing that
+            // name greyed out says what an empty field does without a second label to read. Asked of
+            // the row rather than restated here — TransitionOutputRoute.ResolvedKey is what the
+            // executor writes under, and a placeholder that disagreed with it would be invisible.
+            var resolved = route.ResolvedKey();
+            key.textEdition.placeholder = string.IsNullOrEmpty(resolved)
+                ? "blackboard key"
+                : resolved;
+            key.tooltip = "Blackboard key the value lands under. Leave it empty to write it under "
+                + "the output's own name — rename it here when the target state reads something "
+                + "else, or when two routes would otherwise collide.";
+            key.RegisterValueChangedCallback(evt => CommitRoute(transitionIndex, routeIndex,
+                entry => entry.blackboardKey = evt.newValue ?? string.Empty));
+            row.Add(key);
+
+            row.Add(RemoveRouteButton(transitionIndex, routeIndex));
+
+            var problem = DescribeRouteProblem(route);
+            if (problem != null)
+            {
+                // Capitalised here and not in the validation box, where it follows "Transition 3: ".
+                var help = new HelpBox(char.ToUpperInvariant(problem[0]) + problem.Substring(1),
+                    HelpBoxMessageType.Warning);
+                help.style.marginTop = 2f;
+                container.Add(help);
+            }
+
+            return container;
+        }
+
+        /// <summary>
+        /// The output control — a dropdown of what the source task publishes, or a free-text name
+        /// when nothing can be discovered.
+        ///
+        /// The fallback is not a failure mode, it is the honest answer to a question the editor
+        /// genuinely cannot settle: a graph whose file has not been re-baked declares no outputs yet,
+        /// and a task class may publish through a path this window cannot see. Refusing to let the
+        /// author type a name there would make a re-bake mandatory before wiring — so the name is
+        /// typed, and the row reports at run time (and in the validation box, once the source does
+        /// declare something) if it turns out to be wrong.
+        ///
+        /// A name the source no longer publishes stays selected as <c>&lt;missing: …&gt;</c> rather
+        /// than being silently reset to nothing. That is the M7j identity rule made visible: outputs
+        /// are matched BY NAME, so a rename on the far side is a break the author has to see and
+        /// decide about, not something this window quietly papers over.
+        /// </summary>
+        private VisualElement BuildRouteOutput(int transitionIndex, int routeIndex,
+            TransitionOutputRoute route, StateTreeTaskAsset task)
+        {
+            var current = route.outputName ?? string.Empty;
+            var outputs = StateTreeEditorOps.CollectTaskOutputs(task);
+
+            if (outputs.Count == 0)
+            {
+                var text = new TextField { value = current, isDelayed = true };
+                text.style.flexGrow = 1f;
+                text.style.flexBasis = 0f;
+                text.style.marginRight = 2f;
+                text.style.minHeight = k_ControlMinHeight;
+                text.textEdition.placeholder = "output name";
+                text.tooltip = task == null
+                    ? "The output's name, matched at run time."
+                    : $"{TaskBoxLabel(task)} declares no outputs this window can see — a graph that "
+                    + "has not been re-baked is the usual reason. Type the name and it is matched "
+                    + "at run time.";
+                text.RegisterValueChangedCallback(evt =>
+                {
+                    CommitRoute(transitionIndex, routeIndex,
+                        entry => entry.outputName = evt.newValue ?? string.Empty);
+
+                    // The key field's placeholder is this name, and the row's warning is about it.
+                    RebuildPane();
+                });
+                return text;
+            }
+
+            var names = new List<string> { string.Empty };
+            var labels = new List<string> { k_NoOutputChoice };
+            for (var i = 0; i < outputs.Count; ++i)
+            {
+                names.Add(outputs[i].name);
+                labels.Add($"{outputs[i].name} ({KindLabel(outputs[i].kind)})");
+            }
+
+            var selected = names.IndexOf(current);
+            if (selected < 0)
+            {
+                names.Add(current);
+                labels.Add($"<missing: {current}>");
+                selected = names.Count - 1;
+            }
+
+            var dropdown = new DropdownField(labels, selected);
+            dropdown.style.flexGrow = 1f;
+            dropdown.style.flexBasis = 0f;
+            dropdown.style.marginRight = 2f;
+            dropdown.style.minHeight = k_ControlMinHeight;
+            dropdown.tooltip = "What that task publishes when it finishes. The name is the contract "
+                + "— renaming it on the task's own side breaks this route rather than following it.";
+            dropdown.RegisterValueChangedCallback(evt =>
+            {
+                var choice = dropdown.index;
+                if (choice < 0 || choice >= names.Count)
+                    return;
+
+                CommitRoute(transitionIndex, routeIndex, entry => entry.outputName = names[choice]);
+                RebuildPane();
+            });
+
+            return dropdown;
+        }
+
+        private Button RemoveRouteButton(int transitionIndex, int routeIndex)
+        {
+            var remove = new Button(() => RemoveOutputRoute(transitionIndex, routeIndex))
+            {
+                text = "✕"
+            };
+            remove.style.width = 26f;
+            remove.style.minHeight = k_ControlMinHeight;
+            remove.style.flexShrink = 0f;
+            remove.tooltip = "Stop carrying this output forward.";
+            return remove;
+        }
+
+        /// <summary>This state's tasks, labelled exactly as their boxes above are and numbered by the
+        /// position a route actually stores. The number is not decoration: two tasks of one class
+        /// carry identical labels, and the row is addressed by index either way.</summary>
+        private List<string> TaskChoiceLabels()
+        {
+            var labels = new List<string>();
+            for (var i = 0; i < m_Node.tasks.Count; ++i)
+                labels.Add($"{i + 1}. {TaskBoxLabel(m_Node.tasks[i])}");
+
+            return labels;
+        }
+
         /// <summary>Generic parameter block for one task/condition sub-asset. Nothing here knows
         /// any component type: whatever the class serialises is what the author sees — plus, for
         /// the fields a tree parameter can drive, the control that connects the two.</summary>
@@ -2464,6 +2905,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (iterator.propertyPath == "m_Script")
                     continue;
                 if (hiddenProperty != null && iterator.propertyPath == hiddenProperty)
+                    continue;
+                // A [TaskOutput] field is a RETURN value, written by the task at runtime —
+                // rendering it as an editable knob would invite authoring a value the task
+                // overwrites. It surfaces in the transition "Route outputs" dropdowns instead.
+                if (StateTreeEditorOps.IsTaskOutputField(target, iterator.propertyPath))
                     continue;
 
                 // Only the top level is walked (NextVisible stops entering children after the
@@ -3122,6 +3568,58 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreeEditorOps.MoveTransition(m_Tree, m_Node, index, delta, "Reorder Transition");
             StateTreeEditorOps.EndUndoGroup(group);
             m_StructuralChanged?.Invoke();
+        }
+
+        /// <summary>Add a route, already pointing somewhere. The first task and its first output are
+        /// the common case (one task, one output), and a row that arrives wired is one gesture
+        /// instead of three — while a state with several tasks gets a row that is at least valid,
+        /// which is the difference between "pick the right one" and "pick something".</summary>
+        private void AddOutputRoute(int transitionIndex)
+        {
+            if (m_Node == null || m_Node.tasks.Count == 0)
+                return;
+
+            var outputs = StateTreeEditorOps.CollectTaskOutputs(m_Node.tasks[0]);
+            var name = outputs.Count > 0 ? outputs[0].name : string.Empty;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_AddRouteUndo);
+            StateTreeEditorOps.AddOutputRoute(m_Node, transitionIndex, 0, name, k_AddRouteUndo);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        private void RemoveOutputRoute(int transitionIndex, int routeIndex)
+        {
+            if (m_Node == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_RemoveRouteUndo);
+            StateTreeEditorOps.RemoveOutputRoute(m_Node, transitionIndex, routeIndex,
+                k_RemoveRouteUndo);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        /// <summary>Edit one field of one route. Written here rather than behind an Ops helper for
+        /// the same reason the transition's own target and interrupt are: a route is a plain
+        /// serialized row on the node, so the undo target is the node and the write is the
+        /// assignment — there is no sub-asset lifecycle for Ops to own. The Ops helpers exist for
+        /// the two mutations that DO change the list's shape, which is what the index remap cares
+        /// about.</summary>
+        private void CommitRoute(int transitionIndex, int routeIndex,
+            Action<TransitionOutputRoute> write)
+        {
+            var transition = StateTreeEditorOps.TransitionAt(m_Node, transitionIndex);
+            var rows = transition != null ? transition.outputRoutes : null;
+            if (rows == null || routeIndex < 0 || routeIndex >= rows.Count || rows[routeIndex] == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_EditRouteUndo);
+            Undo.RecordObject(m_Node, k_EditRouteUndo);
+            write(rows[routeIndex]);
+            EditorUtility.SetDirty(m_Node);
+            StateTreeEditorOps.EndUndoGroup(group);
+            m_Edited?.Invoke();
         }
 
         /// <summary>Rebuilding the pane from inside a DropdownField's own value-changed callback

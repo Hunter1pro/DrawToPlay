@@ -30,6 +30,13 @@ namespace PowerOfFire.DrawToPlay
     /// ever do the first third of it and only for a tree reached as a sub-tree; here it happens for
     /// every tree the same way, once, in the one place that already owns the deep copy and knows
     /// when a run begins and ends. The caller's contribution is <see cref="parameterOverrides"/>.
+    ///
+    /// OUTPUTS (M7j) are the return flow, and they close the loop the parameters opened. A task that
+    /// finishes may hand back named values; this machine captures them at the moment it finishes,
+    /// keeps them as the state's exit record, and lets the TRANSITION that ends the state decide
+    /// where each one is written. It has to be here for the same reason the parameters are: only the
+    /// machine sees the completion, holds the copy the values live on, and knows which transition
+    /// fired.
     /// </summary>
     public sealed class StateTreeExecutor
     {
@@ -90,6 +97,32 @@ namespace PowerOfFire.DrawToPlay
         private readonly List<StateTreeTaskAsset> m_RunningTasks = new List<StateTreeTaskAsset>();
         private readonly List<StateTreeTaskAsset> m_Finished = new List<StateTreeTaskAsset>();
 
+        /// <summary>Position in the CURRENT NODE's <c>tasks</c> list of each entry in
+        /// <see cref="m_RunningTasks"/>, kept in step with it. The two are not the same index:
+        /// <see cref="EnterNode"/> skips holes in the authored list, so the third running task can be
+        /// the fourth authored one — and a route names the AUTHORED position, because that is what
+        /// the inspector shows and what the Ops layer remaps.</summary>
+        private readonly List<int> m_RunningTaskIndices = new List<int>();
+
+        /// <summary>What the tasks of the current state RETURNED, by their authored index (M7j) —
+        /// the state's exit record, read by the transition that ends it. Only tasks that FINISHED
+        /// (returned Success or Failure) appear: a cancelled task returns nothing, the same way an
+        /// aborted function does. Cleared by <see cref="EnterNode"/>, so a re-entered state routes
+        /// what it produced this time.</summary>
+        private readonly Dictionary<int, List<TaskOutputValue>> m_TaskOutputs =
+            new Dictionary<int, List<TaskOutputValue>>();
+
+        /// <summary>Scratch the capture collects into before it is known whether there is anything
+        /// worth keeping — most tasks return nothing, and allocating a list per finished task to
+        /// discover that would be a per-tick allocation on the busiest path in the machine.</summary>
+        private readonly List<TaskOutputValue> m_CaptureScratch = new List<TaskOutputValue>();
+
+        /// <summary>Route rows already reported this run, or null until one is. A state pair that
+        /// ping-pongs must not turn one wrong row into a console flood, and keying on the ROW (the
+        /// copy's own object) rather than on a flag keeps every OTHER broken row still able to say
+        /// so once.</summary>
+        private HashSet<TransitionOutputRoute> m_WarnedRoutes;
+
         /// <summary>This run's effective parameters, keyed by identity — the value published as the
         /// scope and the value the bindings write. Null while stopped.</summary>
         private Dictionary<string, GraphTaskParameter> m_ParamScope;
@@ -104,6 +137,14 @@ namespace PowerOfFire.DrawToPlay
         /// property of the TYPE, not of a run.</summary>
         private static readonly Dictionary<Type, Dictionary<string, FieldInfo>> s_FieldsByType =
             new Dictionary<Type, Dictionary<string, FieldInfo>>();
+
+        /// <summary>The <c>[TaskOutput]</c> fields of a task type, resolved once (the M7i cache
+        /// pattern, for the same reason and with the same lifetime). An EMPTY array is cached too and
+        /// is the answer for almost every type: the capture path runs for every task that finishes,
+        /// so "this type returns nothing" has to be a dictionary hit rather than a reflection
+        /// walk.</summary>
+        private static readonly Dictionary<Type, FieldInfo[]> s_OutputFieldsByType =
+            new Dictionary<Type, FieldInfo[]>();
 
         public bool isRunning => m_CurrentNode != null;
 
@@ -166,6 +207,11 @@ namespace PowerOfFire.DrawToPlay
             StateTreeAsset.DestroyCopy(m_ActiveData);
             m_ActiveData = null;
             m_NodeIndex.Clear();
+            // The exit record and the route diagnostics both belong to the copy that has just been
+            // destroyed — holding either would be holding values nothing can route and warnings
+            // keyed on rows that no longer exist.
+            m_TaskOutputs.Clear();
+            m_WarnedRoutes = null;
         }
 
         /// <summary>One tick — the _process body, callable headless.</summary>
@@ -183,7 +229,7 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 if (Eval(tr.condition))
                 {
-                    TransitionTo(tr.targetNodeId);
+                    TransitionTo(tr);
                     return;
                 }
             }
@@ -196,12 +242,23 @@ namespace PowerOfFire.DrawToPlay
                 StateTreeStatus status = task.OnTick(context, deltaTime);
                 if (status != StateTreeStatus.Running)
                 {
+                    // CAPTURE BEFORE OnExit, and the order is load-bearing rather than tidy: a
+                    // wrapper's OnExit tears down the thing the values live on (RunGraphTask
+                    // destroys the graph instance it just forwarded from), so a capture moved one
+                    // statement down would return nothing for every graph task, silently. It is also
+                    // the right SEMANTICS on its own — the return value is fixed at the return, and
+                    // OnExit is the teardown that runs afterwards.
+                    // Read defensively: the index list is kept in step with the running list, but a
+                    // task that reached back into its own executor from OnTick could have emptied
+                    // both, and a capture is not worth an IndexOutOfRange over. -1 captures nothing.
+                    CaptureOutputs(i < m_RunningTaskIndices.Count ? m_RunningTaskIndices[i] : -1,
+                        task);
                     task.OnExit(context, status);
                     m_Finished.Add(task);
                 }
             }
             for (int i = 0; i < m_Finished.Count; i++)
-                m_RunningTasks.Remove(m_Finished[i]);
+                RemoveRunning(m_Finished[i]);
 
             // 3. On-completion transitions — only when every task is done.
             if (m_RunningTasks.Count == 0)
@@ -213,7 +270,7 @@ namespace PowerOfFire.DrawToPlay
                         continue;
                     if (Eval(tr.condition))
                     {
-                        TransitionTo(tr.targetNodeId);
+                        TransitionTo(tr);
                         return;
                     }
                 }
@@ -224,6 +281,11 @@ namespace PowerOfFire.DrawToPlay
         {
             m_CurrentNode = node;
             m_RunningTasks.Clear();
+            m_RunningTaskIndices.Clear();
+            // The exit record belongs to ONE activation of the state: whatever the last one returned
+            // is not what this one is returning, and a route firing on stale values would be worse
+            // than one firing on none.
+            m_TaskOutputs.Clear();
             for (int i = 0; i < node.tasks.Count; i++)
             {
                 var task = node.tasks[i];
@@ -231,12 +293,17 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 task.OnEnter(context);
                 m_RunningTasks.Add(task);
+                m_RunningTaskIndices.Add(i);
             }
             nodeEntered?.Invoke(node.nodeId);
         }
 
-        private void TransitionTo(string targetId)
+        /// <summary>The fired transition, taken. It is the TRANSITION rather than the target id
+        /// because a transition carries more than a destination since M7j — it also says what to do
+        /// with the returns of the tasks it is ending.</summary>
+        private void TransitionTo(StateTreeTransition transition)
         {
+            string targetId = transition != null ? transition.targetNodeId : "";
             if (string.IsNullOrEmpty(targetId) || !m_NodeIndex.TryGetValue(targetId, out var target))
             {
                 Debug.LogError($"{logLabel}: unknown transition target '{targetId}'", logContext);
@@ -244,6 +311,10 @@ namespace PowerOfFire.DrawToPlay
             }
             string previousId = m_CurrentNode != null ? m_CurrentNode.nodeId : "";
             target = ResolveEntryNode(target);
+            // Routed BEFORE anything observes the state change: a nodeLeft listener, the tasks being
+            // cancelled and the next state's first OnEnter all read a blackboard that already carries
+            // the returns, which is the whole point of routing them here rather than after.
+            RouteOutputs(transition);
             nodeLeft?.Invoke(previousId);
             ExitRunningTasks(StateTreeStatus.Cancelled);
             EnterNode(target);
@@ -255,6 +326,20 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < m_RunningTasks.Count; i++)
                 m_RunningTasks[i].OnExit(context, status);
             m_RunningTasks.Clear();
+            m_RunningTaskIndices.Clear();
+        }
+
+        /// <summary>Drops one finished task from the running set, keeping
+        /// <see cref="m_RunningTaskIndices"/> in step. By identity, like the
+        /// <c>List.Remove</c> it replaces: the deep copy gives every authored entry its own object,
+        /// so one task asset used twice in a state is still two instances.</summary>
+        private void RemoveRunning(StateTreeTaskAsset task)
+        {
+            int slot = m_RunningTasks.IndexOf(task);
+            if (slot < 0)
+                return;
+            m_RunningTasks.RemoveAt(slot);
+            m_RunningTaskIndices.RemoveAt(slot);
         }
 
         /// <summary>Organizational nodes resolve to their first leaf: descend while the
@@ -388,18 +473,30 @@ namespace PowerOfFire.DrawToPlay
         /// </list>
         /// A field BINDING is the other channel and has its own rule — a Bool parameter writes a
         /// real <c>bool</c> there, because a field has a declared type and no ambiguity to resolve.
+        ///
+        /// SHARED WITH OUTPUT ROUTING (M7j), which writes the same dictionary from the other end: a
+        /// routed output and a seeded parameter that a task then reads by the same key must not come
+        /// back as different types, and the only way to guarantee that is for both to go through
+        /// this one switch.
         /// </summary>
-        private static object BoxedValue(GraphTaskParameter parameter)
+        private static object BoxedValue(GraphTaskParameterKind kind, float floatValue,
+            string stringValue)
         {
-            switch (parameter.kind)
+            switch (kind)
             {
                 case GraphTaskParameterKind.String:
-                    return parameter.stringValue ?? string.Empty;
+                    return stringValue ?? string.Empty;
                 case GraphTaskParameterKind.Bool:
-                    return parameter.floatValue != 0f ? 1f : 0f;
+                    return floatValue != 0f ? 1f : 0f;
                 default:
-                    return parameter.floatValue;
+                    return floatValue;
             }
+        }
+
+        /// <summary>The boxing rule above, for a declaration.</summary>
+        private static object BoxedValue(GraphTaskParameter parameter)
+        {
+            return BoxedValue(parameter.kind, parameter.floatValue, parameter.stringValue);
         }
 
         /// <summary>Publishes this run's scope, remembering whatever was there — the caller's scope
@@ -528,6 +625,200 @@ namespace PowerOfFire.DrawToPlay
                 });
             }
             return resolved;
+        }
+
+        // ---------------------------------------------------------------- task outputs (M7j)
+
+        /// <summary>
+        /// Records what one finished task RETURNED, under its authored index, into the state's exit
+        /// record. Called from the tick loop at the moment the task reports Success or Failure and
+        /// BEFORE its OnExit — see the comment at the call site for why that order is not
+        /// negotiable.
+        ///
+        /// TWO PRODUCERS, tried in that order and never both. A task that implements
+        /// <see cref="IStateTreeOutputSource"/> answers for itself, because its outputs are not
+        /// fields at all — a graph's are whatever its Set Output instructions wrote this activation,
+        /// and a wrapper's are its inner task's. Everything else is a plain C# task and its outputs
+        /// are its <c>[TaskOutput]</c> fields, read now rather than at any other time because "the
+        /// value at the moment it finished" is what a return value means.
+        ///
+        /// CANCELLED TASKS NEVER GET HERE. <see cref="ExitRunningTasks"/> is the only other place a
+        /// task is exited and it does not capture: an interrupted task did not return, it was
+        /// abandoned, and reading a half-finished value out of it would give a route something that
+        /// looks exactly like a real result.
+        /// </summary>
+        private void CaptureOutputs(int taskIndex, StateTreeTaskAsset task)
+        {
+            if (task == null || taskIndex < 0)
+                return;
+
+            m_CaptureScratch.Clear();
+            var source = task as IStateTreeOutputSource;
+            if (source != null)
+                source.TryCollectOutputs(m_CaptureScratch);
+            else
+                CollectAttributedOutputs(task, m_CaptureScratch);
+
+            // Nothing to record is the overwhelmingly common case, and storing an empty list for it
+            // would allocate once per finished task per activation to say "no". EnterNode has already
+            // cleared the record, so a task that returns nothing simply has no entry.
+            if (m_CaptureScratch.Count == 0)
+                return;
+            m_TaskOutputs[taskIndex] = new List<TaskOutputValue>(m_CaptureScratch);
+        }
+
+        /// <summary>Reads every <c>[TaskOutput]</c> field of a task into
+        /// <paramref name="into"/>.</summary>
+        private static void CollectAttributedOutputs(StateTreeTaskAsset task,
+            List<TaskOutputValue> into)
+        {
+            FieldInfo[] fields = OutputFields(task.GetType());
+            for (int i = 0; i < fields.Length; i++)
+            {
+                FieldInfo field = fields[i];
+                object value = field.GetValue(task);
+                Type type = field.FieldType;
+                TaskOutputValue captured;
+
+                if (type == typeof(string))
+                {
+                    captured = new TaskOutputValue
+                    {
+                        name = field.Name,
+                        kind = GraphTaskParameterKind.String,
+                        stringValue = value as string ?? string.Empty
+                    };
+                }
+                else if (type == typeof(bool))
+                {
+                    captured = new TaskOutputValue
+                    {
+                        name = field.Name,
+                        kind = GraphTaskParameterKind.Bool,
+                        floatValue = value is bool flag && flag ? 1f : 0f
+                    };
+                }
+                else
+                {
+                    // float and int both return as Float — the same pairing the field BINDINGS
+                    // accept in the other direction, so a value can make the round trip through a
+                    // parameter and back out as an output without changing kind on the way.
+                    captured = new TaskOutputValue
+                    {
+                        name = field.Name,
+                        kind = GraphTaskParameterKind.Float,
+                        floatValue = value is int number ? number : (value is float f ? f : 0f)
+                    };
+                }
+                into.Add(captured);
+            }
+        }
+
+        /// <summary>The <c>[TaskOutput]</c> fields of a type, cached (the M7i field-cache pattern).
+        /// <c>inherit: true</c> on the attribute lookup so a task deriving from one that publishes an
+        /// output keeps publishing it, and unsupported field types are filtered out HERE rather than
+        /// at capture time — a decorated <c>Vector2</c> is an authoring mistake in C#, not a runtime
+        /// event, and it must not cost a type test on every completion.</summary>
+        private static FieldInfo[] OutputFields(Type type)
+        {
+            FieldInfo[] cached;
+            if (s_OutputFieldsByType.TryGetValue(type, out cached))
+                return cached;
+
+            var found = new List<FieldInfo>();
+            FieldInfo[] fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
+            for (int i = 0; i < fields.Length; i++)
+            {
+                FieldInfo field = fields[i];
+                if (!field.IsDefined(typeof(TaskOutputAttribute), true))
+                    continue;
+                Type fieldType = field.FieldType;
+                if (fieldType == typeof(float) || fieldType == typeof(int)
+                    || fieldType == typeof(bool) || fieldType == typeof(string))
+                    found.Add(field);
+            }
+
+            cached = found.ToArray();
+            s_OutputFieldsByType[type] = cached;
+            return cached;
+        }
+
+        /// <summary>
+        /// Writes the outputs a fired transition asks for into the blackboard — the assignment half
+        /// of the call. Runs once, on the transition that is actually taken, so two edges out of one
+        /// state can route the same result differently (or not at all) and only the one that fired
+        /// has any effect.
+        ///
+        /// AN INTERRUPT ROUTES ONLY WHAT ALREADY FINISHED, and that falls out of the design rather
+        /// than needing a rule: the exit record holds exactly the tasks that returned, so a
+        /// checkWhileRunning transition firing over a still-running task finds nothing for it and
+        /// says so. That is the honest answer — the task has not returned yet.
+        /// </summary>
+        private void RouteOutputs(StateTreeTransition transition)
+        {
+            List<TransitionOutputRoute> routes = transition != null ? transition.outputRoutes : null;
+            if (routes == null || routes.Count == 0 || context == null)
+                return;
+
+            for (int i = 0; i < routes.Count; i++)
+            {
+                TransitionOutputRoute route = routes[i];
+                // A row with no output named is an inspector row mid-edit rather than a route: it
+                // names nothing to read and nothing to write, so there is no mistake to report.
+                if (route == null || string.IsNullOrEmpty(route.outputName))
+                    continue;
+
+                List<TaskOutputValue> values;
+                if (!m_TaskOutputs.TryGetValue(route.taskIndex, out values))
+                {
+                    RouteWarning(route, "task " + route.taskIndex + " returned nothing — it is "
+                        + "still running, it was cancelled by this transition, or there is no task "
+                        + "at that position");
+                    continue;
+                }
+
+                int found = IndexOfOutput(values, route.outputName);
+                if (found < 0)
+                {
+                    RouteWarning(route, "task " + route.taskIndex + " declares no output of that "
+                        + "name (it was renamed, or this route was copied from another task)");
+                    continue;
+                }
+
+                TaskOutputValue value = values[found];
+                context.blackboard[route.ResolvedKey()] =
+                    BoxedValue(value.kind, value.floatValue, value.stringValue);
+            }
+        }
+
+        /// <summary>Ordinal match on the contract name — see
+        /// <see cref="TaskOutputValue.name"/>.</summary>
+        private static int IndexOfOutput(List<TaskOutputValue> values, string outputName)
+        {
+            for (int i = 0; i < values.Count; i++)
+            {
+                if (string.Equals(values[i].name, outputName, StringComparison.Ordinal))
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>A route that could not be honoured: one WARNING per row per run, naming the tree,
+        /// the state and the row. A warning rather than an error because the transition still fires
+        /// and the tree runs on — the cost is a key that was not written, which the next state will
+        /// notice for itself — and once per row because a pair of states that ping-pongs would
+        /// otherwise report the same mistake every tick.</summary>
+        private void RouteWarning(TransitionOutputRoute route, string reason)
+        {
+            if (m_WarnedRoutes == null)
+                m_WarnedRoutes = new HashSet<TransitionOutputRoute>();
+            if (!m_WarnedRoutes.Add(route))
+                return;
+
+            string nodeId = m_CurrentNode != null ? m_CurrentNode.nodeId : "";
+            Debug.LogWarning($"{logLabel}: tree '{TreeLabel()}' state '{nodeId}' routes " +
+                $"{route.Describe()} to blackboard key '{route.ResolvedKey()}', but {reason}. " +
+                "The key is not written.", logContext);
         }
 
         // ---------------------------------------------------------------- field bindings (M7i)

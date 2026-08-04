@@ -99,7 +99,22 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>stringValue = parameter name; the override-or-default bool (the parameter's
         /// float value != 0).</summary>
-        GetParamBool
+        GetParamBool,
+
+        // ---- appended in M7j (task outputs — the values a graph RETURNS). New kinds go BELOW this
+        // line, never between the ones above: the ints are already in baked assets.
+
+        /// <summary>stringValue = output name; data[0] = float source, or floatValue when unwired.
+        /// Buffers a return value on the instance; then exec[0].</summary>
+        SetOutputFloat,
+
+        /// <summary>stringValue = output name; data[0] = string source, or stringValue2 when
+        /// unwired. Then exec[0].</summary>
+        SetOutputString,
+
+        /// <summary>stringValue = output name; data[0] = bool source, or floatValue != 0 when
+        /// unwired. Then exec[0].</summary>
+        SetOutputBool
     }
 
     /// <summary>Value kinds a <see cref="GraphTaskParameter"/> can carry. Order is serialized —
@@ -377,7 +392,7 @@ namespace PowerOfFire.DrawToPlay
     /// running instance and degrades to a defined value instead of throwing.
     /// </summary>
     [StateTreeCategory("Tasks/Composite", "Run a logic graph as this task")]
-    public sealed class GraphTaskAsset : StateTreeTaskAsset
+    public sealed class GraphTaskAsset : StateTreeTaskAsset, IStateTreeOutputSource
     {
         /// <summary>Exec steps allowed per tick before the chain is declared a runaway loop. 512 is
         /// far past any authored chain and still instant to burn through.</summary>
@@ -415,6 +430,24 @@ namespace PowerOfFire.DrawToPlay
         /// parameters" means — the extension is additive by design.</summary>
         public List<GraphTaskParameter> parameters = new List<GraphTaskParameter>();
 
+        /// <summary>
+        /// What this program RETURNS: one row per distinct name any <c>SetOutput*</c> instruction in
+        /// it writes, with the kind that instruction returns it as. FOR THE EDITOR ONLY — the
+        /// transition inspector offers these in its route dropdown instead of asking the author to
+        /// retype a name the graph already knows. The runtime never reads it: capture is driven by
+        /// what the instructions ACTUALLY wrote this activation
+        /// (<see cref="TryCollectOutputs"/>), which is the only honest answer to "what did this
+        /// call return" when the value came from a branch that was not taken.
+        ///
+        /// The <see cref="TaskOutputValue.floatValue"/> / <see cref="TaskOutputValue.stringValue"/>
+        /// of these rows are meaningless — a declaration is a name and a type — and the record type
+        /// is shared with the captured values anyway so the editor has one shape to render.
+        ///
+        /// Filled by the baker as it resolves each Set Output's name; empty for every program baked
+        /// before M7j, and for one that returns nothing.
+        /// </summary>
+        public List<TaskOutputValue> declaredOutputs = new List<TaskOutputValue>();
+
         // ---------------------------------------------------------------- instance state
         // None of it is serialized, so Object.Instantiate (the runner's DeepCopy) hands every copy
         // a clean slate — the same guarantee every other task relies on.
@@ -428,6 +461,25 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Node the next tick resumes at, -1 when the chain is not suspended.</summary>
         private int m_LatentNode = -1;
+
+        /// <summary>
+        /// What this activation has RETURNED so far — the values the <c>SetOutput*</c> instructions
+        /// wrote, in first-written order, one entry per name. A LIST rather than a dictionary because
+        /// it is tiny, ordered (the route dropdown and the trace both read better in graph order), and
+        /// read exactly once per activation by <see cref="TryCollectOutputs"/>.
+        ///
+        /// WRITING THE SAME NAME TWICE OVERWRITES: an output is a variable being assigned, not a
+        /// stream being appended, so an if/else that sets <c>result</c> on both sides returns one
+        /// value and not two — and a loop that sets it every pass returns the last one, which is what
+        /// the author of a `return` would expect.
+        ///
+        /// Cleared by <see cref="ResetActivation"/> and NOT by <see cref="OnExit"/>: the executor
+        /// collects at the moment the task returns a terminal status, which is BEFORE OnExit runs, and
+        /// a buffer emptied on exit would be a buffer emptied for nothing. Clearing on entry is also
+        /// what makes a re-entered state return what it produced THIS time rather than what the last
+        /// activation left behind.
+        /// </summary>
+        private readonly List<TaskOutputValue> m_Outputs = new List<TaskOutputValue>();
 
         /// <summary>What <see cref="GraphTaskNodeKind.ExitStatus"/> reads; only ever non-zero while
         /// the exit chain runs.</summary>
@@ -690,6 +742,58 @@ namespace PowerOfFire.DrawToPlay
             m_Aborted = false;
             m_DepthPushed = false;
             m_PreviousDepth = 0;
+            m_Outputs.Clear();
+        }
+
+        // ---------------------------------------------------------------- outputs (M7j)
+
+        /// <summary>
+        /// This activation's return values, appended to <paramref name="into"/>. Called by
+        /// <see cref="StateTreeExecutor"/> the moment the task returns Success or Failure, which is
+        /// before its <see cref="OnExit"/> — so what is handed over is what the tick chain had
+        /// written by the time it returned, and the exit chain (which runs after) cannot change it.
+        ///
+        /// THAT ORDERING IS THE SEMANTICS, not an accident of where the call sits: a return value is
+        /// fixed by the return statement, and an exit chain is the teardown that runs afterwards —
+        /// a <c>finally</c>, which cannot rewrite what was already returned. A Set Output in the exit
+        /// chain therefore has no effect on this call's outputs, and the graph editor's node
+        /// documentation says so.
+        /// </summary>
+        /// <returns>False when this activation returned nothing.</returns>
+        public bool TryCollectOutputs(List<TaskOutputValue> into)
+        {
+            if (into == null || m_Outputs.Count == 0)
+                return false;
+            for (int i = 0; i < m_Outputs.Count; i++)
+                into.Add(m_Outputs[i]);
+            return true;
+        }
+
+        /// <summary>Buffers one return value, replacing any earlier one of the same name (ordinal —
+        /// an output name is a contract, and two spellings are two contracts). A nameless instruction
+        /// is dropped rather than buffered under "": the baker refuses to emit one, so this can only
+        /// be hand-edited data, and a value no route could ever name is not worth carrying.</summary>
+        private void WriteOutput(string outputName, GraphTaskParameterKind kind, float floatValue,
+            string stringValue)
+        {
+            if (string.IsNullOrEmpty(outputName))
+                return;
+
+            var value = new TaskOutputValue
+            {
+                name = outputName,
+                kind = kind,
+                floatValue = floatValue,
+                stringValue = stringValue
+            };
+            for (int i = 0; i < m_Outputs.Count; i++)
+            {
+                if (!string.Equals(m_Outputs[i].name, outputName, StringComparison.Ordinal))
+                    continue;
+                m_Outputs[i] = value;
+                return;
+            }
+            m_Outputs.Add(value);
         }
 
         // ---------------------------------------------------------------- the interpreter
@@ -753,6 +857,31 @@ namespace PowerOfFire.DrawToPlay
                         if (context != null && !string.IsNullOrEmpty(node.stringValue))
                             context.blackboard[node.stringValue] =
                                 PullString(context, node, 0, node.stringValue2 ?? string.Empty, 0);
+                        next = ExecPin(node, 0);
+                        break;
+
+                    // The three return-value writes. Unlike the blackboard pair they need no
+                    // context — an output is buffered on the instance and only becomes visible to
+                    // anyone when the transition that fires routes it — so they still work in a
+                    // graph ticked with a null context, which is what the guard rows below say by
+                    // testing only the NAME.
+                    case GraphTaskNodeKind.SetOutputFloat:
+                        WriteOutput(node.stringValue, GraphTaskParameterKind.Float,
+                            PullFloat(context, node, 0, node.floatValue, 0), null);
+                        next = ExecPin(node, 0);
+                        break;
+
+                    case GraphTaskNodeKind.SetOutputString:
+                        WriteOutput(node.stringValue, GraphTaskParameterKind.String, 0f,
+                            PullString(context, node, 0, node.stringValue2 ?? string.Empty, 0));
+                        next = ExecPin(node, 0);
+                        break;
+
+                    case GraphTaskNodeKind.SetOutputBool:
+                        // The unwired literal is floatValue != 0, the same 1/0 encoding a Bool
+                        // parameter uses and the same one the baker writes for a bool constant.
+                        WriteOutput(node.stringValue, GraphTaskParameterKind.Bool,
+                            PullBoolOr(context, node, 0, node.floatValue != 0f) ? 1f : 0f, null);
                         next = ExecPin(node, 0);
                         break;
 
@@ -901,6 +1030,17 @@ namespace PowerOfFire.DrawToPlay
         {
             int source = PinSource(owner, pin, depth);
             return source >= 0 && EvalBool(context, source, nodes[source], depth + 1);
+        }
+
+        /// <summary>A bool pull whose UNWIRED reading is the owning node's own literal rather than
+        /// false. <see cref="GraphTaskNodeKind.Branch"/> has no literal slot, so false is the only
+        /// thing it can mean; <see cref="GraphTaskNodeKind.SetOutputBool"/> does (floatValue as 1/0,
+        /// the encoding the baker emits), and an unwired one must return the value the author typed
+        /// rather than silently returning false.</summary>
+        private bool PullBoolOr(StateTreeContext context, GraphTaskNode owner, int pin, bool fallback)
+        {
+            int source = PinSource(owner, pin, 0);
+            return source < 0 ? fallback : EvalBool(context, source, nodes[source], 1);
         }
 
         private float PullFloat(StateTreeContext context, GraphTaskNode owner, int pin,

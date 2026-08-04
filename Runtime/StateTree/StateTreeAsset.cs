@@ -66,7 +66,10 @@ namespace PowerOfFire.DrawToPlay
                 {
                     targetNodeId = tr.targetNodeId,
                     condition = tr.condition != null ? Instantiate(tr.condition) : null,
-                    checkWhileRunning = tr.checkWhileRunning
+                    checkWhileRunning = tr.checkWhileRunning,
+                    // The executor routes outputs off the COPY's transitions, so a field left out of
+                    // this hand-written list is a feature that silently never runs (M7j).
+                    outputRoutes = TransitionOutputRoute.CopyList(tr.outputRoutes)
                 });
             }
             copy.children = new List<StateTreeNodeAsset>(node.children.Count);

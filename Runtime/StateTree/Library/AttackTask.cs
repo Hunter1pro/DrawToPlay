@@ -78,6 +78,21 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Face the target before swinging.</summary>
         public bool faceTarget = true;
 
+        /// <summary>
+        /// THE OUTPUT of this task (M7j): how much damage the hit that ended it dealt. Written only
+        /// on the tick that lands a hit — the tick that returns Success — so the value a transition
+        /// routes is always the swing that actually connected, never a stale number from the last
+        /// one.
+        ///
+        /// Why this is an output and not a blackboard write: the damage is interesting to some states
+        /// and not to others, and to different keys ("lastHit" for a combo counter, "threat" for an
+        /// aggro table). <see cref="cooldownKey"/> above is the older shape — the task deciding both
+        /// the value AND where it lands, for everyone — and the difference between the two fields is
+        /// the whole point of the mechanism.
+        /// </summary>
+        [TaskOutput("Damage dealt by the hit that ended this attack")]
+        public float lastDamageDealt;
+
         private float m_NextAttackTime;
 
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
@@ -114,6 +129,9 @@ namespace PowerOfFire.DrawToPlay
             if (!health.TakeDamage(damage, owner.transform.position))
                 return StateTreeStatus.Running;
 
+            // Set before the return, because the executor reads it the instant this Success is
+            // handed back — a value assigned in OnExit would be assigned after the capture.
+            lastDamageDealt = damage;
             ArmCooldown(context);
             context.EmitDamageDealt(owner, target, damage);
             return StateTreeStatus.Success;
