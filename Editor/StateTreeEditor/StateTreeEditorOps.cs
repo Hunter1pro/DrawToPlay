@@ -62,14 +62,14 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// transition's <c>targetNodeId</c> (<see cref="RetargetTransitions"/>), a parameter's name used
     /// as a blackboard key by the tasks that read it (<see cref="RetargetBlackboardReads"/>), and the
     /// key an output route writes for a field binding to read at entry
-    /// (<see cref="RetargetEntryBindings"/> when the route's end is retyped,
-    /// <see cref="RetargetIncomingRoutes"/> when the field's is) — so renaming either end of one of
-    /// them disconnects it
-    /// with nothing broken enough to report. The node id and the route-chain key are fixed SILENTLY:
-    /// the editor sees both ends of those wires, and renaming half of one is never what the author
-    /// means (M7m — detaching has its own gestures). Only the parameter-name reads are still counted
-    /// and OFFERED, because a task's blackboard read may legitimately be fed by something other than
-    /// the parameter that happens to share its name. All of it inside the caller's own undo group.
+    /// (<see cref="CountEntryBindings"/>) — so renaming either end of one of them disconnects it
+    /// with nothing broken enough to report. The node id rename is fixed SILENTLY, because a node id
+    /// is an editor-side handle and a rename that skipped it would simply break the tree. The
+    /// route-chain key cannot be renamed AT ALL while both ends exist — the inspector LOCKS the
+    /// inline key on any complete wire (M7m, the count above is the predicate), because renaming
+    /// half of a path is never what the author means and detaching has its own gestures. Only the
+    /// parameter-name reads are counted and OFFERED, because a task's blackboard read may
+    /// legitimately be fed by something other than the parameter that shares its name.
     ///
     /// Saving is NOT done here. Callers batch it (see StateTreeEditorWindow) because
     /// AssetDatabase.SaveAssets() on every keystroke stalls the editor on large trees.
@@ -1024,60 +1024,18 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>
-        /// How many entry-time field bindings of one state read <paramref name="key"/> — the question
-        /// <see cref="RetargetEntryBindings"/> is offered on the strength of, asked without changing
-        /// anything. The <see cref="CountBlackboardReads"/> shape, for the same reason: the number is
-        /// the whole basis for the author's decision, so it has to be quotable before the fact.
+        /// How many entry-time field bindings of one state read <paramref name="key"/> — the
+        /// question the M7m wire LOCK stands on: a route whose resolved key this counts non-zero
+        /// for is a complete wire, and the inspector freezes its name at both ends. Counts only
+        /// blackboard-source rows, because a parameter row that happens to carry the same text in
+        /// its unused key slot is not read from the blackboard at all.
+        ///
+        /// Matched by NODE ID rather than by object, like every other route scan here, so a tree
+        /// with two states sharing an id (which the window reports separately) counts both.
         /// </summary>
         internal static int CountEntryBindings(StateTreeAsset tree, string nodeId, string key)
-            => ScanEntryBindings(tree, nodeId, key, null, false, null);
-
-        /// <summary>
-        /// Move one state's blackboard-key field bindings from <paramref name="oldKey"/> to
-        /// <paramref name="newKey"/> — the assisted half of renaming the key an output route writes,
-        /// and the counterpart of <see cref="RetargetBlackboardReads"/> one level down.
-        ///
-        /// THE KEY IS A JOINT BETWEEN TWO INDEPENDENT NAMES, which is exactly what makes it fragile.
-        /// A route says "write the finished task's return under 'damage'"; a field on the state it
-        /// leads to says "read 'damage' at entry"; neither knows the other exists, and that is the
-        /// design (the M7j name-contract rule) rather than an oversight. The cost is that retyping the
-        /// route's key silently disconnects the field — nothing is broken enough to warn about, the
-        /// binding simply stops finding anything, which is the ONE failure the M7k rules deliberately
-        /// keep quiet about because entering a state through an unrouted path is normal. So the editor
-        /// carries the rename across while it still knows both ends.
-        ///
-        /// SCOPED TO THE TRANSITION'S TARGET STATE, deliberately and only in v1. A key is a global
-        /// dictionary entry, so a tree-wide rewrite would also catch states this route never reaches
-        /// and graphs whose keys are baked from their own canvas — a rename that reached further than
-        /// the wire the author was editing. The state the transition points at is the one place the
-        /// two ends are provably the same wire.
-        ///
-        /// Matched by NODE ID rather than by object, like every other route scan here, so a tree with
-        /// two states sharing an id (which the window reports separately) has both of them
-        /// retargeted — the runner's index keeps one, and which one it keeps is not this helper's
-        /// question to answer.
-        /// </summary>
-        /// <param name="tree">The tree to walk.</param>
-        /// <param name="nodeId">Id of the state whose bindings are rewritten — a transition's
-        /// <c>targetNodeId</c>.</param>
-        /// <param name="oldKey">The key to replace.</param>
-        /// <param name="newKey">The key to replace it with. Empty is refused: a binding with no key
-        /// is inert, and turning a working link into one silently would be the opposite of help.</param>
-        /// <param name="undoName">Undo label recorded on each touched state.</param>
-        /// <returns>The number of rows rewritten.</returns>
-        internal static int RetargetEntryBindings(StateTreeAsset tree, string nodeId, string oldKey,
-            string newKey, string undoName)
-            => ScanEntryBindings(tree, nodeId, oldKey, newKey, true, undoName);
-
-        /// <summary>The one walk both entry points share, so "how many would change" and "change
-        /// them" can never disagree about what counts as a match.</summary>
-        private static int ScanEntryBindings(StateTreeAsset tree, string nodeId, string oldKey,
-            string newKey, bool apply, string undoName)
         {
-            if (tree == null || string.IsNullOrEmpty(nodeId) || string.IsNullOrEmpty(oldKey))
-                return 0;
-            if (apply && (string.IsNullOrEmpty(newKey)
-                || string.Equals(newKey, oldKey, StringComparison.Ordinal)))
+            if (tree == null || string.IsNullOrEmpty(nodeId) || string.IsNullOrEmpty(key))
                 return 0;
 
             var count = 0;
@@ -1089,113 +1047,14 @@ namespace PowerOfFire.DrawToPlay.Editor
                     continue;
 
                 var rows = node.bindings;
-                var touched = false;
                 for (var r = 0; rows != null && r < rows.Count; ++r)
                 {
                     var row = rows[r];
-                    if (row == null
-                        || row.sourceKind != StateTreeFieldBinding.SourceKind.BlackboardKey
-                        || !string.Equals(row.blackboardKey, oldKey, StringComparison.Ordinal))
-                        continue;
-
-                    ++count;
-                    if (!apply)
-                        continue;
-
-                    // Once per state, and only when something actually changes — a scan that matches
-                    // nothing adds no undo entry and dirties nothing.
-                    if (!touched)
-                    {
-                        Undo.RecordObject(node, undoName);
-                        touched = true;
-                    }
-
-                    row.blackboardKey = newKey;
-                }
-
-                if (touched)
-                    EditorUtility.SetDirty(node);
-            }
-
-            return count;
-        }
-
-        /// <summary>How many routes into one state write <paramref name="key"/> — the question
-        /// <see cref="RetargetIncomingRoutes"/> is offered on the strength of, asked without
-        /// changing anything. The <see cref="CountEntryBindings"/> shape, for the same reason: the
-        /// number is the whole basis for the author's decision, so it has to be quotable before the
-        /// fact.</summary>
-        internal static int CountIncomingRoutes(StateTreeAsset tree, string nodeId, string key)
-            => ScanIncomingRoutes(tree, nodeId, key, null, false, null);
-
-        /// <summary>
-        /// Move every route into one state from writing <paramref name="oldKey"/> to writing
-        /// <paramref name="newKey"/> — <see cref="RetargetEntryBindings"/> approached from the other
-        /// end of the same wire, for the edit made from the other end of it: the FIELD's key was
-        /// retyped, and the routes that fed it sit on other states' transitions where nothing the
-        /// author is looking at changes. Scoped by the same v1 rule — only transitions whose target
-        /// is this state, the one place route and binding are provably one wire.
-        ///
-        /// Matched through <see cref="TransitionOutputRoute.ResolvedKey"/>, like every reader of a
-        /// route's key: a row with an empty <c>blackboardKey</c> writes under its output's own name,
-        /// and when THAT name is the key being renamed the new key is written out EXPLICITLY —
-        /// the output's name is a contract with the task and not this helper's to change.
-        /// </summary>
-        internal static int RetargetIncomingRoutes(StateTreeAsset tree, string nodeId,
-            string oldKey, string newKey, string undoName)
-            => ScanIncomingRoutes(tree, nodeId, oldKey, newKey, true, undoName);
-
-        /// <summary>The one walk both entry points share, so "how many would change" and "change
-        /// them" can never disagree about what counts as a match.</summary>
-        private static int ScanIncomingRoutes(StateTreeAsset tree, string nodeId, string oldKey,
-            string newKey, bool apply, string undoName)
-        {
-            if (tree == null || string.IsNullOrEmpty(nodeId) || string.IsNullOrEmpty(oldKey))
-                return 0;
-            if (apply && (string.IsNullOrEmpty(newKey)
-                || string.Equals(newKey, oldKey, StringComparison.Ordinal)))
-                return 0;
-
-            var count = 0;
-            var nodes = CollectNodes(tree);
-            for (var i = 0; i < nodes.Count; ++i)
-            {
-                var node = nodes[i];
-                var transitions = node.transitions;
-                var touched = false;
-                for (var t = 0; t < transitions.Count; ++t)
-                {
-                    var transition = transitions[t];
-                    if (transition == null || !string.Equals(transition.targetNodeId, nodeId,
-                        StringComparison.Ordinal))
-                        continue;
-
-                    var routes = transition.outputRoutes;
-                    for (var r = 0; routes != null && r < routes.Count; ++r)
-                    {
-                        var row = routes[r];
-                        if (row == null
-                            || !string.Equals(row.ResolvedKey(), oldKey, StringComparison.Ordinal))
-                            continue;
-
+                    if (row != null
+                        && row.sourceKind == StateTreeFieldBinding.SourceKind.BlackboardKey
+                        && string.Equals(row.blackboardKey, key, StringComparison.Ordinal))
                         ++count;
-                        if (!apply)
-                            continue;
-
-                        // Once per state, and only when something actually changes — a scan that
-                        // matches nothing adds no undo entry and dirties nothing.
-                        if (!touched)
-                        {
-                            Undo.RecordObject(node, undoName);
-                            touched = true;
-                        }
-
-                        row.blackboardKey = newKey;
-                    }
                 }
-
-                if (touched)
-                    EditorUtility.SetDirty(node);
             }
 
             return count;
