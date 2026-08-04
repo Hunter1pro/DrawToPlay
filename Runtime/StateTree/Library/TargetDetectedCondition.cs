@@ -24,10 +24,14 @@ namespace PowerOfFire.DrawToPlay
     /// <see cref="detectRange"/> gives the classic hysteresis band: hard to notice you, harder
     /// to shake off.
     ///
-    /// COST: the candidate list comes from <see cref="HealthScanCache"/> (a polled
-    /// FindObjectsByType, refreshed at most every <see cref="rescanInterval"/> seconds and
-    /// shared by every detector in the scene) — read its class comment before tuning. The
-    /// per-evaluation work here is a linear pass over the cached list, no allocation.
+    /// SOURCE (M9): candidates come from the world registry —
+    /// <see cref="WorldService.CollectByTag"/> on <see cref="WorldTags.Combatant"/>, the tag
+    /// every <see cref="HealthComponent"/> enrolls itself under. Exact and immediate (a spawn
+    /// is visible the same tick — the polled scan's quarter-second lag is gone with the poll),
+    /// and every query lands in the world's deep log. The per-evaluation work is a linear pass
+    /// over one tag bucket into a reused buffer. NO WorldService reachable through the spine
+    /// is a wiring error, not an empty world: false, plus one warning per activation —
+    /// perception REQUIRES the world now.
     /// </summary>
     [CreateAssetMenu(menuName = "Draw To Play/AI/Conditions/Target Detected",
         fileName = "TargetDetected")]
@@ -54,9 +58,9 @@ namespace PowerOfFire.DrawToPlay
         /// off when a second component owns target lifetime.</summary>
         public bool clearTargetWhenNone = true;
 
-        /// <summary>Seconds between scene scans — a hint to the shared
-        /// <see cref="HealthScanCache"/>, not a per-component guarantee.</summary>
-        public float rescanInterval = HealthScanCache.DefaultInterval;
+        private readonly List<WorldObjectBehaviour> m_Buffer = new List<WorldObjectBehaviour>();
+
+        private bool m_WarnedNoService;
 
         public override bool Evaluate(StateTreeContext context)
         {
@@ -98,24 +102,47 @@ namespace PowerOfFire.DrawToPlay
             return true;
         }
 
-        /// <summary>Nearest living opposite-team health pool inside <paramref name="range"/>,
-        /// compared by squared distance so the scan never calls a square root.</summary>
+        /// <summary>Nearest living opposite-team combatant inside <paramref name="range"/>,
+        /// asked of the world registry's <see cref="WorldTags.Combatant"/> bucket and compared
+        /// by squared distance so the pass never calls a square root. The health pool is
+        /// resolved per candidate (<see cref="StateTreeLibraryUtil.ResolveComponent{T}"/>, so
+        /// the health-as-child layout still answers); a citizen that lost its health somehow is
+        /// simply not hostile.</summary>
         private GameObject FindNearestHostile(GameObject owner, CombatTeam ownerTeam, float range)
         {
-            List<HealthComponent> candidates = HealthScanCache.Scan(rescanInterval);
+            WorldService world = StateTreeContextHost.FindService<WorldService>(owner);
+            if (world == null)
+            {
+                if (!m_WarnedNoService)
+                {
+                    m_WarnedNoService = true;
+                    Debug.LogWarning("TargetDetectedCondition: no WorldService reachable from '"
+                        + owner.name + "' — perception reads the world registry now (M9); add a "
+                        + "Root context host with a WorldService to the scene.", owner);
+                }
+                return null;
+            }
+
+            m_Buffer.Clear();
+            world.CollectByTag(WorldTags.Combatant, m_Buffer);
+
             float rangeSq = range > 0f ? range * range : float.PositiveInfinity;
             float bestSq = float.PositiveInfinity;
             GameObject best = null;
 
-            for (int i = 0; i < candidates.Count; i++)
+            for (int i = 0; i < m_Buffer.Count; i++)
             {
-                HealthComponent health = candidates[i];
-                // The cache is allowed to go stale between scans — see HealthScanCache.
-                if (health == null || health.team == ownerTeam || !health.isAlive)
+                WorldObjectBehaviour citizen = m_Buffer[i];
+                if (citizen == null)
                     continue;
 
-                GameObject candidate = health.gameObject;
+                GameObject candidate = citizen.gameObject;
                 if (candidate == owner)
+                    continue;
+
+                HealthComponent health =
+                    StateTreeLibraryUtil.ResolveComponent<HealthComponent>(candidate);
+                if (health == null || health.team == ownerTeam || !health.isAlive)
                     continue;
 
                 float distanceSq =

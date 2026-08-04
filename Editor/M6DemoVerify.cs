@@ -170,6 +170,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreeAsset zombieTree = StateTreePresets.BuildZombie();
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            BuildWorldRoot();
             BuildCamera();
             BuildGround();
             BuildDummy();
@@ -232,6 +233,18 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Framed on the walk, not on the world: at Godot scale the whole fight happens
         /// inside four units. Orthographic size 1.8 gives a 6.4 x 3.6 unit view at 16:9, which holds
         /// the zombie's start, the dummy, and enough headroom above the ground for the debris.</summary>
+        /// <summary>The M9 spine's minimum: a Root context host carrying the WorldService.
+        /// Perception reads the world registry now — every HealthComponent enrolls itself as a
+        /// combatant on enable, and TargetDetectedCondition asks THIS service for candidates,
+        /// so a scene without it has blind zombies (and one warning saying exactly that).</summary>
+        private static void BuildWorldRoot()
+        {
+            var rootObject = new GameObject("Root Context");
+            var host = rootObject.AddComponent<StateTreeContextHost>();
+            host.kind = StateTreeContextKind.Root;
+            rootObject.AddComponent<WorldService>();
+        }
+
         private static void BuildCamera()
         {
             var cameraObject = new GameObject("Main Camera");

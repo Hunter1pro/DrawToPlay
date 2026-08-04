@@ -105,6 +105,43 @@ namespace PowerOfFire.DrawToPlay
             m_RegisteredWith = service;
         }
 
+        /// <summary>Add a tag the object does not carry yet — through the documented
+        /// re-register gesture when it is already in a registry, so the by-tag index never
+        /// drifts from the tag list. The idempotent form code uses; authors just type tags in
+        /// the inspector.</summary>
+        public void EnsureTag(string tag)
+        {
+            if (string.IsNullOrEmpty(tag) || HasTag(tag))
+                return;
+
+            WorldService registry = m_RegisteredWith;
+            if (registry != null)
+                UnregisterFromWorld();
+            tags.Add(tag);
+            if (registry != null)
+            {
+                registry.Register(this);
+                m_RegisteredWith = registry;
+            }
+        }
+
+        /// <summary>Make <paramref name="go"/> a citizen carrying <paramref name="tag"/>,
+        /// creating the component when it is absent — how a CODE feature (a HealthComponent,
+        /// a future interactable) enrolls its object without asking the author to remember a
+        /// second component. Registration still follows the normal order-free paths.</summary>
+        public static WorldObjectBehaviour EnsureCitizen(GameObject go, string tag)
+        {
+            if (go == null)
+                return null;
+
+            WorldObjectBehaviour citizen = go.GetComponent<WorldObjectBehaviour>();
+            if (citizen == null)
+                citizen = go.AddComponent<WorldObjectBehaviour>();
+            citizen.EnsureStableId();
+            citizen.EnsureTag(tag);
+            return citizen;
+        }
+
         private static string MintId()
         {
             return Guid.NewGuid().ToString("N").Substring(0, 8);

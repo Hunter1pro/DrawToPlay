@@ -87,6 +87,16 @@ namespace PowerOfFire.DrawToPlay
             hp = maxHP;
         }
 
+        /// <summary>Having health means being targetable, so a health pool enrolls its object
+        /// in the world registry (M9) as a <see cref="WorldTags.Combatant"/> — the registry
+        /// replaced the polled scene scan as perception's source, and an entity that skipped
+        /// enrollment would be invisible to every <see cref="TargetDetectedCondition"/>. One
+        /// line at enable, no second component for authors to remember.</summary>
+        private void OnEnable()
+        {
+            WorldObjectBehaviour.EnsureCitizen(gameObject, WorldTags.Combatant);
+        }
+
         /// <summary>Extra invulnerability window on top of the current one — health.gd
         /// <c>grant_invuln</c> (dash i-frames and friends). Never shortens an open window.</summary>
         public void GrantInvulnerability(float seconds)
