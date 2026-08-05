@@ -30,7 +30,6 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const string k_RegistryPath = k_DemoFolder + "/M10ItemRegistry.asset";
         private const string k_TreePath = k_DemoFolder + "/M10InventoryUITree.asset";
         private const string k_ScenePath = k_DemoFolder + "/M10UIDemo.unity";
-        private const string k_SandboxScenePath = "Assets/Sandbox.unity";
 
         private const string k_OpenKey = "ui:openInventory";
         private const string k_ClickedKey = "clickedItem";
@@ -57,8 +56,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             Debug.Log("M10: registry + UI tree + scene built. Play M10, press I, click rows.");
         }
 
-        private const string k_PlayFlag = "DrawToPlay.M10.PlayRequested";
-
+        /// <summary>Open the demo scene (building it first if needed) and press Play. No
+        /// start-scene redirection anywhere: the StartupScene hijack this project used to
+        /// carry — and the counter-bypass machinery every demo menu grew to fight it — is
+        /// removed (user decision, 2026-08-05). Play plays the open scene, always.</summary>
         [MenuItem("Tools/Draw To Play/Play M10 UI Demo")]
         public static void PlayDemo()
         {
@@ -73,55 +74,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 EditorSceneManager.OpenScene(k_ScenePath, OpenSceneMode.Single);
             }
 
-            SessionState.SetBool(k_PlayFlag, true);
             EditorApplication.EnterPlaymode();
-        }
-
-        /// <summary>
-        /// The startup-scene bypass, made DOMAIN-RELOAD-PROOF — the M1/M6 shape subscribes at
-        /// click time, and a click-time subscription does not survive the reload entering play
-        /// mode, so its restore half never ran: <c>playModeStartScene</c> stayed pointed at the
-        /// demo and every LATER manual Play, from any scene, silently loaded it. This shape
-        /// survives everything: the handler is (re)registered on every load, the one-shot
-        /// intent lives in <see cref="SessionState"/>, and the restore ALSO runs as a load-time
-        /// heal — an editor that got stuck the old way unsticks itself on the next compile.
-        /// </summary>
-        [InitializeOnLoadMethod]
-        private static void InstallPlayHook()
-        {
-            EditorApplication.playModeStateChanged += RouteStartScene;
-            HealStartScene();
-        }
-
-        private static void RouteStartScene(PlayModeStateChange state)
-        {
-            if (state == PlayModeStateChange.ExitingEditMode)
-            {
-                // One shot: the flag is consumed the moment it is honored, so only the play the
-                // menu itself requested is redirected — never a later manual Play.
-                if (SessionState.GetBool(k_PlayFlag, false))
-                {
-                    SessionState.SetBool(k_PlayFlag, false);
-                    EditorSceneManager.playModeStartScene =
-                        AssetDatabase.LoadAssetAtPath<SceneAsset>(k_ScenePath);
-                }
-            }
-            else if (state == PlayModeStateChange.EnteredEditMode)
-            {
-                HealStartScene();
-            }
-        }
-
-        /// <summary>Put the project's startup-scene convention back whenever the start scene is
-        /// still pointing at OUR demo — after our own play ended, and on load for editors the
-        /// pre-fix leak left stuck.</summary>
-        private static void HealStartScene()
-        {
-            SceneAsset current = EditorSceneManager.playModeStartScene;
-            if (current == null || AssetDatabase.GetAssetPath(current) != k_ScenePath)
-                return;
-            EditorSceneManager.playModeStartScene =
-                AssetDatabase.LoadAssetAtPath<SceneAsset>(k_SandboxScenePath);
         }
 
         // --- assets ----------------------------------------------------------------------

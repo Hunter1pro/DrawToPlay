@@ -43,8 +43,6 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const string k_GroundAssetPath = k_DemoFolder + "/M5DemoGround.asset";
         private const string k_CrateAssetPath = k_DemoFolder + "/M5DemoCrate.asset";
 
-        private const string k_SandboxScenePath = "Assets/Sandbox.unity";
-
         /// <summary>Entity root. Everything the animator addresses lives under it (channel paths
         /// resolve by descendant NAME, so one root has to see both the bones and the shape).</summary>
         private const string k_CharacterName = "Character";
@@ -154,14 +152,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             EditorGUIUtility.PingObject(AssetDatabase.LoadAssetAtPath<SceneAsset>(k_ScenePath));
         }
 
-        /// <summary>Play the demo scene despite the project's StartupScene convention, which
-        /// re-points playModeStartScene at Sandbox.unity on every Play press. Our handler is
-        /// subscribed at click time — after StartupScene's load-time subscription — so within the
-        /// same ExitingEditMode event it runs later and its assignment wins (C# multicast delegates
-        /// invoke in subscription order). The Sandbox convention is restored when play mode ends.
-        ///
-        /// This matters more here than it did in M1: half the criterion is a KEYPRESS, and a scene
-        /// you cannot actually reach with Play cannot be verified at all.</summary>
+        /// <summary>Open the demo scene and press Play. No start-scene redirection: the
+        /// StartupScene hijack (and the counter-bypass every demo menu carried) is removed
+        /// (user decision, 2026-08-05) — Play plays the open scene, always.</summary>
         [MenuItem("Tools/Draw To Play/Play M5 Demo Scene")]
         public static void PlayDemo()
         {
@@ -176,24 +169,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 EditorSceneManager.OpenScene(k_ScenePath, OpenSceneMode.Single);
             }
 
-            EditorApplication.playModeStateChanged += OverrideStartScene;
             EditorApplication.EnterPlaymode();
         }
 
-        private static void OverrideStartScene(PlayModeStateChange state)
-        {
-            if (state == PlayModeStateChange.ExitingEditMode)
-            {
-                EditorSceneManager.playModeStartScene =
-                    AssetDatabase.LoadAssetAtPath<SceneAsset>(k_ScenePath);
-            }
-            else if (state == PlayModeStateChange.EnteredEditMode)
-            {
-                EditorApplication.playModeStateChanged -= OverrideStartScene;
-                EditorSceneManager.playModeStartScene =
-                    AssetDatabase.LoadAssetAtPath<SceneAsset>(k_SandboxScenePath);
-            }
-        }
 
         private static void EnsureDemoFolder()
         {

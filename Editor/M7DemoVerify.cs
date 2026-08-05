@@ -62,8 +62,6 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private const string k_DaggersPath = k_PresetFolder + "/Daggers.asset";
 
-        private const string k_SandboxScenePath = "Assets/Sandbox.unity";
-
         // --- ported zombie constants -----------------------------------------------------------
         // The same numbers StateTreePresets.BuildZombie uses, written the same way (the Godot
         // export over the project's 32 px = 1 wu) so a diff between the two files is a diff
@@ -207,12 +205,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                       "canvas as it goes.");
         }
 
-        /// <summary>Play the demo scene despite the project's StartupScene convention, which
-        /// re-points playModeStartScene at Sandbox.unity on every Play press. Our handler is
-        /// subscribed at click time — after StartupScene's load-time subscription — so within the
-        /// same ExitingEditMode event it runs later and its assignment wins (C# multicast
-        /// delegates invoke in subscription order). The Sandbox convention is restored when play
-        /// mode ends. The M1/M5/M6 pattern verbatim.</summary>
+        /// <summary>Open the demo scene and press Play. No start-scene redirection: the
+        /// StartupScene hijack (and the counter-bypass every demo menu carried) is removed
+        /// (user decision, 2026-08-05) — Play plays the open scene, always.</summary>
         [MenuItem("Tools/Draw To Play/Play M7 Demo Scene")]
         public static void PlayDemo()
         {
@@ -229,24 +224,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 EditorSceneManager.OpenScene(k_ScenePath, OpenSceneMode.Single);
             }
 
-            EditorApplication.playModeStateChanged += OverrideStartScene;
             EditorApplication.EnterPlaymode();
         }
 
-        private static void OverrideStartScene(PlayModeStateChange state)
-        {
-            if (state == PlayModeStateChange.ExitingEditMode)
-            {
-                EditorSceneManager.playModeStartScene =
-                    AssetDatabase.LoadAssetAtPath<SceneAsset>(k_ScenePath);
-            }
-            else if (state == PlayModeStateChange.EnteredEditMode)
-            {
-                EditorApplication.playModeStateChanged -= OverrideStartScene;
-                EditorSceneManager.playModeStartScene =
-                    AssetDatabase.LoadAssetAtPath<SceneAsset>(k_SandboxScenePath);
-            }
-        }
 
         // --- step 1: the graph -------------------------------------------------------------
 
