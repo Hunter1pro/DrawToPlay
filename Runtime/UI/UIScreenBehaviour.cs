@@ -63,6 +63,14 @@ namespace PowerOfFire.DrawToPlay
             RegisterToUI();
         }
 
+        /// <summary>Scene-load enable order is nobody's problem (the M9 rule): the OnEnable
+        /// attempt can run before the service is reachable, so Start — after every OnEnable —
+        /// retries. Idempotent, like the service's own adoption sweep coming the other way.</summary>
+        private void Start()
+        {
+            RegisterToUI();
+        }
+
         private void OnDisable()
         {
             UnregisterFromUI();

@@ -31,9 +31,21 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>The host this service is registered on, null while unconnected.</summary>
         public StateTreeContextHost connectedTo => m_ConnectedTo;
 
+        /// <summary>QUIET first attempt. During the scene-load enable queue a host later in the
+        /// queue still reports <c>isActiveAndEnabled == false</c>, so resolution here can
+        /// legitimately find nothing — proven live in the M10 demo, where BOTH services loaded
+        /// unconnected. <see cref="Start"/> is the attempt that gets to complain: it runs after
+        /// every OnEnable in the scene, so a miss there is a real wiring error.</summary>
         protected virtual void OnEnable()
         {
-            Connect();
+            TryConnect(false);
+        }
+
+        /// <summary>The order-free retry — the adoption principle applied to the service
+        /// itself.</summary>
+        protected virtual void Start()
+        {
+            TryConnect(true);
         }
 
         protected virtual void OnDisable()
@@ -43,6 +55,11 @@ namespace PowerOfFire.DrawToPlay
 
         public void Connect()
         {
+            TryConnect(true);
+        }
+
+        private void TryConnect(bool warnWhenMissing)
+        {
             StateTreeContextHost host = explicitContext != null
                 ? explicitContext
                 : StateTreeContextHost.ResolveNearest(gameObject);
@@ -51,9 +68,12 @@ namespace PowerOfFire.DrawToPlay
 
             if (host == null)
             {
-                Debug.LogWarning("StateTreeService '" + GetType().Name + "' on '" + name
-                    + "' found no context host — it stays unconnected. Parent it under a host, "
-                    + "assign explicitContext, or add a Root host to the scene.", this);
+                if (warnWhenMissing)
+                {
+                    Debug.LogWarning("StateTreeService '" + GetType().Name + "' on '" + name
+                        + "' found no context host — it stays unconnected. Parent it under a "
+                        + "host, assign explicitContext, or add a Root host to the scene.", this);
+                }
                 return;
             }
 

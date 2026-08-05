@@ -49,6 +49,15 @@ namespace PowerOfFire.DrawToPlay
             AdoptStrays();
         }
 
+        /// <summary>The base retry connects to the host after every OnEnable has run; the
+        /// second sweep catches citizens whose own quiet first attempt ran before this service
+        /// was reachable.</summary>
+        protected override void Start()
+        {
+            base.Start();
+            AdoptStrays();
+        }
+
         // --- registration ---------------------------------------------------------------
 
         public void Register(WorldObjectBehaviour obj)

@@ -29,6 +29,15 @@ namespace PowerOfFire.DrawToPlay
             AdoptStrays();
         }
 
+        /// <summary>The base retry connects to the host after every OnEnable has run; the
+        /// second sweep catches screens whose own quiet first attempt ran before this service
+        /// was reachable.</summary>
+        protected override void Start()
+        {
+            base.Start();
+            AdoptStrays();
+        }
+
         public void Register(UIScreenBehaviour screen)
         {
             if (screen == null || m_Screens.Contains(screen))

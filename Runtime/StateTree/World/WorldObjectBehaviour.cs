@@ -58,6 +58,13 @@ namespace PowerOfFire.DrawToPlay
             RegisterToWorld();
         }
 
+        /// <summary>Scene-load enable order is nobody's problem: the OnEnable attempt can run
+        /// before the world service is reachable, so Start — after every OnEnable — retries.</summary>
+        private void Start()
+        {
+            RegisterToWorld();
+        }
+
         /// <summary>Mint the identity if there is none yet — idempotent, public like the other
         /// lifecycle mirrors. An authored object gets its id at edit time (OnValidate) and
         /// keeps it forever; this is the path a runtime-spawned copy takes instead.</summary>
