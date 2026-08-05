@@ -6,9 +6,11 @@ using UnityEngine;
 namespace PowerOfFire.DrawToPlay.Editor
 {
     /// <summary>
-    /// Play-mode half of the direct State Tree editor: finds the <see cref="StateTreeRunner"/>s
-    /// running the asset the window is showing and reports which state is active, so the tree
-    /// view can tint the row the game is actually in.
+    /// Play-mode half of the direct State Tree editor: finds everything in the scene running
+    /// the asset the window is showing — <see cref="StateTreeRunner"/>s AND
+    /// <see cref="StateTreeContextHost"/> mounts (M10: a tree mounted on its context is watched
+    /// exactly like a tree on a runner) — and reports which state is active, so the tree view
+    /// can tint the row the game is actually in.
     ///
     /// MATCHING IS BY nodeId STRING, NEVER BY REFERENCE. <c>StateTreeRunner.StartTree</c> calls
     /// <c>StateTreeAsset.DeepCopy()</c>, so at runtime every node/task/condition the runner
@@ -29,10 +31,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// scene scan, not a per-frame allocation in a build.</summary>
         private const double k_RescanInterval = 0.5d;
 
-        private readonly List<StateTreeRunner> m_Runners = new List<StateTreeRunner>();
+        private readonly List<Component> m_Runners = new List<Component>();
 
         private StateTreeAsset m_Tree;
-        private StateTreeRunner m_Runner;
+        private Component m_Runner;
         private string m_ActiveNodeId = string.Empty;
         private string m_PreviousNodeId = string.Empty;
         private double m_NextRescan;
@@ -41,9 +43,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// the window repaints rows from this and nothing else.</summary>
         internal event Action changed;
 
-        internal IReadOnlyList<StateTreeRunner> runners => m_Runners;
+        internal IReadOnlyList<Component> runners => m_Runners;
 
-        internal StateTreeRunner runner => m_Runner;
+        internal Component runner => m_Runner;
 
         internal string activeNodeId => m_ActiveNodeId;
 
@@ -98,11 +100,11 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             // Pull path: catches the entry transition that fired inside StartTree, before this
             // probe had anything to subscribe to.
-            if (m_Runner != null && m_Runner.activeNodeId != m_ActiveNodeId)
-                SetActiveNode(m_ActiveNodeId, m_Runner.activeNodeId);
+            if (m_Runner != null && NodeOf(m_Runner) != m_ActiveNodeId)
+                SetActiveNode(m_ActiveNodeId, NodeOf(m_Runner));
         }
 
-        internal void SelectRunner(StateTreeRunner selected)
+        internal void SelectRunner(Component selected)
         {
             if (selected == m_Runner)
                 return;
@@ -111,7 +113,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Runner = selected;
             Subscribe();
             m_PreviousNodeId = string.Empty;
-            m_ActiveNodeId = m_Runner != null ? m_Runner.activeNodeId : string.Empty;
+            m_ActiveNodeId = NodeOf(m_Runner);
             changed?.Invoke();
         }
 
@@ -120,13 +122,19 @@ namespace PowerOfFire.DrawToPlay.Editor
             var previousCount = m_Runners.Count;
             m_Runners.Clear();
 
-            var found = UnityEngine.Object.FindObjectsByType<StateTreeRunner>(FindObjectsInactive.Include);
-            for (var i = 0; i < found.Length; ++i)
+            // runner.data / host.tree is the AUTHORED asset (the deep copy lives in a private
+            // field), so this is the one place a reference compare is correct.
+            var foundRunners = UnityEngine.Object.FindObjectsByType<StateTreeRunner>(FindObjectsInactive.Include);
+            for (var i = 0; i < foundRunners.Length; ++i)
             {
-                // runner.data is the AUTHORED asset (the deep copy lives in a private field), so
-                // this is the one place a reference compare is correct.
-                if (found[i] != null && found[i].data == m_Tree)
-                    m_Runners.Add(found[i]);
+                if (foundRunners[i] != null && foundRunners[i].data == m_Tree)
+                    m_Runners.Add(foundRunners[i]);
+            }
+            var foundHosts = UnityEngine.Object.FindObjectsByType<StateTreeContextHost>(FindObjectsInactive.Include);
+            for (var i = 0; i < foundHosts.Length; ++i)
+            {
+                if (foundHosts[i] != null && foundHosts[i].tree == m_Tree)
+                    m_Runners.Add(foundHosts[i]);
             }
 
             m_Runners.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
@@ -137,7 +145,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Runner = m_Runners.Count > 0 ? m_Runners[0] : null;
                 Subscribe();
                 m_PreviousNodeId = string.Empty;
-                m_ActiveNodeId = m_Runner != null ? m_Runner.activeNodeId : string.Empty;
+                m_ActiveNodeId = NodeOf(m_Runner);
                 changed?.Invoke();
             }
             else if (previousCount != m_Runners.Count)
@@ -148,14 +156,29 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void Subscribe()
         {
-            if (m_Runner != null)
-                m_Runner.activeNodeChanged += OnActiveNodeChanged;
+            if (m_Runner is StateTreeRunner runner)
+                runner.activeNodeChanged += OnActiveNodeChanged;
+            else if (m_Runner is StateTreeContextHost host)
+                host.activeNodeChanged += OnActiveNodeChanged;
         }
 
         private void Unsubscribe()
         {
-            if (m_Runner != null)
-                m_Runner.activeNodeChanged -= OnActiveNodeChanged;
+            if (m_Runner is StateTreeRunner runner)
+                runner.activeNodeChanged -= OnActiveNodeChanged;
+            else if (m_Runner is StateTreeContextHost host)
+                host.activeNodeChanged -= OnActiveNodeChanged;
+        }
+
+        /// <summary>The active node of either mount flavor, empty for none — the one seam where
+        /// the probe cares which kind it is watching.</summary>
+        private static string NodeOf(Component mount)
+        {
+            if (mount is StateTreeRunner runner)
+                return runner.activeNodeId ?? string.Empty;
+            if (mount is StateTreeContextHost host)
+                return host.activeNodeId ?? string.Empty;
+            return string.Empty;
         }
 
         private void OnActiveNodeChanged(string previousNodeId, string activeNodeId)

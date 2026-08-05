@@ -57,6 +57,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             Debug.Log("M10: registry + UI tree + scene built. Play M10, press I, click rows.");
         }
 
+        private const string k_PlayFlag = "DrawToPlay.M10.PlayRequested";
+
         [MenuItem("Tools/Draw To Play/Play M10 UI Demo")]
         public static void PlayDemo()
         {
@@ -71,26 +73,55 @@ namespace PowerOfFire.DrawToPlay.Editor
                 EditorSceneManager.OpenScene(k_ScenePath, OpenSceneMode.Single);
             }
 
-            EditorApplication.playModeStateChanged += OverrideStartScene;
+            SessionState.SetBool(k_PlayFlag, true);
             EditorApplication.EnterPlaymode();
         }
 
-        /// <summary>The M1/M6 startup-scene bypass, verbatim: our late subscription wins the
-        /// ExitingEditMode event against StartupScene's, and Sandbox.unity is restored when
-        /// play ends.</summary>
-        private static void OverrideStartScene(PlayModeStateChange state)
+        /// <summary>
+        /// The startup-scene bypass, made DOMAIN-RELOAD-PROOF — the M1/M6 shape subscribes at
+        /// click time, and a click-time subscription does not survive the reload entering play
+        /// mode, so its restore half never ran: <c>playModeStartScene</c> stayed pointed at the
+        /// demo and every LATER manual Play, from any scene, silently loaded it. This shape
+        /// survives everything: the handler is (re)registered on every load, the one-shot
+        /// intent lives in <see cref="SessionState"/>, and the restore ALSO runs as a load-time
+        /// heal — an editor that got stuck the old way unsticks itself on the next compile.
+        /// </summary>
+        [InitializeOnLoadMethod]
+        private static void InstallPlayHook()
+        {
+            EditorApplication.playModeStateChanged += RouteStartScene;
+            HealStartScene();
+        }
+
+        private static void RouteStartScene(PlayModeStateChange state)
         {
             if (state == PlayModeStateChange.ExitingEditMode)
             {
-                EditorSceneManager.playModeStartScene =
-                    AssetDatabase.LoadAssetAtPath<SceneAsset>(k_ScenePath);
+                // One shot: the flag is consumed the moment it is honored, so only the play the
+                // menu itself requested is redirected — never a later manual Play.
+                if (SessionState.GetBool(k_PlayFlag, false))
+                {
+                    SessionState.SetBool(k_PlayFlag, false);
+                    EditorSceneManager.playModeStartScene =
+                        AssetDatabase.LoadAssetAtPath<SceneAsset>(k_ScenePath);
+                }
             }
             else if (state == PlayModeStateChange.EnteredEditMode)
             {
-                EditorApplication.playModeStateChanged -= OverrideStartScene;
-                EditorSceneManager.playModeStartScene =
-                    AssetDatabase.LoadAssetAtPath<SceneAsset>(k_SandboxScenePath);
+                HealStartScene();
             }
+        }
+
+        /// <summary>Put the project's startup-scene convention back whenever the start scene is
+        /// still pointing at OUR demo — after our own play ended, and on load for editors the
+        /// pre-fix leak left stuck.</summary>
+        private static void HealStartScene()
+        {
+            SceneAsset current = EditorSceneManager.playModeStartScene;
+            if (current == null || AssetDatabase.GetAssetPath(current) != k_ScenePath)
+                return;
+            EditorSceneManager.playModeStartScene =
+                AssetDatabase.LoadAssetAtPath<SceneAsset>(k_SandboxScenePath);
         }
 
         // --- assets ----------------------------------------------------------------------
@@ -255,21 +286,20 @@ namespace PowerOfFire.DrawToPlay.Editor
             var levelHost = levelObject.AddComponent<StateTreeContextHost>();
             levelHost.kind = StateTreeContextKind.Level;
 
+            // THE MOUNT IS THE HOST'S OWN TREE SLOT — §3.7's "a tree mounted on its context",
+            // literally: select Player and the tree asset is right there, and its states write
+            // the Player scope directly (no child runner, no copy-down). The State Tree
+            // window's play highlight follows host mounts since this same milestone.
             var playerObject = new GameObject("Player");
             playerObject.transform.SetParent(levelObject.transform);
             var playerHost = playerObject.AddComponent<StateTreeContextHost>();
             playerHost.kind = StateTreeContextKind.Player;
+            playerHost.tree = tree;
             playerObject.AddComponent<UIService>();
             playerObject.AddComponent<ContextKeyHotkeyBehaviour>();
 
             BuildScreen("inv", "INVENTORY", new Vector3(-2.2f, 0.8f, 0f), playerObject);
             BuildScreen("tooltip", "ITEM", new Vector3(2.2f, 0.8f, 0f), playerObject);
-
-            var runnerObject = new GameObject("UI Runner");
-            runnerObject.transform.SetParent(playerObject.transform);
-            var runner = runnerObject.AddComponent<StateTreeRunner>();
-            runner.data = tree;
-            runner.ownerObject = playerObject;
 
             var hint = new GameObject("Hint");
             hint.transform.position = new Vector3(0f, -2.4f, 0f);
@@ -287,7 +317,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (font != null && meshRenderer != null)
                 meshRenderer.sharedMaterial = font.material;
 
-            Selection.activeObject = runnerObject;
+            Selection.activeObject = playerObject;
         }
 
         private static void BuildScreen(string screenId, string title, Vector3 position,

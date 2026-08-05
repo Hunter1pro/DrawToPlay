@@ -62,6 +62,12 @@ namespace PowerOfFire.DrawToPlay
 
         public bool autoStart = true;
 
+        public event Action treeStarted;
+        public event Action treeStopped;
+        public event Action<string> nodeEntered;
+        public event Action<string> nodeLeft;
+        public event Action<string, string> activeNodeChanged;
+
         private StateTreeContext m_Context;
         private StateTreeExecutor m_Executor;
         private bool m_Started;
@@ -161,8 +167,28 @@ namespace PowerOfFire.DrawToPlay
                 logLabel = "StateTreeContextHost",
                 logContext = this
             };
+            // The runner's event surface, verbatim: a tree mounted on a context is watched by
+            // the same tooling (the State Tree window's play highlight above all) as a tree on
+            // a runner, and an event the mount flavor lacked would make host mounts the
+            // second-class option the M8 design says they are not.
+            m_Executor.treeStarted += RaiseTreeStarted;
+            m_Executor.treeStopped += RaiseTreeStopped;
+            m_Executor.nodeEntered += RaiseNodeEntered;
+            m_Executor.nodeLeft += RaiseNodeLeft;
+            m_Executor.activeNodeChanged += RaiseActiveNodeChanged;
             return m_Executor;
         }
+
+        private void RaiseTreeStarted() => treeStarted?.Invoke();
+
+        private void RaiseTreeStopped() => treeStopped?.Invoke();
+
+        private void RaiseNodeEntered(string nodeId) => nodeEntered?.Invoke(nodeId);
+
+        private void RaiseNodeLeft(string nodeId) => nodeLeft?.Invoke(nodeId);
+
+        private void RaiseActiveNodeChanged(string from, string to)
+            => activeNodeChanged?.Invoke(from, to);
 
         // --- registry + resolution ------------------------------------------------------
 
