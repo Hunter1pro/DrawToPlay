@@ -2,7 +2,8 @@
     "name": "PowerOfFire.DrawToPlay.Editor",
     "rootNamespace": "PowerOfFire.DrawToPlay.Editor",
     "references": [
-        "PowerOfFire.DrawToPlay"
+        "PowerOfFire.DrawToPlay",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [
         "Editor"

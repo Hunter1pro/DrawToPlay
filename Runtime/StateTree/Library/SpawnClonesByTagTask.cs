@@ -47,26 +47,30 @@ namespace PowerOfFire.DrawToPlay
                 return StateTreeStatus.Failure;
             }
 
+            // Clones are born under an INACTIVE incubator: Instantiate of an active object
+            // runs OnEnable inside the call, which would register the clone under the
+            // TEMPLATE'S id — colliding with (and evicting) the template before a fresh
+            // identity could be minted. Inactive-parented, the lifecycle waits; the id is
+            // re-minted first, and unparenting activates the clone with its own name.
+            var incubator = new GameObject("(spawn incubator)");
+            incubator.SetActive(false);
             for (int i = 0; i < count; i++)
             {
                 Vector2 scatter = Random.insideUnitCircle * scatterRadius;
                 GameObject clone = Object.Instantiate(template.gameObject,
                     template.transform.position + new Vector3(scatter.x, scatter.y, 0f),
-                    template.transform.rotation);
+                    template.transform.rotation, incubator.transform);
                 clone.name = template.gameObject.name + " (spawned)";
 
-                // The clone registered during Instantiate with the TEMPLATE'S id — a fresh
-                // identity has to be minted through the documented re-register gesture before
-                // the collision becomes anyone's problem.
                 WorldObjectBehaviour citizen = clone.GetComponent<WorldObjectBehaviour>();
                 if (citizen != null)
                 {
-                    citizen.UnregisterFromWorld();
                     citizen.stableId = "";
                     citizen.EnsureStableId();
-                    citizen.RegisterToWorld();
                 }
+                clone.transform.SetParent(null);
             }
+            Object.Destroy(incubator);
             return StateTreeStatus.Success;
         }
     }
