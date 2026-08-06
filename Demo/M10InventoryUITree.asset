@@ -1,0 +1,571 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-8961717175035345708
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8e75bcdb9ff6540f68b1b35d45b87c47, type: 3}
+  m_Name: Cond inventory->itemFlow Clicked
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.HasBlackboardKeyCondition
+  key: clickedItem
+  invert: 0
+--- !u!114 &-8719486326558219402
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d945e794774744f64aadb6a86087918e, type: 3}
+  m_Name: Task boot AddSword
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.InventoryAddTask
+  itemId: sword
+  count: 1
+  scopeId: 
+--- !u!114 &-8143926542779918848
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e7c424f0be0d943b6a369a4d70c4c424, type: 3}
+  m_Name: Task inventory ShowScreen
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.ShowScreenTask
+  screenId: inv
+  resultKey: clickedItem
+  clickedItemId: 
+  closeOnExit: 0
+--- !u!114 &-7890387199350520033
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 6 unequip
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: unequip
+  displayName: Unequip
+  tasks:
+  - {fileID: 1369382005750599537}
+  - {fileID: -5978989091942842646}
+  - {fileID: 6445438079975885767}
+  children: []
+  transitions:
+  - targetNodeId: inventory
+    condition: {fileID: 0}
+    checkWhileRunning: 0
+    outputRoutes: []
+  bindings:
+  - targetKind: 0
+    targetIndex: 1
+    fieldName: itemId
+    parameterId: 
+    sourceKind: 1
+    blackboardKey: clickedItem
+--- !u!114 &-7599143800367827936
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ac4258d9309dc4ea1abb3e1142977682, type: 3}
+  m_Name: Task closed HideInfo
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.SetScreenVisibleTask
+  screenId: tooltip
+  visible: 0
+--- !u!114 &-7341376917576155789
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d8c961668dd9d40f097fbec34c614137, type: 3}
+  m_Name: Task itemFlow Mark
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.SetBlackboardTask
+  key: ui:flow
+  kind: 0
+  floatValue: 1
+  stringValue: 
+  onlyIfMissing: 0
+--- !u!114 &-6035024222545096614
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 4 itemFlow
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: itemFlow
+  displayName: Item Flow
+  tasks:
+  - {fileID: -7341376917576155789}
+  children: []
+  transitions:
+  - targetNodeId: unequip
+    condition: {fileID: 5109542180397136640}
+    checkWhileRunning: 0
+    outputRoutes: []
+  - targetNodeId: equip
+    condition: {fileID: -4455890512388254974}
+    checkWhileRunning: 0
+    outputRoutes: []
+  - targetNodeId: showInfo
+    condition: {fileID: 0}
+    checkWhileRunning: 0
+    outputRoutes: []
+  bindings:
+  - targetKind: 1
+    targetIndex: 0
+    fieldName: value
+    parameterId: 
+    sourceKind: 1
+    blackboardKey: clickedItem
+--- !u!114 &-5978989091942842646
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 438cc89b17993486491a2f968e93099f, type: 3}
+  m_Name: Task unequip ShowUnequipped
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.BindItemDetailTask
+  screenId: tooltip
+  registry: {fileID: 11400000, guid: 2333adb9d0a404fdca667392a00e2819, type: 2}
+  itemId: 
+  prefix: 'UNEQUIPPED: '
+--- !u!114 &-5209114949026957826
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ac4258d9309dc4ea1abb3e1142977682, type: 3}
+  m_Name: Task closed HideInventory
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.SetScreenVisibleTask
+  screenId: inv
+  visible: 0
+--- !u!114 &-4802655156707525695
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 438cc89b17993486491a2f968e93099f, type: 3}
+  m_Name: Task showInfo BindDetail
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.BindItemDetailTask
+  screenId: tooltip
+  registry: {fileID: 11400000, guid: 2333adb9d0a404fdca667392a00e2819, type: 2}
+  itemId: 
+  prefix: 
+--- !u!114 &-4455890512388254974
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e1a2f1c5015e84466a4c1af1fed0baad, type: 3}
+  m_Name: Cond itemFlow->equip IsWeapon
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.ItemKindCondition
+  itemIdKey: clickedItem
+  registry: {fileID: 11400000, guid: 2333adb9d0a404fdca667392a00e2819, type: 2}
+  kind: 0
+  invert: 0
+--- !u!114 &-4047675191231544628
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 2 closed
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: closed
+  displayName: Closed
+  tasks:
+  - {fileID: -5209114949026957826}
+  - {fileID: -7599143800367827936}
+  children: []
+  transitions:
+  - targetNodeId: inventory
+    condition: {fileID: 4584015901675251127}
+    checkWhileRunning: 1
+    outputRoutes: []
+  bindings: []
+--- !u!114 &-2009596004931513866
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 747cb05dbaf374080a26a017bf072459, type: 3}
+  m_Name: Task inventory ConsumeTrigger
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.SetContextValueTask
+  scope: 2
+  scopeId: 
+  key: ui:openInventory
+  kind: 2
+  floatValue: 0
+  stringValue: 
+  onlyIfMissing: 0
+--- !u!114 &-1748374585846321883
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 0 root
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: root
+  displayName: Inventory UI
+  tasks: []
+  children:
+  - {fileID: 8895611581278733864}
+  - {fileID: -4047675191231544628}
+  - {fileID: 8393264104313005578}
+  - {fileID: -6035024222545096614}
+  - {fileID: 438219974375083396}
+  - {fileID: -7890387199350520033}
+  - {fileID: 1672221127123418543}
+  transitions: []
+  bindings: []
+--- !u!114 &-483837210271304695
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 438cc89b17993486491a2f968e93099f, type: 3}
+  m_Name: Task equip ShowEquipped
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.BindItemDetailTask
+  screenId: tooltip
+  registry: {fileID: 11400000, guid: 2333adb9d0a404fdca667392a00e2819, type: 2}
+  itemId: 
+  prefix: 'EQUIPPED: '
+--- !u!114 &-339080430846261068
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 90f3cd8cc38504004a2472196b959773, type: 3}
+  m_Name: Task inventory BindList
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.BindInventoryListTask
+  screenId: inv
+  registry: {fileID: 11400000, guid: 2333adb9d0a404fdca667392a00e2819, type: 2}
+  scopeId: 
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1e7e18c05c87f4a4a9133639bf211de4, type: 3}
+  m_Name: M10InventoryUITree
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeAsset
+  treeName: Inventory UI
+  treeKind: ui
+  root: {fileID: -1748374585846321883}
+  parameters: []
+--- !u!114 &438219974375083396
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 5 equip
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: equip
+  displayName: Equip
+  tasks:
+  - {fileID: 6099879473648068331}
+  - {fileID: -483837210271304695}
+  - {fileID: 4712198232626757707}
+  children: []
+  transitions:
+  - targetNodeId: inventory
+    condition: {fileID: 0}
+    checkWhileRunning: 0
+    outputRoutes: []
+  bindings:
+  - targetKind: 0
+    targetIndex: 0
+    fieldName: stringValue
+    parameterId: 
+    sourceKind: 1
+    blackboardKey: clickedItem
+  - targetKind: 0
+    targetIndex: 1
+    fieldName: itemId
+    parameterId: 
+    sourceKind: 1
+    blackboardKey: clickedItem
+--- !u!114 &1369382005750599537
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 747cb05dbaf374080a26a017bf072459, type: 3}
+  m_Name: Task unequip ClearEquipped
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.SetContextValueTask
+  scope: 2
+  scopeId: 
+  key: equipped
+  kind: 2
+  floatValue: 0
+  stringValue: 
+  onlyIfMissing: 0
+--- !u!114 &1672221127123418543
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 7 showInfo
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: showInfo
+  displayName: Show Item Info
+  tasks:
+  - {fileID: -4802655156707525695}
+  - {fileID: 5052946539659688117}
+  children: []
+  transitions:
+  - targetNodeId: inventory
+    condition: {fileID: 0}
+    checkWhileRunning: 0
+    outputRoutes: []
+  bindings:
+  - targetKind: 0
+    targetIndex: 0
+    fieldName: itemId
+    parameterId: 
+    sourceKind: 1
+    blackboardKey: clickedItem
+--- !u!114 &4584015901675251127
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 465438ba964fb43ef87a4c81c2ddb64c, type: 3}
+  m_Name: Cond closed->inventory Opened
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.HasContextKeyCondition
+  scope: 2
+  scopeId: 
+  key: ui:openInventory
+  invert: 0
+--- !u!114 &4712198232626757707
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ac4258d9309dc4ea1abb3e1142977682, type: 3}
+  m_Name: Task equip ShowInfoPanel
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.SetScreenVisibleTask
+  screenId: tooltip
+  visible: 1
+--- !u!114 &5052946539659688117
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ac4258d9309dc4ea1abb3e1142977682, type: 3}
+  m_Name: Task showInfo ShowInfoPanel
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.SetScreenVisibleTask
+  screenId: tooltip
+  visible: 1
+--- !u!114 &5109542180397136640
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c9c318d25ce86416dbe0dcfab6cd6291, type: 3}
+  m_Name: Cond itemFlow->unequip AlreadyEquipped
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.ContextStringEqualsCondition
+  scope: 2
+  scopeId: 
+  key: equipped
+  value: 
+  invert: 0
+--- !u!114 &6099879473648068331
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 747cb05dbaf374080a26a017bf072459, type: 3}
+  m_Name: Task equip PublishEquipped
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.SetContextValueTask
+  scope: 2
+  scopeId: 
+  key: equipped
+  kind: 1
+  floatValue: 0
+  stringValue: 
+  onlyIfMissing: 0
+--- !u!114 &6445438079975885767
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ac4258d9309dc4ea1abb3e1142977682, type: 3}
+  m_Name: Task unequip ShowInfoPanel
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.SetScreenVisibleTask
+  screenId: tooltip
+  visible: 1
+--- !u!114 &8393264104313005578
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 3 inventory
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: inventory
+  displayName: Inventory Screen
+  tasks:
+  - {fileID: -2009596004931513866}
+  - {fileID: -339080430846261068}
+  - {fileID: -8143926542779918848}
+  children: []
+  transitions:
+  - targetNodeId: itemFlow
+    condition: {fileID: -8961717175035345708}
+    checkWhileRunning: 0
+    outputRoutes: []
+  - targetNodeId: closed
+    condition: {fileID: 0}
+    checkWhileRunning: 0
+    outputRoutes: []
+  bindings: []
+--- !u!114 &8895611581278733864
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 1 boot
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: boot
+  displayName: Seed Inventory
+  tasks:
+  - {fileID: -8719486326558219402}
+  - {fileID: 8896366709376589497}
+  children: []
+  transitions:
+  - targetNodeId: closed
+    condition: {fileID: 0}
+    checkWhileRunning: 0
+    outputRoutes: []
+  bindings: []
+--- !u!114 &8896366709376589497
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d945e794774744f64aadb6a86087918e, type: 3}
+  m_Name: Task boot AddPotion
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.InventoryAddTask
+  itemId: potion
+  count: 2
+  scopeId: 

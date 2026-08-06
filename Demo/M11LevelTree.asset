@@ -1,0 +1,216 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-8681198071409858524
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6209293bfdec648f7baee916e80e1a21, type: 3}
+  m_Name: Task prep Breathe
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.WaitTask
+  seconds: 0.6
+  jitter: 0
+--- !u!114 &-6953551615020505044
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 0 root
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: root
+  displayName: Wave Circle
+  tasks: []
+  children:
+  - {fileID: -6016313497997963302}
+  - {fileID: 6383562530762681103}
+  - {fileID: 9081528645299379225}
+  transitions: []
+  bindings: []
+--- !u!114 &-6948131848589351029
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 29a496725a6fc4791915f77ff6c78787, type: 3}
+  m_Name: Cond fight->cleared HordeDown
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.AnyAliveWithTagCondition
+  tag: zombie
+  invert: 1
+--- !u!114 &-6803956352606560378
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6209293bfdec648f7baee916e80e1a21, type: 3}
+  m_Name: Task cleared Savor
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.WaitTask
+  seconds: 0.8
+  jitter: 0
+--- !u!114 &-6016313497997963302
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 1 prep
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: prep
+  displayName: Prepare Wave
+  tasks:
+  - {fileID: 3818875113246098978}
+  - {fileID: 5801828592404020423}
+  - {fileID: -8681198071409858524}
+  children: []
+  transitions:
+  - targetNodeId: fight
+    condition: {fileID: 0}
+    checkWhileRunning: 0
+    outputRoutes: []
+  bindings: []
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1e7e18c05c87f4a4a9133639bf211de4, type: 3}
+  m_Name: M11LevelTree
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeAsset
+  treeName: Wave Circle
+  treeKind: level
+  root: {fileID: -6953551615020505044}
+  parameters: []
+--- !u!114 &2126911569128941660
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 747cb05dbaf374080a26a017bf072459, type: 3}
+  m_Name: Task cleared PublishToRoot
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.SetContextValueTask
+  scope: 0
+  scopeId: 
+  key: evt:cleared
+  kind: 0
+  floatValue: 1
+  stringValue: 
+  onlyIfMissing: 0
+--- !u!114 &3818875113246098978
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1d3ce5abf70014b3889dc9f565712a2c, type: 3}
+  m_Name: Task prep ReviveHorde
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.ReviveByTagTask
+  tag: zombie
+--- !u!114 &5801828592404020423
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 56a1ce53a2a3f4b129248a1d7625e4a6, type: 3}
+  m_Name: Task prep WavePlusOne
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.AddContextNumberTask
+  scope: 1
+  scopeId: 
+  key: wave
+  delta: 1
+--- !u!114 &6383562530762681103
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 2 fight
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: fight
+  displayName: Fight
+  tasks: []
+  children: []
+  transitions:
+  - targetNodeId: cleared
+    condition: {fileID: -6948131848589351029}
+    checkWhileRunning: 1
+    outputRoutes: []
+  bindings: []
+--- !u!114 &8337549585287554309
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d0d17f21129b94f419e9842d2dbe5386, type: 3}
+  m_Name: Task cleared SpawnOneMore
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.SpawnClonesByTagTask
+  templateTag: zombie
+  count: 1
+  scatterRadius: 1.2
+--- !u!114 &9081528645299379225
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14a16560c711643508d7c96ee8326fe0, type: 3}
+  m_Name: Node 3 cleared
+  m_EditorClassIdentifier: PowerOfFire.DrawToPlay::PowerOfFire.DrawToPlay.StateTreeNodeAsset
+  nodeId: cleared
+  displayName: Wave Cleared
+  tasks:
+  - {fileID: 2126911569128941660}
+  - {fileID: 8337549585287554309}
+  - {fileID: -6803956352606560378}
+  children: []
+  transitions:
+  - targetNodeId: prep
+    condition: {fileID: 0}
+    checkWhileRunning: 0
+    outputRoutes: []
+  bindings: []
