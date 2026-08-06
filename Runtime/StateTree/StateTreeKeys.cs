@@ -4,10 +4,11 @@ using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
 {
-    /// <summary>What a declared key holds — including the two kinds that are POLICY, not
+    /// <summary>What a declared key holds — including the kinds that are POLICY, not
     /// storage: an <see cref="Event"/> is a presence key (the no-event-bus doctrine as a
     /// type: raised by writing it, consumed by clearing it), a <see cref="Tag"/> is world
-    /// vocabulary (matched by the registry, never stored on a blackboard).</summary>
+    /// vocabulary (matched by the registry, never stored on a blackboard), and a
+    /// <see cref="Screen"/> is a UI address (matched by the UI service's address book).</summary>
     public enum StateTreeKeyKind
     {
         Float,
@@ -15,7 +16,8 @@ namespace PowerOfFire.DrawToPlay
         Bool,
         Object,
         Event,
-        Tag
+        Tag,
+        Screen
     }
 
     /// <summary>

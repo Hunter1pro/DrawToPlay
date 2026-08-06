@@ -20,6 +20,7 @@ namespace PowerOfFire.DrawToPlay
     [StateTreeCategory("Tasks/UI", "Open a screen while this state runs; click = Success + item id, close = Failure")]
     public sealed class ShowScreenTask : StateTreeTaskAsset
     {
+        [StateTreeKey(StateTreeKeyKind.Screen)]
         public string screenId = "";
 
         /// <summary>Local blackboard key the click result is PUBLISHED under (the

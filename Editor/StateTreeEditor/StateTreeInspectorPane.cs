@@ -390,7 +390,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <see cref="k_ParameterKindChoices"/> and sharing its first three words — the two
         /// vocabularies meet in tooltips and must not name the same thing twice.</summary>
         private static readonly string[] k_KeyKindChoices =
-            { "number", "text", "checkbox", "object", "event", "tag" };
+            { "number", "text", "checkbox", "object", "event", "tag", "screen" };
 
         private readonly ScrollView m_Root;
         private readonly Action m_StructuralChanged;

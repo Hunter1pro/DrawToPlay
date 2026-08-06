@@ -13,6 +13,7 @@ namespace PowerOfFire.DrawToPlay
     [StateTreeCategory("Tasks/UI", "Show or hide a screen, then succeed")]
     public sealed class SetScreenVisibleTask : StateTreeTaskAsset
     {
+        [StateTreeKey(StateTreeKeyKind.Screen)]
         public string screenId = "";
 
         public bool visible = true;
