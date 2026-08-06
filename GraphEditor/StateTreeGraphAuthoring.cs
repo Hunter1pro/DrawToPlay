@@ -716,7 +716,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             for (int i = 0; i < fields.Count; i++)
             {
                 FieldInfo field = fields[i];
-                object value = field.GetValue(source);
+                object value = LibraryParameterPorts.PortValue(field.GetValue(source));
 
                 // A null reference is already what a fresh port holds, and TrySetValue on a null
                 // asset reference is the one write that can fail for a reason nobody can act on.
@@ -731,7 +731,8 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     continue;
                 }
 
-                if (!LibraryParameterPorts.TryWriteValue(port, field.FieldType, value))
+                if (!LibraryParameterPorts.TryWriteValue(port,
+                    LibraryParameterPorts.PortDataType(field.FieldType), value))
                 {
                     problems.Add($"{libraryType.Name}.{field.Name} = {Describe(value)} was refused by the "
                         + $"'{field.Name}' port of {node.GetType().Name}.");

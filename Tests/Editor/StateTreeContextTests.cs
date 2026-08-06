@@ -104,7 +104,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             StateTreeContextHost host = MakeHost("Level", StateTreeContextKind.Level);
             var seed = ScriptableObject.CreateInstance<SetBlackboardTask>();
-            seed.key = "mode";
+            seed.key.text = "mode";
             seed.kind = SetBlackboardTask.ValueKind.String;
             seed.stringValue = "combat";
             m_Assets.Add(seed);
@@ -129,7 +129,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             var publish = ScriptableObject.CreateInstance<SetContextValueTask>();
             publish.scope = StateTreeContextKind.Level;
-            publish.key = "alarm";
+            publish.key.text = "alarm";
             publish.kind = SetBlackboardTask.ValueKind.Float;
             publish.floatValue = 1f;
             m_Assets.Add(publish);
@@ -146,8 +146,8 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             var read = ScriptableObject.CreateInstance<GetContextValueTask>();
             read.scope = StateTreeContextKind.Level;
-            read.key = "alarm";
-            read.localKey = "alarmLocal";
+            read.key.text = "alarm";
+            read.localKey.text = "alarmLocal";
             m_Assets.Add(read);
 
             StateTreeRunner reader = MakeRunner(MakeTree(MakeLeaf("check", read)), unit);
@@ -159,13 +159,13 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             var has = ScriptableObject.CreateInstance<HasContextKeyCondition>();
             has.scope = StateTreeContextKind.Level;
-            has.key = "alarm";
+            has.key.text = "alarm";
             m_Assets.Add(has);
             Assert.IsTrue(has.Evaluate(reader.context), "the condition sees the scope key");
             has.invert = true;
             Assert.IsFalse(has.Evaluate(reader.context));
             has.invert = false;
-            has.key = "no-such-key";
+            has.key.text = "no-such-key";
             Assert.IsFalse(has.Evaluate(reader.context));
         }
 
@@ -177,7 +177,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             var read = ScriptableObject.CreateInstance<GetContextValueTask>();
             read.scope = StateTreeContextKind.Root;
-            read.key = "absent";
+            read.key.text = "absent";
             m_Assets.Add(read);
 
             var context = new StateTreeContext(unit);

@@ -33,7 +33,7 @@ namespace PowerOfFire.DrawToPlay
         /// after what it gates ("attackCooldown", "shootCooldown") so two abilities on one
         /// entity do not share a clock by accident.</summary>
         [StateTreeKey(StateTreeKeyKind.Float)]
-        public string cooldownKey = "attackCooldown";
+        public StateTreeKeyField cooldownKey = new StateTreeKeyField("attackCooldown");
 
         /// <summary>Seconds re-armed when <see cref="armOnReady"/> is set.</summary>
         public float cooldown = 1f;

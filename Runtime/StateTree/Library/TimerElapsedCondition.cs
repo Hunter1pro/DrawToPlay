@@ -31,7 +31,7 @@ namespace PowerOfFire.DrawToPlay
     {
         /// <summary>Blackboard key holding the absolute time the timer started.</summary>
         [StateTreeKey(StateTreeKeyKind.Float)]
-        public string timerKey = "stateTimer";
+        public StateTreeKeyField timerKey = new StateTreeKeyField("stateTimer");
 
         /// <summary>Seconds that must elapse. 0 or less is always elapsed.</summary>
         public float seconds = 1f;

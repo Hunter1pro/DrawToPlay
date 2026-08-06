@@ -1536,10 +1536,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     return BuildRegistryRefField(fieldName, registryReference);
                 if (StateTreeEditorOps.TryGetKeyField(target, fieldName, out var keyKind,
                         out var anyKind))
-                {
-                    return BuildKeyContractField(field, target, fieldName, kind, targetIndex,
-                        keyKind, anyKind);
-                }
+                    return BuildKeyContractField(target, fieldName, keyKind, anyKind);
             }
 
             return BuildBindableField(field, target, fieldName, kind, targetIndex);
@@ -1872,30 +1869,23 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>
-        /// A key-semantic field. UNWIRED, it is the ⚑ row it always was with a ⚿ button riding in
-        /// it — the button offered only while no ⚑ source is in force, because a sourced value is
-        /// not a name to re-point. WIRED, the declaration owns the name (the M7m rule one level
-        /// up): the field is replaced by a read-only display of the declaration's CURRENT name —
-        /// which after a rename in an imported tree is the truth whatever the serialized fallback
-        /// still says — and changing anything is a deliberate gesture: ⚿ re-wires, ✕ unwires. A
-        /// wire whose declaration is GONE degrades exactly like the executor does: the typed text
-        /// runs, the field is editable again, and the row says so in the stale-link shape.
+        /// A key-semantic field — since M14 a <see cref="StateTreeKeyField"/> wrapper, so the
+        /// wire is read from and written to the FIELD ITSELF: no parallel row, no
+        /// field-by-index addressing, and nothing here to keep in agreement with the executor.
+        /// UNWIRED, the row is the editable text plus the ⚿ button. WIRED, the declaration
+        /// owns the name (the M7m rule one level up): a read-only display of the declaration's
+        /// CURRENT name — which after a rename in an imported tree is the truth whatever the
+        /// serialized fallback still says — and changing anything is a deliberate gesture:
+        /// ⚿ re-wires, ✕ unwires. A wire whose declaration is GONE degrades exactly like the
+        /// executor does: the typed text runs, the field is editable again, and the row says
+        /// so in the stale-link shape.
         /// </summary>
-        private VisualElement BuildKeyContractField(PropertyField field, UnityEngine.Object target,
-            string fieldName, StateTreeFieldBinding.TargetKind kind, int targetIndex,
+        private VisualElement BuildKeyContractField(UnityEngine.Object target, string fieldName,
             StateTreeKeyKind keyKind, bool anyKind)
         {
-            var link = StateTreeEditorOps.FindKeyLink(m_Node, kind, targetIndex, fieldName);
-            if (link == null)
-            {
-                var binding = StateTreeEditorOps.FindFieldBinding(m_Node, kind, targetIndex,
-                    fieldName);
-                var slot = binding == null
-                    ? BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, anyKind,
-                        null)
-                    : null;
-                return BuildBindableField(field, target, fieldName, kind, targetIndex, slot);
-            }
+            StateTreeKeyField key = StateTreeEditorOps.GetKeyField(target, fieldName);
+            if (key == null)
+                return new VisualElement();
 
             var container = new VisualElement();
 
@@ -1906,17 +1896,62 @@ namespace PowerOfFire.DrawToPlay.Editor
             container.Add(row);
 
             // Edit-time resolution is own + imports only — the mount chain is a runtime fact.
-            var declaration = StateTreeKeyResolver.Find(m_Tree, null, link.keyId);
+            var declaration = key.isWired
+                ? StateTreeKeyResolver.Find(m_Tree, null, key.keyId)
+                : null;
+            var stale = key.isWired && declaration == null;
 
-            if (declaration == null)
+            if (declaration != null)
             {
-                field.style.flexGrow = 1f;
-                field.style.flexShrink = 1f;
-                row.Add(field);
-                row.Add(BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, anyKind,
-                    link));
-                row.Add(BuildKeyUnlinkButton(kind, targetIndex, fieldName, stale: true));
+                var standIn = new TextField(ObjectNames.NicifyVariableName(fieldName))
+                {
+                    value = declaration.name,
+                    isReadOnly = true
+                };
+                standIn.AddToClassList(TextField.alignedFieldUssClassName);
+                standIn.style.flexGrow = 1f;
+                standIn.style.flexShrink = 1f;
+                standIn.style.minHeight = k_ControlMinHeight;
+                ApplyOverrideStyle(standIn, false);
+                standIn.tooltip = $"'{fieldName}' is wired to the declared key "
+                    + $"'{declaration.name}' ({KeyKindLabel(declaration.kind)}) by id — renaming "
+                    + "the declaration renames every wired use with it."
+                    + (string.IsNullOrEmpty(declaration.description)
+                        ? string.Empty
+                        : " " + declaration.description);
+                row.Add(standIn);
+            }
+            else
+            {
+                var text = new TextField(ObjectNames.NicifyVariableName(fieldName))
+                {
+                    value = key.text ?? string.Empty,
+                    isDelayed = true
+                };
+                text.AddToClassList(TextField.alignedFieldUssClassName);
+                text.style.flexGrow = 1f;
+                text.style.flexShrink = 1f;
+                text.style.minHeight = k_ControlMinHeight;
+                text.tooltip = $"'{fieldName}' names a "
+                    + (anyKind ? "key" : $"{KeyKindLabel(keyKind)} key")
+                    + " as free text. Wire it to a declared key (⚿) and renames follow by id.";
+                text.RegisterValueChangedCallback(evt =>
+                {
+                    var group = StateTreeEditorOps.BeginUndoGroup(k_EditFieldKeyUndo);
+                    StateTreeEditorOps.SetKeyFieldText(target, fieldName, evt.newValue,
+                        k_EditFieldKeyUndo);
+                    StateTreeEditorOps.EndUndoGroup(group);
+                    m_Edited?.Invoke();
+                });
+                row.Add(text);
+            }
 
+            row.Add(BuildKeyPickButton(target, fieldName, keyKind, anyKind, key));
+            if (key.isWired)
+                row.Add(BuildKeyUnlinkButton(target, fieldName, stale));
+
+            if (stale)
+            {
                 var help = new HelpBox($"'{fieldName}' is wired to a declared key that no longer "
                     + "resolves here — deleted, or its tree dropped from the imports. The typed "
                     + "text runs as a plain key (a mounted ancestor may still resolve the id at "
@@ -1924,35 +1959,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                     HelpBoxMessageType.Warning);
                 help.style.marginTop = 2f;
                 container.Add(help);
-                return container;
             }
-
-            var standIn = new TextField(ObjectNames.NicifyVariableName(fieldName))
+            else if (declaration != null && !anyKind && declaration.kind != keyKind)
             {
-                value = declaration.name,
-                isReadOnly = true
-            };
-            standIn.AddToClassList(TextField.alignedFieldUssClassName);
-            standIn.style.flexGrow = 1f;
-            standIn.style.flexShrink = 1f;
-            standIn.style.minHeight = k_ControlMinHeight;
-            ApplyOverrideStyle(standIn, false);
-            standIn.tooltip = $"'{fieldName}' is wired to the declared key '{declaration.name}' "
-                + $"({KeyKindLabel(declaration.kind)}) by id — renaming the declaration renames "
-                + "every wired use with it."
-                + (string.IsNullOrEmpty(declaration.description)
-                    ? string.Empty
-                    : " " + declaration.description);
-            row.Add(standIn);
-
-            row.Add(BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, anyKind,
-                link));
-            row.Add(BuildKeyUnlinkButton(kind, targetIndex, fieldName, stale: false));
-
-            // Not on an any-kind field: those atoms genuinely take a key of every kind (clearing
-            // an event, presence-testing a string is Tuesday), so a note would cry wolf.
-            if (!anyKind && declaration.kind != keyKind)
-            {
+                // Not on an any-kind field: those atoms genuinely take a key of every kind
+                // (clearing an event, presence-testing a string is Tuesday) — a note would
+                // cry wolf.
                 var help = new HelpBox($"'{declaration.name}' is declared as "
                     + $"{KeyKindLabel(declaration.kind)}; this field expects a "
                     + $"{KeyKindLabel(keyKind)} key. The name still flows — kinds filter the "
@@ -1966,25 +1978,23 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         private Button BuildKeyPickButton(UnityEngine.Object target, string fieldName,
-            StateTreeFieldBinding.TargetKind kind, int targetIndex, StateTreeKeyKind keyKind,
-            bool anyKind, StateTreeKeyLink link)
+            StateTreeKeyKind keyKind, bool anyKind, StateTreeKeyField key)
         {
             var pick = new Button { text = k_KeyGlyph };
             pick.style.flexShrink = 0f;
             EnlargeRowButton(pick, k_GlyphMinWidth);
-            pick.tooltip = link == null
+            pick.tooltip = !key.isWired
                 ? $"'{fieldName}' names a "
                 + (anyKind ? "key" : $"{KeyKindLabel(keyKind)} key")
                 + " as plain text. Wire it to a declared key instead — the wire is by id, so "
                 + "renaming the declaration renames this field with it."
                 : "Wire this field to a different declared key.";
-            pick.clicked += () => ShowKeyContractMenu(target, fieldName, kind, targetIndex,
-                keyKind, anyKind, link);
+            pick.clicked += () => ShowKeyContractMenu(target, fieldName, keyKind, anyKind, key);
             return pick;
         }
 
-        private Button BuildKeyUnlinkButton(StateTreeFieldBinding.TargetKind kind, int targetIndex,
-            string fieldName, bool stale)
+        private Button BuildKeyUnlinkButton(UnityEngine.Object target, string fieldName,
+            bool stale)
         {
             var unlink = new Button { text = "✕" };
             unlink.style.width = 26f;
@@ -1997,8 +2007,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             unlink.clicked += () =>
             {
                 var group = StateTreeEditorOps.BeginUndoGroup(k_UnlinkKeyUndo);
-                StateTreeEditorOps.ClearKeyLink(m_Node, kind, targetIndex, fieldName,
-                    k_UnlinkKeyUndo);
+                StateTreeEditorOps.UnwireKeyField(target, fieldName, k_UnlinkKeyUndo);
                 StateTreeEditorOps.EndUndoGroup(group);
                 RebuildPane();
             };
@@ -2024,10 +2033,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// gesture.
         /// </summary>
         private void ShowKeyContractMenu(UnityEngine.Object target, string fieldName,
-            StateTreeFieldBinding.TargetKind kind, int targetIndex, StateTreeKeyKind keyKind,
-            bool anyKind, StateTreeKeyLink link)
+            StateTreeKeyKind keyKind, bool anyKind, StateTreeKeyField key)
         {
-            var linkedId = link != null ? link.keyId : null;
+            var linkedId = key.isWired ? key.keyId : null;
             var seen = new HashSet<string>(StringComparer.Ordinal);
 
             var matching = new List<KeyMenuEntry>();
@@ -2038,8 +2046,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var menu = new GenericMenu();
             for (var i = 0; i < matching.Count; ++i)
-                AddKeyMenuItem(menu, matching[i], string.Empty, linkedId, kind, targetIndex,
-                    fieldName);
+                AddKeyMenuItem(menu, matching[i], string.Empty, linkedId, target, fieldName);
 
             if (matching.Count == 0 && others.Count == 0)
             {
@@ -2054,30 +2061,29 @@ namespace PowerOfFire.DrawToPlay.Editor
                     menu.AddSeparator(string.Empty);
                 for (var i = 0; i < others.Count; ++i)
                     AddKeyMenuItem(menu, others[i],
-                        "  · " + KeyKindLabel(others[i].declaration.kind), linkedId, kind,
-                        targetIndex, fieldName);
+                        "  · " + KeyKindLabel(others[i].declaration.kind), linkedId, target,
+                        fieldName);
             }
 
-            var text = CurrentKeyFieldText(target, fieldName);
+            var text = key.text;
             if (!string.IsNullOrEmpty(text) && !VisibleKeyNameExists(text))
             {
                 menu.AddSeparator(string.Empty);
                 menu.AddItem(new GUIContent(
                     $"Declare '{text.Replace('/', k_MenuSeparatorStandIn)}' on this tree"),
-                    false, () => DeclareAndLinkKey(text, keyKind, kind, targetIndex, fieldName));
+                    false, () => DeclareAndLinkKey(text, keyKind, target, fieldName));
             }
 
             menu.ShowAsContext();
         }
 
         private void AddKeyMenuItem(GenericMenu menu, KeyMenuEntry entry, string suffix,
-            string linkedId, StateTreeFieldBinding.TargetKind kind, int targetIndex,
-            string fieldName)
+            string linkedId, UnityEngine.Object target, string fieldName)
         {
             var declaration = entry.declaration;
             menu.AddItem(new GUIContent(entry.label + suffix),
                 string.Equals(declaration.id, linkedId, StringComparison.Ordinal),
-                () => LinkFieldKey(kind, targetIndex, fieldName, declaration));
+                () => LinkFieldKey(target, fieldName, declaration));
         }
 
         /// <summary>One pass over everything visible, in resolution order: own declarations bare,
@@ -2138,12 +2144,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
         }
 
-        private void LinkFieldKey(StateTreeFieldBinding.TargetKind kind, int targetIndex,
-            string fieldName, StateTreeKeyDeclaration declaration)
+        private void LinkFieldKey(UnityEngine.Object target, string fieldName,
+            StateTreeKeyDeclaration declaration)
         {
             var group = StateTreeEditorOps.BeginUndoGroup(k_LinkKeyUndo);
-            StateTreeEditorOps.SetKeyLink(m_Node, kind, targetIndex, fieldName, declaration,
-                k_LinkKeyUndo);
+            StateTreeEditorOps.WireKeyField(target, fieldName, declaration, k_LinkKeyUndo);
             StateTreeEditorOps.EndUndoGroup(group);
             RebuildPane();
         }
@@ -2152,7 +2157,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// carried by the field, so none of the rename refusals can apply — except a duplicate on
         /// this tree, which the menu's visibility check already ruled out.</summary>
         private void DeclareAndLinkKey(string name, StateTreeKeyKind keyKind,
-            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName)
+            UnityEngine.Object target, string fieldName)
         {
             if (m_Tree == null)
                 return;
@@ -2172,8 +2177,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Tree.keys.Add(declaration);
             EditorUtility.SetDirty(m_Tree);
 
-            StateTreeEditorOps.SetKeyLink(m_Node, kind, targetIndex, fieldName, declaration,
-                k_LinkKeyUndo);
+            StateTreeEditorOps.WireKeyField(target, fieldName, declaration, k_LinkKeyUndo);
             StateTreeEditorOps.EndUndoGroup(group);
             RebuildPane();
         }
@@ -2198,15 +2202,6 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             return false;
-        }
-
-        private static string CurrentKeyFieldText(UnityEngine.Object target, string fieldName)
-        {
-            var info = target != null
-                ? target.GetType().GetField(fieldName,
-                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public)
-                : null;
-            return info != null ? info.GetValue(target) as string : null;
         }
 
         /// <summary>Redraw the pane in place — for every edit that changes the SHAPE of a section

@@ -80,6 +80,8 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 return false;
             if (type.IsEnum)
                 return true;
+            if (type == typeof(StateTreeKeyField))
+                return true;
             if (typeof(UnityEngine.Object).IsAssignableFrom(type))
                 return true;
             return type == typeof(bool) || type == typeof(int) || type == typeof(long)
@@ -104,16 +106,53 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             {
                 var field = fields[i];
                 var builder = context.AddInputPort(field.Name)
-                    .WithDataType(field.FieldType)
+                    .WithDataType(PortDataType(field.FieldType))
                     .WithDisplayName(ObjectNames.NicifyVariableName(field.Name))
                     .WithTooltip($"{libraryType.Name}.{field.Name}");
 
-                object authoredDefault = GetAuthoredDefault(libraryType, field);
+                object authoredDefault = PortValue(GetAuthoredDefault(libraryType, field));
                 if (authoredDefault != null)
                     builder = builder.WithDefaultValue(authoredDefault);
 
                 builder.Build();
             }
+        }
+
+        /// <summary>
+        /// The data type a field's PORT carries. A <see cref="StateTreeKeyField"/> (M14) ports
+        /// as a plain STRING — same port name, same data type as before the wrapper existed —
+        /// so every graph authored against the string era keeps its ports, wires and constants
+        /// (the MovedFrom lesson, applied to ports). Everything else ports as itself.
+        /// </summary>
+        public static Type PortDataType(Type fieldType)
+        {
+            return fieldType == typeof(StateTreeKeyField) ? typeof(string) : fieldType;
+        }
+
+        /// <summary>A field value as its PORT sees it: a key wrapper flattens to its authored
+        /// text, everything else passes through.</summary>
+        public static object PortValue(object fieldValue)
+        {
+            return fieldValue is StateTreeKeyField key ? key.text : fieldValue;
+        }
+
+        /// <summary>The write half of the port⟷field seam: a string landing on a key-wrapper
+        /// field goes into the wrapper's TEXT (the wrapper instance survives, a graph has no
+        /// wires so its keyId stays empty); everything else is a plain SetValue.</summary>
+        public static void WriteFieldValue(FieldInfo field, object target, object value)
+        {
+            if (field.FieldType == typeof(StateTreeKeyField))
+            {
+                if (!(field.GetValue(target) is StateTreeKeyField key))
+                {
+                    key = new StateTreeKeyField();
+                    field.SetValue(target, key);
+                }
+                key.text = value as string ?? string.Empty;
+                return;
+            }
+
+            field.SetValue(target, value);
         }
 
         /// <summary>

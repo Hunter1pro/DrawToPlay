@@ -152,7 +152,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             GameObject unit = MakeUnit("Unit", root);
             var find = ScriptableObject.CreateInstance<FindByTagTask>();
-            find.tag = "enemy";
+            find.tag.text = "enemy";
             m_Assets.Add(find);
 
             var context = new StateTreeContext(unit);
@@ -160,7 +160,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreSame(near.gameObject, context.blackboard["target"],
                 "the nearest enemy landed under the perception convention key");
 
-            find.tag = "dragon";
+            find.tag.text = "dragon";
             Assert.AreEqual(StateTreeStatus.Failure, find.OnTick(context, 0.1f),
                 "no dragon = Failure, the branchable answer");
             Assert.IsFalse(context.blackboard.ContainsKey("target"),
@@ -177,7 +177,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             var context = new StateTreeContext(unit);
 
             var has = ScriptableObject.CreateInstance<HasWorldTagCondition>();
-            has.tag = "beacon";
+            has.tag.text = "beacon";
             m_Assets.Add(has);
             Assert.IsTrue(has.Evaluate(context));
             has.invert = true;

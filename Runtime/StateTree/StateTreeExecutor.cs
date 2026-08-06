@@ -196,7 +196,7 @@ namespace PowerOfFire.DrawToPlay
             // a linked field, and it must hold the declaration's CURRENT name by the time the
             // binding machinery reads it. This rewrite is what makes renaming a declared key
             // free — every wired string on the DEEP COPY is refreshed from the id here.
-            ResolveKeyLinks(m_ActiveData.root, 0);
+            ResolveKeyFields(m_ActiveData.root, 0);
             ResolveEntryRefs(m_ActiveData.root, 0);
             ApplyBindings(m_ActiveData.root, 0);
 
@@ -867,51 +867,56 @@ namespace PowerOfFire.DrawToPlay
         /// (declaration deleted, import removed, mounted elsewhere) is ONE warning and the
         /// field keeps its serialized text — degraded to an unmanaged key, not broken.
         /// </summary>
-        private void ResolveKeyLinks(StateTreeNodeAsset node, int depth)
+        /// <summary>
+        /// The M14 form of the key pass: the wire lives in the field
+        /// (<see cref="StateTreeKeyField.keyId"/>), so this walks the copy's tasks and
+        /// transition conditions, resolves each wired field's id to the declaration's
+        /// CURRENT name and binds it on the wrapper — the field's authored text stays as
+        /// the fallback the wrapper answers with when the id resolves nowhere (one error;
+        /// free-typed keys have no id and are skipped silently).
+        /// </summary>
+        private void ResolveKeyFields(StateTreeNodeAsset node, int depth)
         {
             if (node == null || depth > 256)
                 return;
 
-            List<StateTreeKeyLink> links = node.keyLinks;
-            for (int i = 0; links != null && i < links.Count; i++)
+            for (int i = 0; i < node.tasks.Count; i++)
+                ResolveKeyFieldsOn(node.tasks[i], node.nodeId);
+            for (int i = 0; i < node.transitions.Count; i++)
             {
-                StateTreeKeyLink link = links[i];
-                if (link == null || string.IsNullOrEmpty(link.fieldName)
-                    || string.IsNullOrEmpty(link.keyId))
-                    continue;
-
-                StateTreeKeyDeclaration declaration =
-                    StateTreeKeyResolver.Find(m_ActiveData, owner, link.keyId);
-                if (declaration == null || string.IsNullOrEmpty(declaration.name))
-                {
-                    Debug.LogError(logLabel + ": key link on state '" + node.nodeId + "' field '"
-                        + link.fieldName + "' resolves no declaration (id '" + link.keyId
-                        + "') — the field keeps its own text.", logContext);
-                    continue;
-                }
-
-                var probe = new StateTreeFieldBinding
-                {
-                    targetKind = link.targetKind,
-                    targetIndex = link.targetIndex,
-                    fieldName = link.fieldName
-                };
-                UnityEngine.Object target = BindingTarget(node, probe);
-                FieldInfo field = target != null
-                    ? Field(target.GetType(), link.fieldName)
-                    : null;
-                if (field == null || field.FieldType != typeof(string))
-                {
-                    Debug.LogError(logLabel + ": key link on state '" + node.nodeId
-                        + "' names no writable string field '" + link.fieldName + "'.",
-                        logContext);
-                    continue;
-                }
-                field.SetValue(target, declaration.name);
+                if (node.transitions[i] != null)
+                    ResolveKeyFieldsOn(node.transitions[i].condition, node.nodeId);
             }
 
             for (int i = 0; i < node.children.Count; i++)
-                ResolveKeyLinks(node.children[i], depth + 1);
+                ResolveKeyFields(node.children[i], depth + 1);
+        }
+
+        private void ResolveKeyFieldsOn(UnityEngine.Object target, string nodeId)
+        {
+            if (target == null)
+                return;
+
+            FieldInfo[] fields = target.GetType().GetFields(
+                BindingFlags.Public | BindingFlags.Instance);
+            for (int i = 0; i < fields.Length; i++)
+            {
+                if (fields[i].FieldType != typeof(StateTreeKeyField))
+                    continue;
+                if (!(fields[i].GetValue(target) is StateTreeKeyField key) || !key.isWired)
+                    continue;
+
+                StateTreeKeyDeclaration declaration =
+                    StateTreeKeyResolver.Find(m_ActiveData, owner, key.keyId);
+                if (declaration == null || string.IsNullOrEmpty(declaration.name))
+                {
+                    Debug.LogError(logLabel + ": key field '" + fields[i].Name + "' on state '"
+                        + nodeId + "' resolves no declaration (id '" + key.keyId
+                        + "') — the field's own text runs.", logContext);
+                    continue;
+                }
+                key.BindResolved(declaration.name);
+            }
         }
 
         /// <summary>

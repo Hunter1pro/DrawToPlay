@@ -6,11 +6,13 @@ using UnityEngine.TestTools;
 namespace PowerOfFire.DrawToPlay.Tests
 {
     /// <summary>
-    /// EditMode coverage of the M12 key contracts: declarations live in tree headers with a
-    /// GUID id, linked fields are rewritten to the declaration's CURRENT name at StartTree
-    /// (renames are free), resolution searches own → uses → the mount chain with nearest
-    /// winning, and a link whose id resolves nowhere degrades to the field's own text with
-    /// one error — unmanaged, not broken.
+    /// EditMode coverage of the key contracts: declarations live in tree headers with a
+    /// GUID id, a wired <see cref="StateTreeKeyField"/> resolves to the declaration's
+    /// CURRENT name at StartTree (renames are free — since M14 the wire lives IN the field,
+    /// so the deep copy carries it and the wrapper answers with the resolved name),
+    /// resolution searches own → uses → the mount chain with nearest winning, and a wire
+    /// whose id resolves nowhere degrades to the field's own text with one error —
+    /// unmanaged, not broken.
     /// </summary>
     [TestFixture]
     public sealed class StateTreeKeyTests
@@ -51,31 +53,25 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
-        public void LinkedField_GetsTheDeclaredName_AndFollowsRenames()
+        public void WiredField_GetsTheDeclaredName_AndFollowsRenames()
         {
             var set = ScriptableObject.CreateInstance<SetBlackboardTask>();
-            set.key = "stale-text";
+            set.key.text = "stale-text";
             set.kind = SetBlackboardTask.ValueKind.Float;
             set.floatValue = 7f;
             m_Assets.Add(set);
 
             StateTreeAsset tree = MakeTree(MakeLeaf("write", set));
             StateTreeKeyDeclaration loot = Declare(tree, "loot", StateTreeKeyKind.Float);
-            tree.root.children[0].keyLinks.Add(new StateTreeKeyLink
-            {
-                targetKind = StateTreeFieldBinding.TargetKind.Task,
-                targetIndex = 0,
-                fieldName = "key",
-                keyId = loot.id
-            });
+            set.key.keyId = loot.id;
 
             StateTreeRunner runner = MakeRunner(tree);
             runner.StartTree();
             runner.TickTree(0.1f);
             Assert.AreEqual(7f, runner.context.blackboard["loot"],
-                "the linked field ran under the DECLARED name, not its serialized text");
-            Assert.AreEqual("stale-text", set.key,
-                "the authored asset was never touched — only the deep copy is rewritten");
+                "the wired field ran under the DECLARED name, not its serialized text");
+            Assert.AreEqual("stale-text", set.key.text,
+                "the authored asset was never touched — the copy's wrapper resolved");
 
             runner.StopTree();
             loot.name = "gold";
@@ -126,19 +122,13 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void MissingDeclaration_KeepsTheFieldText_WithOneError()
         {
             var set = ScriptableObject.CreateInstance<SetBlackboardTask>();
-            set.key = "fallback";
+            set.key.text = "fallback";
+            set.key.keyId = "no-such-id";
             set.kind = SetBlackboardTask.ValueKind.Float;
             set.floatValue = 1f;
             m_Assets.Add(set);
 
             StateTreeAsset tree = MakeTree(MakeLeaf("write", set));
-            tree.root.children[0].keyLinks.Add(new StateTreeKeyLink
-            {
-                targetKind = StateTreeFieldBinding.TargetKind.Task,
-                targetIndex = 0,
-                fieldName = "key",
-                keyId = "no-such-id"
-            });
 
             LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(
                 "resolves no declaration"));
@@ -146,7 +136,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             runner.StartTree();
             runner.TickTree(0.1f);
             Assert.AreEqual(1f, runner.context.blackboard["fallback"],
-                "an unresolvable link degrades to the field's own text — unmanaged, not broken");
+                "an unresolvable wire degrades to the field's own text — unmanaged, not broken");
         }
 
         // ---------------------------------------------------------------------- fixtures

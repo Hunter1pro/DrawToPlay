@@ -21,14 +21,14 @@ namespace PowerOfFire.DrawToPlay
     public sealed class ShowScreenTask : StateTreeTaskAsset
     {
         [StateTreeKey(StateTreeKeyKind.Screen)]
-        public string screenId = "";
+        public StateTreeKeyField screenId = new StateTreeKeyField();
 
         /// <summary>Local blackboard key the click result is PUBLISHED under (the
         /// TargetDetected idiom: a click writes the id here, a close removes it) — what the
         /// completion transitions branch on with <see cref="HasBlackboardKeyCondition"/>,
         /// since transition selection runs before output routing can deliver anything.</summary>
         [StateTreeKey(StateTreeKeyKind.String)]
-        public string resultKey = "clickedItem";
+        public StateTreeKeyField resultKey = new StateTreeKeyField("clickedItem");
 
         /// <summary>The clicked row's item id, ALSO published as a routable output for
         /// transitions that want it under a different key on the way somewhere else.</summary>

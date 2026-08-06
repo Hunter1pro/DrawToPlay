@@ -45,7 +45,7 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Optional extra payload entry. Empty = omitted.</summary>
         [StateTreeKey(StateTreeKeyKind.Object)]
-        public string payloadKey = "";
+        public StateTreeKeyField payloadKey = new StateTreeKeyField();
 
         public float payloadValue;
 

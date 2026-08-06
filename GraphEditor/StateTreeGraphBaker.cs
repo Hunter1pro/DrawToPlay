@@ -978,12 +978,13 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 FieldInfo field = fields[i];
                 if (field.IsInitOnly || field.IsNotSerialized || field.IsStatic)
                     continue;
-                if (!TryReadAuthoredValue(node, field.Name, field.FieldType, out object value))
+                if (!TryReadAuthoredValue(node, field.Name,
+                    LibraryParameterPorts.PortDataType(field.FieldType), out object value))
                     continue;
                 matched.Add(field.Name);
                 try
                 {
-                    field.SetValue(target, value);
+                    LibraryParameterPorts.WriteFieldValue(field, target, value);
                 }
                 catch (Exception e)
                 {

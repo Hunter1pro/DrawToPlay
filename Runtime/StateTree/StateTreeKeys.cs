@@ -46,23 +46,58 @@ namespace PowerOfFire.DrawToPlay
     }
 
     /// <summary>
-    /// One wire from a declared key to a task/condition string field — the same addressing
-    /// scheme as <see cref="StateTreeFieldBinding"/>, because it is the same problem: point
-    /// at a field on this node's task list or a transition's condition. The field itself
-    /// keeps holding the plain string (ports, graphs and the VM never change); this row is
-    /// what lets the executor overwrite that string with the declaration's CURRENT name at
-    /// StartTree, which is what makes renames free.
+    /// THE key-semantic field (M14) — the wire lives IN the field, the way
+    /// <see cref="StateTreeEntryRef{TEntry}"/> carries its own reference: no parallel row
+    /// on the node, no field-by-index addressing, nothing for editor and executor to keep
+    /// in agreement. <see cref="text"/> is the authored runtime string and the fallback;
+    /// <see cref="keyId"/> wires it to a declared key (empty = free-typed, still legal).
+    /// The executor resolves the id to the declaration's CURRENT name at StartTree, so
+    /// renames stay free; atom bodies read the field as a plain string through the
+    /// implicit conversion and never know any of this happened. There is deliberately no
+    /// implicit conversion FROM string: replacing the wrapper would silently discard the
+    /// wire, so writing <see cref="text"/> is an explicit act.
     /// </summary>
     [Serializable]
-    public sealed class StateTreeKeyLink
+    public sealed class StateTreeKeyField
     {
-        public StateTreeFieldBinding.TargetKind targetKind = StateTreeFieldBinding.TargetKind.Task;
-
-        public int targetIndex;
-
-        public string fieldName = "";
+        public string text = "";
 
         public string keyId = "";
+
+        [NonSerialized]
+        private string m_Resolved;
+
+        public StateTreeKeyField()
+        {
+        }
+
+        public StateTreeKeyField(string text)
+        {
+            this.text = text ?? "";
+        }
+
+        /// <summary>What runs: the declaration's current name once the executor resolved
+        /// the wire, the authored text otherwise.</summary>
+        public string Value => m_Resolved ?? text;
+
+        public bool isWired => !string.IsNullOrEmpty(keyId);
+
+        public static implicit operator string(StateTreeKeyField field)
+        {
+            return field != null ? field.Value : "";
+        }
+
+        public override string ToString()
+        {
+            return Value;
+        }
+
+        /// <summary>Executor-only: the resolved name for THIS deep copy. Null clears back
+        /// to the authored text.</summary>
+        public void BindResolved(string name)
+        {
+            m_Resolved = name;
+        }
     }
 
     /// <summary>Marks a string field as KEY-SEMANTIC — a blackboard/context key or a world

@@ -26,11 +26,11 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Key on the SCOPE's blackboard.</summary>
         [StateTreeKey(StateTreeKeyKind.Float, any: true)]
-        public string key = "";
+        public StateTreeKeyField key = new StateTreeKeyField();
 
         /// <summary>Key to write locally. Empty = same as <see cref="key"/>.</summary>
         [StateTreeKey(StateTreeKeyKind.Float, any: true)]
-        public string localKey = "";
+        public StateTreeKeyField localKey = new StateTreeKeyField();
 
         public bool failIfMissing = true;
 

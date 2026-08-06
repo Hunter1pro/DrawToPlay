@@ -19,12 +19,12 @@ namespace PowerOfFire.DrawToPlay
     public sealed class FindByTagTask : StateTreeTaskAsset
     {
         [StateTreeKey(StateTreeKeyKind.Tag)]
-        public string tag = "";
+        public StateTreeKeyField tag = new StateTreeKeyField();
 
         /// <summary>Blackboard key the found GameObject lands under. The perception convention
         /// key by default, so combat tasks read it unchanged.</summary>
         [StateTreeKey(StateTreeKeyKind.Object)]
-        public string targetKey = "target";
+        public StateTreeKeyField targetKey = new StateTreeKeyField("target");
 
         /// <summary>Nearest to the owner (default), or simply the first registered — the cheap
         /// form for tags that exist at most once.</summary>

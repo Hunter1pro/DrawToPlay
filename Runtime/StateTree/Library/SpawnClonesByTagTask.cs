@@ -18,7 +18,7 @@ namespace PowerOfFire.DrawToPlay
     {
         /// <summary>Tag naming the TEMPLATE. Several carriers: the first found is the mold.</summary>
         [StateTreeKey(StateTreeKeyKind.Tag)]
-        public string templateTag = "";
+        public StateTreeKeyField templateTag = new StateTreeKeyField();
 
         public int count = 1;
 

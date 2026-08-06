@@ -32,13 +32,8 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public List<StateTreeFieldBinding> bindings = new List<StateTreeFieldBinding>();
 
-        /// <summary>The M12 key wires: which of this node's key-semantic string fields are
-        /// connected to a DECLARED key (by id). The executor rewrites each linked field to
-        /// the declaration's current name at StartTree; the field's own text is the fallback
-        /// for unmanaged (free-typed) keys. Node-level list, so it rides
-        /// <see cref="StateTreeAsset.DeepCopy"/>'s Instantiate like <see cref="bindings"/>
-        /// does — only TRANSITION fields need DeepCopyNode's hand-copy.</summary>
-        public List<StateTreeKeyLink> keyLinks = new List<StateTreeKeyLink>();
+        // M12's keyLinks list lived here until M14 moved the wire INTO the field
+        // (StateTreeKeyField.keyId) — rows in old YAML are ignored by deserialization.
     }
 
 }

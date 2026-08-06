@@ -1581,12 +1581,13 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                         NoteBakedCallParameter(context, source, field.Name, variableNode);
                 }
 
-                if (!LibraryParameterPorts.TryReadValue(port, field.FieldType, out object value))
+                if (!LibraryParameterPorts.TryReadValue(port,
+                    LibraryParameterPorts.PortDataType(field.FieldType), out object value))
                     continue;
 
                 try
                 {
-                    field.SetValue(target, value);
+                    LibraryParameterPorts.WriteFieldValue(field, target, value);
                 }
                 catch (Exception e)
                 {

@@ -14,7 +14,7 @@ namespace PowerOfFire.DrawToPlay
     public sealed class SetScreenVisibleTask : StateTreeTaskAsset
     {
         [StateTreeKey(StateTreeKeyKind.Screen)]
-        public string screenId = "";
+        public StateTreeKeyField screenId = new StateTreeKeyField();
 
         public bool visible = true;
 

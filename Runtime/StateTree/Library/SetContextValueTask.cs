@@ -30,7 +30,7 @@ namespace PowerOfFire.DrawToPlay
         public string scopeId = "";
 
         [StateTreeKey(StateTreeKeyKind.Float, any: true)]
-        public string key = "";
+        public StateTreeKeyField key = new StateTreeKeyField();
 
         public SetBlackboardTask.ValueKind kind = SetBlackboardTask.ValueKind.Float;
 

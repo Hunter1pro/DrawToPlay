@@ -21,7 +21,7 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Key on the SCOPE's blackboard.</summary>
         [StateTreeKey(StateTreeKeyKind.String)]
-        public string key = "";
+        public StateTreeKeyField key = new StateTreeKeyField();
 
         /// <summary>The string to compare against — bindable, so a routed value (the clicked
         /// item) can be the comparand.</summary>

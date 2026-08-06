@@ -30,7 +30,7 @@ namespace PowerOfFire.DrawToPlay
         }
 
         [StateTreeKey(StateTreeKeyKind.Float)]
-        public string key = "";
+        public StateTreeKeyField key = new StateTreeKeyField();
 
         public Operator op = Operator.GreaterOrEqual;
 

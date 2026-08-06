@@ -15,7 +15,7 @@ namespace PowerOfFire.DrawToPlay
     public sealed class HasBlackboardKeyCondition : StateTreeConditionAsset
     {
         [StateTreeKey(StateTreeKeyKind.Event, any: true)]
-        public string key = "";
+        public StateTreeKeyField key = new StateTreeKeyField();
 
         public bool invert;
 

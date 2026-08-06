@@ -599,110 +599,97 @@ namespace PowerOfFire.DrawToPlay.Editor
             return false;
         }
 
-        // --- key contracts (M12) ----------------------------------------------------------
+        // --- key contracts (M12, wire-in-the-field since M14) -----------------------------
 
-        /// <summary>Whether a named field is KEY-SEMANTIC — a public string field carrying
-        /// <see cref="StateTreeKeyAttribute"/> — and which key kind it expects. Same visibility
-        /// rule as <see cref="TryGetBindableKind(UnityEngine.Object, string, out GraphTaskParameterKind)"/>
-        /// and for the same reason: the executor rewrites the field through
-        /// <c>GetField(name, Public | Instance)</c>, so anything else cannot be wired at all.</summary>
+        /// <summary>Whether a named field is KEY-SEMANTIC — a <see cref="StateTreeKeyField"/>
+        /// (M14: the wire lives in the field) — and which key kind its
+        /// <see cref="StateTreeKeyAttribute"/> declares. A wrapper without the attribute is
+        /// still key-semantic; it just filters as any-kind.</summary>
         internal static bool TryGetKeyField(UnityEngine.Object target, string fieldName,
             out StateTreeKeyKind kind, out bool anyKind)
         {
             kind = StateTreeKeyKind.Float;
-            anyKind = false;
+            anyKind = true;
             if (target == null || string.IsNullOrEmpty(fieldName))
                 return false;
 
             var field = target.GetType().GetField(fieldName,
                 BindingFlags.Public | BindingFlags.Instance);
-            if (field == null || field.IsNotSerialized || field.IsInitOnly
-                || field.FieldType != typeof(string))
+            if (field == null || field.FieldType != typeof(StateTreeKeyField))
                 return false;
 
             var marks = field.GetCustomAttributes(typeof(StateTreeKeyAttribute), true);
-            if (marks.Length == 0)
-                return false;
-
-            var mark = (StateTreeKeyAttribute)marks[0];
-            kind = mark.kind;
-            anyKind = mark.any;
-            return true;
-        }
-
-        /// <summary>The key wire in force for one field: the LAST match, mirroring
-        /// <see cref="FindFieldBinding"/> — the executor applies rows in order, so the last one is
-        /// the name that lands in the field.</summary>
-        internal static StateTreeKeyLink FindKeyLink(StateTreeNodeAsset node,
-            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName)
-        {
-            var rows = node != null ? node.keyLinks : null;
-            if (rows == null || string.IsNullOrEmpty(fieldName))
-                return null;
-
-            StateTreeKeyLink found = null;
-            for (var i = 0; i < rows.Count; ++i)
+            if (marks.Length > 0)
             {
-                if (IsKeyLinkFor(rows[i], kind, targetIndex, fieldName))
-                    found = rows[i];
+                var mark = (StateTreeKeyAttribute)marks[0];
+                kind = mark.kind;
+                anyKind = mark.any;
             }
 
-            return found;
-        }
-
-        /// <summary>
-        /// Wire one field to a declared key: one row per field slot (an upsert, for the reason
-        /// <see cref="SetFieldBinding"/> keeps one), and the declaration's CURRENT name is written
-        /// into the field in the same step — the serialized text is the fallback the executor
-        /// leaves in place when the id stops resolving, and a fallback that disagreed with the
-        /// contract on the day the wire was made would be an authored latent surprise.
-        /// </summary>
-        internal static void SetKeyLink(StateTreeNodeAsset node,
-            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName,
-            StateTreeKeyDeclaration declaration, string undoName)
-        {
-            if (node == null || declaration == null || string.IsNullOrEmpty(fieldName))
-                return;
-
-            Undo.RecordObject(node, undoName);
-
-            if (node.keyLinks == null)
-                node.keyLinks = new List<StateTreeKeyLink>();
-
-            RemoveKeyLinkRows(node, kind, targetIndex, fieldName);
-            node.keyLinks.Add(new StateTreeKeyLink
-            {
-                targetKind = kind,
-                targetIndex = targetIndex,
-                fieldName = fieldName,
-                keyId = declaration.id
-            });
-            EditorUtility.SetDirty(node);
-
-            WriteKeyFieldText(node, kind, targetIndex, fieldName, declaration.name, undoName);
-        }
-
-        /// <summary>Unwire one field. The text it holds STAYS — that is what unlinking means: the
-        /// typed name is free again and runs as-is.</summary>
-        internal static bool ClearKeyLink(StateTreeNodeAsset node,
-            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName,
-            string undoName)
-        {
-            if (node == null || node.keyLinks == null || string.IsNullOrEmpty(fieldName))
-                return false;
-            if (FindKeyLink(node, kind, targetIndex, fieldName) == null)
-                return false;
-
-            Undo.RecordObject(node, undoName);
-            RemoveKeyLinkRows(node, kind, targetIndex, fieldName);
-            EditorUtility.SetDirty(node);
             return true;
         }
 
-        /// <summary>Rewrite every field this tree wires to one declaration to the declaration's
-        /// new name — the rename following the id, silently, because this window holds both ends
-        /// of every in-tree wire. Wires in OTHER trees that import this one live in assets this
-        /// window must not touch; their stale text is harmless — the id wins at StartTree.</summary>
+        /// <summary>The live wrapper behind a key field — what the inspector reads and every
+        /// wire operation writes.</summary>
+        internal static StateTreeKeyField GetKeyField(UnityEngine.Object target,
+            string fieldName)
+        {
+            var field = target != null
+                ? target.GetType().GetField(fieldName, BindingFlags.Public | BindingFlags.Instance)
+                : null;
+            return field != null && field.FieldType == typeof(StateTreeKeyField)
+                ? field.GetValue(target) as StateTreeKeyField
+                : null;
+        }
+
+        /// <summary>Wire a key field to a declaration: the id is the wire, and the field's
+        /// TEXT is set to the declaration's current name in the same act — the serialized
+        /// fallback must agree with the contract on the day the wire is made.</summary>
+        internal static void WireKeyField(UnityEngine.Object target, string fieldName,
+            StateTreeKeyDeclaration declaration, string undoName)
+        {
+            StateTreeKeyField key = GetKeyField(target, fieldName);
+            if (key == null || declaration == null)
+                return;
+
+            Undo.RecordObject(target, undoName);
+            key.keyId = declaration.id;
+            key.text = declaration.name ?? string.Empty;
+            EditorUtility.SetDirty(target);
+        }
+
+        /// <summary>Unwire a key field. The text STAYS — that is what unwiring means: the
+        /// typed name is free again and runs as-is.</summary>
+        internal static void UnwireKeyField(UnityEngine.Object target, string fieldName,
+            string undoName)
+        {
+            StateTreeKeyField key = GetKeyField(target, fieldName);
+            if (key == null)
+                return;
+
+            Undo.RecordObject(target, undoName);
+            key.keyId = string.Empty;
+            EditorUtility.SetDirty(target);
+        }
+
+        /// <summary>Set a key field's authored text (its fallback / free-typed name).</summary>
+        internal static void SetKeyFieldText(UnityEngine.Object target, string fieldName,
+            string text, string undoName)
+        {
+            StateTreeKeyField key = GetKeyField(target, fieldName);
+            if (key == null)
+                return;
+
+            Undo.RecordObject(target, undoName);
+            key.text = text ?? string.Empty;
+            EditorUtility.SetDirty(target);
+        }
+
+        /// <summary>Rewrite every key field this tree wires to one declaration to the
+        /// declaration's new name — the rename following the id, silently, because this
+        /// window holds both ends of every in-tree wire. Wires in OTHER trees that import
+        /// this one live in assets this window must not touch; their stale text is harmless
+        /// — the id wins at StartTree.</summary>
         /// <returns>How many fields were rewritten.</returns>
         internal static int RewriteLinkedKeyFields(StateTreeAsset tree, string keyId,
             string newName, string undoName)
@@ -715,37 +702,46 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (var n = 0; n < nodes.Count; ++n)
             {
                 var node = nodes[n];
-                var rows = node != null ? node.keyLinks : null;
-                for (var i = 0; rows != null && i < rows.Count; ++i)
+                if (node == null)
+                    continue;
+                for (var i = 0; i < node.tasks.Count; ++i)
+                    rewritten += RewriteKeyFieldsOn(node.tasks[i], keyId, newName, undoName);
+                for (var i = 0; i < node.transitions.Count; ++i)
                 {
-                    var row = rows[i];
-                    if (row == null || !string.Equals(row.keyId, keyId, StringComparison.Ordinal))
-                        continue;
-                    if (WriteKeyFieldText(node, row.targetKind, row.targetIndex, row.fieldName,
-                        newName, undoName))
-                        ++rewritten;
+                    if (node.transitions[i] != null)
+                    {
+                        rewritten += RewriteKeyFieldsOn(node.transitions[i].condition, keyId,
+                            newName, undoName);
+                    }
                 }
             }
 
             return rewritten;
         }
 
-        private static bool IsKeyLinkFor(StateTreeKeyLink row,
-            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName)
+        private static int RewriteKeyFieldsOn(UnityEngine.Object target, string keyId,
+            string newName, string undoName)
         {
-            return row != null && row.targetKind == kind && row.targetIndex == targetIndex
-                && string.Equals(row.fieldName, fieldName, StringComparison.Ordinal);
-        }
+            if (target == null)
+                return 0;
 
-        private static void RemoveKeyLinkRows(StateTreeNodeAsset node,
-            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName)
-        {
-            var rows = node.keyLinks;
-            for (var i = rows.Count - 1; i >= 0; --i)
+            var rewritten = 0;
+            var fields = target.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance);
+            for (var i = 0; i < fields.Length; ++i)
             {
-                if (IsKeyLinkFor(rows[i], kind, targetIndex, fieldName))
-                    rows.RemoveAt(i);
+                if (fields[i].FieldType != typeof(StateTreeKeyField))
+                    continue;
+                if (!(fields[i].GetValue(target) is StateTreeKeyField key)
+                    || !string.Equals(key.keyId, keyId, StringComparison.Ordinal))
+                    continue;
+
+                Undo.RecordObject(target, undoName);
+                key.text = newName ?? string.Empty;
+                EditorUtility.SetDirty(target);
+                ++rewritten;
             }
+
+            return rewritten;
         }
 
         // --- data registries (M13) --------------------------------------------------------
@@ -864,25 +860,6 @@ namespace PowerOfFire.DrawToPlay.Editor
                     BindingFlags.Public | BindingFlags.Instance)
                 : null;
             field?.SetValue(reference, value);
-        }
-
-        private static bool WriteKeyFieldText(StateTreeNodeAsset node,
-            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName, string text,
-            string undoName)
-        {
-            var target = ResolveBindingTarget(node, kind, targetIndex);
-            if (target == null)
-                return false;
-
-            var field = target.GetType().GetField(fieldName,
-                BindingFlags.Public | BindingFlags.Instance);
-            if (field == null || field.FieldType != typeof(string))
-                return false;
-
-            Undo.RecordObject(target, undoName);
-            field.SetValue(target, text ?? string.Empty);
-            EditorUtility.SetDirty(target);
-            return true;
         }
 
         /// <summary>The declaration one id names, or null for a link bound to nothing. Mirrors

@@ -229,20 +229,20 @@ namespace PowerOfFire.DrawToPlay.Tests
             // screen open.
             var consumeTrigger = ScriptableObject.CreateInstance<SetContextValueTask>();
             consumeTrigger.scope = StateTreeContextKind.Player;
-            consumeTrigger.key = k_OpenKey;
+            consumeTrigger.key.text = k_OpenKey;
             consumeTrigger.kind = SetBlackboardTask.ValueKind.Clear;
             m_Assets.Add(consumeTrigger);
             var bind = ScriptableObject.CreateInstance<BindInventoryListTask>();
-            bind.screenId = "inv";
+            bind.screenId.text = "inv";
             m_Assets.Add(bind);
             var showInv = ScriptableObject.CreateInstance<ShowScreenTask>();
-            showInv.screenId = "inv";
+            showInv.screenId.text = "inv";
             m_Assets.Add(showInv);
             StateTreeNodeAsset inventory = MakeNode("inventory", consumeTrigger, bind, showInv);
 
             // itemFlow: a beat that exists to BRANCH on the clicked item's kind.
             var flowMark = ScriptableObject.CreateInstance<SetBlackboardTask>();
-            flowMark.key = "ui:flow";
+            flowMark.key.text = "ui:flow";
             flowMark.kind = SetBlackboardTask.ValueKind.Float;
             flowMark.floatValue = 1f;
             m_Assets.Add(flowMark);
@@ -252,7 +252,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             // to the click, the M7k entry-time binding doing the delivery.
             var equip = ScriptableObject.CreateInstance<SetContextValueTask>();
             equip.scope = StateTreeContextKind.Player;
-            equip.key = "equipped";
+            equip.key.text = "equipped";
             equip.kind = SetBlackboardTask.ValueKind.String;
             m_Assets.Add(equip);
             StateTreeNodeAsset equipNode = MakeNode("equip", equip);
@@ -267,11 +267,11 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             // tooltip: content from the click, then hold the screen open.
             var detail = ScriptableObject.CreateInstance<BindItemDetailTask>();
-            detail.screenId = "tooltip";
+            detail.screenId.text = "tooltip";
             m_Assets.Add(detail);
             var showTip = ScriptableObject.CreateInstance<ShowScreenTask>();
-            showTip.screenId = "tooltip";
-            showTip.resultKey = "tooltipClicked";
+            showTip.screenId.text = "tooltip";
+            showTip.resultKey.text = "tooltipClicked";
             m_Assets.Add(showTip);
             StateTreeNodeAsset tooltip = MakeNode("tooltip", detail, showTip);
             tooltip.bindings.Add(new StateTreeFieldBinding
@@ -286,13 +286,13 @@ namespace PowerOfFire.DrawToPlay.Tests
             // Wiring. closed --(trigger raised, interrupt)--> inventory.
             var openTrigger = ScriptableObject.CreateInstance<HasContextKeyCondition>();
             openTrigger.scope = StateTreeContextKind.Player;
-            openTrigger.key = k_OpenKey;
+            openTrigger.key.text = k_OpenKey;
             m_Assets.Add(openTrigger);
             AddTransition(closed, "inventory", openTrigger, interrupt: true);
 
             // inventory: click (result key present) -> itemFlow; otherwise (closed) -> closed.
             var clicked = ScriptableObject.CreateInstance<HasBlackboardKeyCondition>();
-            clicked.key = k_ClickedKey;
+            clicked.key.text = k_ClickedKey;
             m_Assets.Add(clicked);
             AddTransition(inventory, "itemFlow", clicked, interrupt: false);
             AddTransition(inventory, "closed", null, interrupt: false);
