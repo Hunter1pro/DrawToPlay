@@ -33,7 +33,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     {
         private static readonly int s_ControlHint = "PowerOfFire.DrawToPlay.PaintShapeTool".GetHashCode();
 
-        private const string k_DrawnAssetFolder = "Assets/DrawToPlay/Drawn";
+        private const string k_DrawnAssetFolder = "Assets/DrawToPlayExamples/Drawn";
         private const string k_DrawnAssetName = "DrawnShape";
 
         /// <summary>Mirror of <see cref="DrawnShapeAsset.bakeInterval"/>'s default, used when an
@@ -455,7 +455,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         // --- assets -----------------------------------------------------------------------
 
         /// <summary>Style clone of `source` with geometry AND paint stripped (spawn_like skips
-        /// curve / mask_png / mask_rect / hole_curves), saved under Assets/DrawToPlay/Drawn.
+        /// curve / mask_png / mask_rect / hole_curves), saved under Assets/DrawToPlayExamples/Drawn.
         /// Same recipe as DrawShapeTool.CreateShapeAsset, plus the mask fields M0 did not have.</summary>
         private static DrawnShapeAsset CreateShapeAsset(DrawnShapeAsset source)
         {
@@ -475,7 +475,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             return asset;
         }
 
-        /// <summary>Create every missing folder along Assets/DrawToPlay/Drawn.</summary>
+        /// <summary>Create every missing folder along Assets/DrawToPlayExamples/Drawn.</summary>
         private static string EnsureDrawnFolder()
         {
             var segments = k_DrawnAssetFolder.Split('/');

@@ -42,7 +42,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     ///
     /// AND A TASK DOES NOT HAVE TO EXIST YET. "+ Graph Task" (beside Add Task, and pinned in the
     /// picker) is the authoring loop in one gesture: name it, and it becomes a scaffold GRAPH
-    /// under Assets/DrawToPlay/Tasks, a task on this state, and an open canvas to extend. It has
+    /// under Assets/DrawToPlayExamples/Tasks, a task on this state, and an open canvas to extend. It has
     /// two flavours, which is why the button is a menu: a TASK GRAPH is a logic program (branch,
     /// blackboard, node calls — a <see cref="GraphTaskAsset"/> baked from a .taskgraph file), a
     /// SUB-TREE TASK is states wired together (a <see cref="RunSubTreeTask"/> pointed at the tree

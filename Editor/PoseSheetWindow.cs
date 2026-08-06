@@ -112,7 +112,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// modal dialog, and Godot's `_process(delta)` never sees those.</summary>
         private const double k_MaxPreviewDelta = 0.1;
 
-        private const string k_DrawnAssetFolder = "Assets/DrawToPlay/Drawn";
+        private const string k_DrawnAssetFolder = "Assets/DrawToPlayExamples/Drawn";
 
         // --- state ------------------------------------------------------------------------
 
@@ -629,7 +629,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             return EnsureDrawnFolder();
         }
 
-        /// <summary>Create every missing folder along Assets/DrawToPlay/Drawn — same recipe as the
+        /// <summary>Create every missing folder along Assets/DrawToPlayExamples/Drawn — same recipe as the
         /// Draw / Paint / Rig tools (their copies are private to those files).</summary>
         private static string EnsureDrawnFolder()
         {

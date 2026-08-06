@@ -818,7 +818,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private void CreateTreeAsset()
         {
             if (!AssetDatabase.IsValidFolder(k_TreeFolder))
-                AssetDatabase.CreateFolder("Assets/DrawToPlay", "Trees");
+                AssetDatabase.CreateFolder("Assets/DrawToPlayExamples", "Trees");
 
             var path = EditorUtility.SaveFilePanelInProject("New State Tree", "StateTree", "asset",
                 "Create a State Tree asset", k_TreeFolder);

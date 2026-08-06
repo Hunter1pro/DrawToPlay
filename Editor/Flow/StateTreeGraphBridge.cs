@@ -80,7 +80,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Where graph TASKS land — the authoring loop's default folder, separate from
         /// <see cref="GraphFolder"/> because a task graph is a library component, not one
         /// entity's behaviour.</summary>
-        internal const string TaskFolder = "Assets/DrawToPlay/Tasks";
+        internal const string TaskFolder = "Assets/DrawToPlayExamples/Tasks";
 
         /// <summary>The extension to assume when the frontend cannot be asked for its own. Used
         /// only so that "is this asset a graph?" keeps answering honestly while the frontend is

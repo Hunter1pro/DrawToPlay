@@ -42,7 +42,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     {
         private static readonly int s_ControlHint = "PowerOfFire.DrawToPlay.RigShapeTool".GetHashCode();
 
-        private const string k_DrawnAssetFolder = "Assets/DrawToPlay/Drawn";
+        private const string k_DrawnAssetFolder = "Assets/DrawToPlayExamples/Drawn";
 
         /// <summary>Godot names the created node "Skeleton2D"; the Unity rig root is a plain
         /// GameObject, so it takes the plainer name.</summary>
@@ -737,7 +737,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         // --- assets -------------------------------------------------------------------------
 
         /// <summary>A rig asset next to the shape's own asset (so a limb's drawing and its
-        /// skeleton live together), falling back to Assets/DrawToPlay/Drawn like every other
+        /// skeleton live together), falling back to Assets/DrawToPlayExamples/Drawn like every other
         /// generated asset in the toolset.</summary>
         private static RigAsset CreateRigAsset(DrawnShapeRenderer shape)
         {
@@ -760,7 +760,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             return asset;
         }
 
-        /// <summary>Create every missing folder along Assets/DrawToPlay/Drawn. Same recipe as the
+        /// <summary>Create every missing folder along Assets/DrawToPlayExamples/Drawn. Same recipe as the
         /// Draw / Paint tools (their copies are private to those files).</summary>
         private static string EnsureDrawnFolder()
         {
