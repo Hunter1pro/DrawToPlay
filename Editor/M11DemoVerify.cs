@@ -35,6 +35,9 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private const string k_ClearedEvent = "evt:cleared";
         private const string k_DummyTag = "dummy";
+        private const string k_ZombieTag = "zombie";
+        private const string k_SmiteCommand = "cmd:smite";
+        private const string k_PlayerTreePath = k_DemoFolder + "/M11PlayerTree.asset";
 
         [MenuItem("Tools/Draw To Play/Verify M11 Game Loop")]
         public static void Verify()
@@ -48,9 +51,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreeAsset zombieTree = StateTreePresets.BuildZombie();
             StateTreeAsset rootTree = BuildRootTree();
             StateTreeAsset levelTree = BuildLevelTree();
+            StateTreeAsset playerTree = BuildPlayerTree();
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            BuildScene(rootTree, levelTree, zombieTree);
+            BuildScene(rootTree, levelTree, playerTree, zombieTree);
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, k_ScenePath);
@@ -172,6 +176,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             publish.kind = SetBlackboardTask.ValueKind.Float;
             publish.floatValue = 1f;
             clearedNode.tasks.Add(publish);
+            var escalate = Sub<SpawnClonesByTagTask>(tree, "Task cleared SpawnOneMore");
+            escalate.templateTag = k_ZombieTag;
+            escalate.count = 1;
+            escalate.scatterRadius = 1.2f;
+            clearedNode.tasks.Add(escalate);
             var savor = Sub<WaitTask>(tree, "Task cleared Savor");
             savor.seconds = 0.8f;
             clearedNode.tasks.Add(savor);
@@ -181,10 +190,54 @@ namespace PowerOfFire.DrawToPlay.Editor
             return tree;
         }
 
+        /// <summary>The PLAYER'S controls as a tree — the input component only writes a
+        /// context key; this tree is the handler: consume the command, smite the nearest
+        /// zombie, breathe (the Wait IS the cooldown), listen again. Adding a second ability
+        /// is another interrupt + state — the "controls" grow the same way everything else
+        /// does.</summary>
+        private static StateTreeAsset BuildPlayerTree()
+        {
+            var tree = ScriptableObject.CreateInstance<StateTreeAsset>();
+            tree.name = "M11PlayerTree";
+            tree.treeName = "Defender";
+            tree.treeKind = "player";
+            AssetDatabase.CreateAsset(tree, k_PlayerTreePath);
+
+            var root = Sub<StateTreeNodeAsset>(tree, "Node 0 root");
+            root.nodeId = "root";
+            root.displayName = "Defender";
+            tree.root = root;
+
+            StateTreeNodeAsset idle = Node(tree, root, 1, "idle", "Listen");
+            StateTreeNodeAsset smite = Node(tree, root, 2, "smite", "Smite");
+
+            var commanded = Sub<HasContextKeyCondition>(tree, "Cond idle->smite Commanded");
+            commanded.scope = StateTreeContextKind.Player;
+            commanded.key = k_SmiteCommand;
+            Wire(idle, smite, commanded, true);
+
+            var consume = Sub<SetContextValueTask>(tree, "Task smite ConsumeCommand");
+            consume.scope = StateTreeContextKind.Player;
+            consume.key = k_SmiteCommand;
+            consume.kind = SetBlackboardTask.ValueKind.Clear;
+            smite.tasks.Add(consume);
+            var strike = Sub<DamageByTagTask>(tree, "Task smite StrikeNearest");
+            strike.tag = k_ZombieTag;
+            strike.amount = 9999f;
+            smite.tasks.Add(strike);
+            var cooldown = Sub<WaitTask>(tree, "Task smite Cooldown");
+            cooldown.seconds = 0.4f;
+            smite.tasks.Add(cooldown);
+            Wire(smite, idle, null, false);
+
+            EditorUtility.SetDirty(tree);
+            return tree;
+        }
+
         // --- scene -----------------------------------------------------------------------
 
         private static void BuildScene(StateTreeAsset rootTree, StateTreeAsset levelTree,
-            StateTreeAsset zombieTree)
+            StateTreeAsset playerTree, StateTreeAsset zombieTree)
         {
             var cameraObject = new GameObject("Main Camera");
             cameraObject.tag = "MainCamera";
@@ -207,6 +260,20 @@ namespace PowerOfFire.DrawToPlay.Editor
             levelHost.kind = StateTreeContextKind.Level;
             levelHost.tree = levelTree;
 
+            var playerObject = new GameObject("Player");
+            playerObject.transform.SetParent(levelObject.transform);
+            var playerHost = playerObject.AddComponent<StateTreeContextHost>();
+            playerHost.kind = StateTreeContextKind.Player;
+            playerHost.tree = playerTree;
+            var smiteKey = playerObject.AddComponent<ContextKeyHotkeyBehaviour>();
+#if ENABLE_INPUT_SYSTEM
+            smiteKey.hotkey = UnityEngine.InputSystem.Key.Space;
+#else
+            smiteKey.hotkey = KeyCode.Space;
+#endif
+            smiteKey.scope = StateTreeContextKind.Player;
+            smiteKey.blackboardKey = k_SmiteCommand;
+
             BuildHud("Score HUD", new Vector3(-2.6f, 2.4f, 0f), StateTreeContextKind.Root,
                 "score", "SCORE ", new Color(1f, 0.9f, 0.5f));
             BuildHud("Wave HUD", new Vector3(2.6f, 2.4f, 0f), StateTreeContextKind.Level,
@@ -219,10 +286,10 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var hint = new GameObject("Hint");
             hint.transform.position = new Vector3(0f, -2.5f, 0f);
-            var mesh = AddText(hint, "Z hunts the dummies. Wave cleared -> Level revives them "
-                + "and +1 wave; Root banks +100 score and keeps it forever.\nOpen both trees "
-                + "in the State Tree window: two rungs of the spine, running.",
-                new Color(0.72f, 0.75f, 0.82f), 36, 0.06f);
+            var mesh = AddText(hint, "Z hunts the dummies; every cleared wave spawns ANOTHER "
+                + "Z. SPACE smites the nearest zombie (your Player tree). Gray glyph = dead.\n"
+                + "Root keeps the score, Level runs the circle, Player answers your input — "
+                + "three rungs, three trees.", new Color(0.72f, 0.75f, 0.82f), 36, 0.06f);
             mesh.anchor = TextAnchor.MiddleCenter;
 
             Selection.activeObject = levelObject;
@@ -254,9 +321,16 @@ namespace PowerOfFire.DrawToPlay.Editor
             health.maxHP = 999f;
             health.fragmentOnDeath = false;
 
+            var citizen = go.AddComponent<WorldObjectBehaviour>();
+            citizen.tags.Add(k_ZombieTag);
+
             var runner = go.AddComponent<StateTreeRunner>();
             runner.data = zombieTree;
             runner.ownerObject = go;
+            go.AddComponent<DisableRunnerOnDeath>();
+
+            var tint = go.AddComponent<HealthGlyphTintView>();
+            tint.aliveColor = new Color(0.95f, 0.4f, 0.35f);
         }
 
         /// <summary>A one-hit victim that DOES NOT fragment: death leaves the object in place,
@@ -275,6 +349,9 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var citizen = go.AddComponent<WorldObjectBehaviour>();
             citizen.tags.Add(k_DummyTag);
+
+            var tint = go.AddComponent<HealthGlyphTintView>();
+            tint.aliveColor = new Color(0.5f, 0.9f, 0.55f);
         }
 
         private static TextMesh AddText(GameObject go, string text, Color color, int fontSize,
