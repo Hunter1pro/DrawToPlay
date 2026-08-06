@@ -392,6 +392,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static readonly string[] k_KeyKindChoices =
             { "number", "text", "checkbox", "object", "event", "tag", "screen" };
 
+        /// <summary>The data-entry glyph — a stack of rows, as ⚑ sources values and ⚿ wires
+        /// names: ⛃ picks a registry ENTRY.</summary>
+        private const string k_EntryGlyph = "⛃";
+
+        private const string k_PickEntryUndo = "Pick Registry Entry";
+        private const string k_ClearEntryUndo = "Clear Registry Entry";
+        private const string k_EditDataUndo = "Edit Tree Data";
+
         private readonly ScrollView m_Root;
         private readonly Action m_StructuralChanged;
         private readonly Action m_Edited;
@@ -416,6 +424,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// wired from the fields that use them (⚿), so the section is reference material rather
         /// than the working surface, and two open foldouts above every state is a wall.</summary>
         private bool m_KeysOpen;
+
+        /// <summary>Whether the data foldout is open — closed by default for the keys
+        /// foldout's reason.</summary>
+        private bool m_DataOpen;
 
         /// <summary>Which transitions' "Route outputs" foldouts the author has opened, by transition
         /// index. Remembered on the pane for the same reason <see cref="m_ParametersOpen"/> is —
@@ -469,6 +481,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             // followed the state's own tasks would read as part of that state.
             m_Root.Add(BuildTreeParameters());
             m_Root.Add(BuildTreeKeys());
+            m_Root.Add(BuildTreeData());
 
             BuildHeader();
             BuildIdentity();
@@ -560,6 +573,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             m_Root.Add(BuildTreeParameters());
             m_Root.Add(BuildTreeKeys());
+            m_Root.Add(BuildTreeData());
 
             m_Root.Add(SectionLabel("States"));
             var nodes = StateTreeEditorOps.CollectNodes(m_Tree);
@@ -1512,15 +1526,349 @@ namespace PowerOfFire.DrawToPlay.Editor
         private VisualElement BuildFieldRow(PropertyField field, UnityEngine.Object target,
             string fieldName, StateTreeFieldBinding.TargetKind kind, int targetIndex)
         {
-            if (targetIndex >= 0 && m_Node != null && m_Tree != null
-                && StateTreeEditorOps.TryGetKeyField(target, fieldName, out var keyKind,
-                    out var anyKind))
+            if (targetIndex >= 0 && m_Node != null && m_Tree != null)
             {
-                return BuildKeyContractField(field, target, fieldName, kind, targetIndex, keyKind,
-                    anyKind);
+                if (StateTreeEditorOps.TryGetEntryRefField(target, fieldName,
+                        out var entryReference))
+                    return BuildEntryRefField(target, fieldName, entryReference);
+                if (StateTreeEditorOps.TryGetRegistryRefField(target, fieldName,
+                        out var registryReference))
+                    return BuildRegistryRefField(fieldName, registryReference);
+                if (StateTreeEditorOps.TryGetKeyField(target, fieldName, out var keyKind,
+                        out var anyKind))
+                {
+                    return BuildKeyContractField(field, target, fieldName, kind, targetIndex,
+                        keyKind, anyKind);
+                }
             }
 
             return BuildBindableField(field, target, fieldName, kind, targetIndex);
+        }
+
+        // --- data registries: the ⛃ reference -----------------------------------------------
+
+        /// <summary>
+        /// A typed ENTRY reference (M13). There is no text to type and no lock to need: the
+        /// row shows the entry's CURRENT name resolved from the tree's registries by id (so
+        /// renames in the dashboard are already reflected), the ⛃ menu offers every entry of
+        /// the right class the tree's data lists, and ✕ empties the slot. An id that resolves
+        /// nowhere gets the stale-link shape; an empty slot just says so — whether that is an
+        /// error is the task's own business at runtime.
+        /// </summary>
+        private VisualElement BuildEntryRefField(UnityEngine.Object target, string fieldName,
+            IStateTreeEntryRef reference)
+        {
+            var container = new VisualElement();
+
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.minHeight = k_RowMinHeight;
+            container.Add(row);
+
+            StateTreeRegistryEntry entry = StateTreeEditorOps.FindTreeEntry(m_Tree,
+                reference.EntryType, reference.EntryId);
+            var unresolved = !string.IsNullOrEmpty(reference.EntryId) && entry == null;
+
+            var display = new TextField(ObjectNames.NicifyVariableName(fieldName))
+            {
+                value = entry != null ? entry.name : unresolved ? "(missing entry)" : "(none)",
+                isReadOnly = true
+            };
+            display.AddToClassList(TextField.alignedFieldUssClassName);
+            display.style.flexGrow = 1f;
+            display.style.flexShrink = 1f;
+            display.style.minHeight = k_ControlMinHeight;
+            ApplyOverrideStyle(display, false);
+            display.tooltip = entry != null
+                ? $"'{fieldName}' references the {reference.EntryType.Name} entry "
+                + $"'{entry.name}' by id — rename it in the registry dashboard and this "
+                + "reference follows."
+                : $"'{fieldName}' is a typed {reference.EntryType.Name} reference — pick an "
+                + "entry from the tree's data (⛃).";
+            row.Add(display);
+
+            var pick = new Button { text = k_EntryGlyph };
+            pick.style.flexShrink = 0f;
+            EnlargeRowButton(pick, k_GlyphMinWidth);
+            pick.tooltip = "Pick an entry from the registries this tree lists in its Data "
+                + "section.";
+            pick.clicked += () => ShowEntryPickMenu(target, fieldName, reference);
+            row.Add(pick);
+
+            if (!string.IsNullOrEmpty(reference.EntryId))
+            {
+                var clear = new Button { text = "✕" };
+                clear.style.width = 26f;
+                clear.style.minHeight = k_ControlMinHeight;
+                clear.style.flexShrink = 0f;
+                clear.tooltip = "Empty the slot.";
+                clear.clicked += () =>
+                {
+                    var group = StateTreeEditorOps.BeginUndoGroup(k_ClearEntryUndo);
+                    StateTreeEditorOps.ClearEntryRef(target, fieldName, k_ClearEntryUndo);
+                    StateTreeEditorOps.EndUndoGroup(group);
+                    RebuildPane();
+                };
+                row.Add(clear);
+            }
+
+            if (unresolved)
+            {
+                var cached = EntryNameCache(target, fieldName);
+                var help = new HelpBox($"'{fieldName}' references an entry that no registry in "
+                    + "this tree's Data section holds"
+                    + (string.IsNullOrEmpty(cached) ? string.Empty : $" (it was '{cached}')")
+                    + " — deleted, or its registry was removed. The task will run with an empty "
+                    + "reference. Re-pick (⛃) or clear (✕).", HelpBoxMessageType.Warning);
+                help.style.marginTop = 2f;
+                container.Add(help);
+            }
+            else if (m_Tree.registries == null || m_Tree.registries.Count == 0)
+            {
+                container.Add(Hint("The tree lists no registries yet — add one in the Data "
+                    + "section of the tree header."));
+            }
+
+            return container;
+        }
+
+        private static string EntryNameCache(UnityEngine.Object target, string fieldName)
+        {
+            var field = target != null
+                ? target.GetType().GetField(fieldName,
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public)
+                : null;
+            object reference = field?.GetValue(target);
+            var nameField = reference?.GetType().GetField("entryName",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+            return nameField?.GetValue(reference) as string ?? string.Empty;
+        }
+
+        /// <summary>A whole-registry reference: nothing to edit — the row states which of the
+        /// tree's registries answers it, by the executor's first-assignable rule, or warns
+        /// that none will.</summary>
+        private VisualElement BuildRegistryRefField(string fieldName,
+            IStateTreeRegistryRef reference)
+        {
+            StateTreeRegistryAsset registry = StateTreeEditorOps.FindTreeRegistry(m_Tree,
+                reference.EntryType);
+            if (registry != null)
+            {
+                var display = new TextField(ObjectNames.NicifyVariableName(fieldName))
+                {
+                    value = "← " + registry.name,
+                    isReadOnly = true
+                };
+                display.AddToClassList(TextField.alignedFieldUssClassName);
+                display.style.minHeight = k_ControlMinHeight;
+                ApplyOverrideStyle(display, false);
+                display.tooltip = $"'{fieldName}' resolves to the tree's first "
+                    + $"{reference.EntryType.Name} registry at start — currently "
+                    + $"'{registry.name}' from the Data section.";
+                return display;
+            }
+
+            var help = new HelpBox($"'{fieldName}' wants a registry of "
+                + $"{reference.EntryType.Name} entries and this tree's Data section lists none "
+                + "— add the registry asset there.", HelpBoxMessageType.Warning);
+            help.style.marginTop = 2f;
+            return help;
+        }
+
+        /// <summary>The ⛃ menu: every entry of the right class from every registry the tree
+        /// lists, pathed registry/group/entry so the registry's own grouping IS the menu's.</summary>
+        private void ShowEntryPickMenu(UnityEngine.Object target, string fieldName,
+            IStateTreeEntryRef reference)
+        {
+            var menu = new GenericMenu();
+            var offered = 0;
+            var registries = m_Tree.registries;
+
+            for (var r = 0; registries != null && r < registries.Count; ++r)
+            {
+                var registry = registries[r];
+                if (registry == null
+                    || !reference.EntryType.IsAssignableFrom(registry.entryType))
+                    continue;
+
+                var prefix = registry.name.Replace('/', k_MenuSeparatorStandIn) + "/";
+                for (var i = 0; i < registry.Count; ++i)
+                {
+                    StateTreeRegistryEntry entry = registry.EntryAt(i);
+                    if (entry == null || string.IsNullOrEmpty(entry.id)
+                        || string.IsNullOrEmpty(entry.name))
+                        continue;
+
+                    var path = prefix
+                        + (string.IsNullOrEmpty(entry.group)
+                            ? string.Empty
+                            : entry.group.Trim('/') + "/")
+                        + entry.name.Replace('/', k_MenuSeparatorStandIn);
+                    var picked = entry;
+                    menu.AddItem(new GUIContent(path),
+                        string.Equals(entry.id, reference.EntryId, StringComparison.Ordinal),
+                        () =>
+                        {
+                            var group = StateTreeEditorOps.BeginUndoGroup(k_PickEntryUndo);
+                            StateTreeEditorOps.SetEntryRef(target, fieldName, picked,
+                                k_PickEntryUndo);
+                            StateTreeEditorOps.EndUndoGroup(group);
+                            RebuildPane();
+                        });
+                    ++offered;
+                }
+            }
+
+            if (offered == 0)
+            {
+                menu.AddDisabledItem(new GUIContent(
+                    $"No {reference.EntryType.Name} entries — list the registry in the tree's "
+                    + "Data section first"));
+            }
+
+            menu.ShowAsContext();
+        }
+
+        // --- tree data: the registries ------------------------------------------------------
+
+        /// <summary>The tree's DATA connection (M13): which registries its typed reference
+        /// fields resolve against. The list is the whole mechanism — entries are edited on
+        /// the registry asset itself (its inspector is the dashboard).</summary>
+        private VisualElement BuildTreeData()
+        {
+            var registries = m_Tree.registries;
+            var count = registries != null ? registries.Count : 0;
+
+            var foldout = new Foldout
+            {
+                text = $"Data · {StateTreeEditorOps.TreeDisplayName(m_Tree)} ({count})",
+                value = m_DataOpen
+            };
+            foldout.style.marginTop = 2f;
+            foldout.style.marginBottom = 4f;
+            foldout.RegisterValueChangedCallback(evt =>
+            {
+                if (evt.target == foldout)
+                    m_DataOpen = evt.newValue;
+            });
+
+            var note = Hint(count == 0
+                ? "No registries listed. A registry is a catalog of typed entries (items, "
+                + "recipes, archetypes) edited on its own asset like a dashboard; list it here "
+                + "and every typed reference field (⛃) in this tree picks from it."
+                : "The catalogs this tree speaks. A typed reference field (⛃) picks entries "
+                + "from these; a whole-registry field takes the first listed registry of its "
+                + "entry class. Select a registry asset to edit its entries.");
+            note.style.marginBottom = 4f;
+            foldout.Add(note);
+
+            for (var i = 0; i < count; ++i)
+                foldout.Add(BuildRegistryRow(i));
+
+            var add = new ObjectField("Add registry")
+            {
+                objectType = typeof(StateTreeRegistryAsset),
+                allowSceneObjects = false
+            };
+            add.tooltip = "Drop a registry asset here to make its entries pickable in this "
+                + "tree.";
+            add.RegisterValueChangedCallback(evt =>
+            {
+                var registry = evt.newValue as StateTreeRegistryAsset;
+                add.SetValueWithoutNotify(null);
+                AddTreeRegistry(registry);
+            });
+            foldout.Add(add);
+
+            return foldout;
+        }
+
+        private VisualElement BuildRegistryRow(int index)
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+
+            var registry = m_Tree.registries[index];
+            var field = new ObjectField(registry != null ? registry.entryType.Name : "(missing)")
+            {
+                value = registry,
+                objectType = typeof(StateTreeRegistryAsset),
+                allowSceneObjects = false
+            };
+            field.style.flexGrow = 1f;
+            field.tooltip = "The label is the entry class this registry holds — what decides "
+                + "which ⛃ fields it answers.";
+            field.RegisterValueChangedCallback(evt =>
+            {
+                var replacement = evt.newValue as StateTreeRegistryAsset;
+                if (replacement == null || ListsTreeRegistry(replacement, index))
+                {
+                    field.SetValueWithoutNotify(m_Tree.registries[index]);
+                    return;
+                }
+
+                var group = StateTreeEditorOps.BeginUndoGroup(k_EditDataUndo);
+                Undo.RecordObject(m_Tree, k_EditDataUndo);
+                m_Tree.registries[index] = replacement;
+                EditorUtility.SetDirty(m_Tree);
+                StateTreeEditorOps.EndUndoGroup(group);
+                RebuildPane();
+            });
+            row.Add(field);
+
+            var remove = new Button(() => RemoveTreeRegistry(index)) { text = "✕" };
+            remove.tooltip = "Stop listing this registry. Reference fields aimed at its "
+                + "entries warn in place until re-picked.";
+            remove.style.width = 22f;
+            remove.style.flexShrink = 0f;
+            row.Add(remove);
+
+            return row;
+        }
+
+        private void AddTreeRegistry(StateTreeRegistryAsset registry)
+        {
+            if (m_Tree == null || registry == null || ListsTreeRegistry(registry, -1))
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_EditDataUndo);
+            Undo.RecordObject(m_Tree, k_EditDataUndo);
+
+            if (m_Tree.registries == null)
+                m_Tree.registries = new List<StateTreeRegistryAsset>();
+            m_Tree.registries.Add(registry);
+
+            EditorUtility.SetDirty(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        private void RemoveTreeRegistry(int index)
+        {
+            var registries = m_Tree != null ? m_Tree.registries : null;
+            if (registries == null || index < 0 || index >= registries.Count)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_EditDataUndo);
+            Undo.RecordObject(m_Tree, k_EditDataUndo);
+            registries.RemoveAt(index);
+            EditorUtility.SetDirty(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        private bool ListsTreeRegistry(StateTreeRegistryAsset candidate, int except)
+        {
+            var registries = m_Tree != null ? m_Tree.registries : null;
+            for (var i = 0; registries != null && i < registries.Count; ++i)
+            {
+                if (i != except && registries[i] == candidate)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>

@@ -197,6 +197,7 @@ namespace PowerOfFire.DrawToPlay
             // binding machinery reads it. This rewrite is what makes renaming a declared key
             // free — every wired string on the DEEP COPY is refreshed from the id here.
             ResolveKeyLinks(m_ActiveData.root, 0);
+            ResolveEntryRefs(m_ActiveData.root, 0);
             ApplyBindings(m_ActiveData.root, 0);
 
             treeStarted?.Invoke();
@@ -911,6 +912,100 @@ namespace PowerOfFire.DrawToPlay
 
             for (int i = 0; i < node.children.Count; i++)
                 ResolveKeyLinks(node.children[i], depth + 1);
+        }
+
+        /// <summary>
+        /// The M13 data pass: inject live registry entries into every typed reference field
+        /// on the copy's tasks and transition conditions, from the tree's
+        /// <see cref="StateTreeAsset.registries"/>. Runs beside <see cref="ResolveKeyLinks"/>
+        /// and shares its philosophy — ids are the wires, resolution happens once per start,
+        /// and a reference that resolves nowhere is ONE error plus a null the task's own
+        /// guard answers for. An UNSET reference is skipped silently: an empty slot is
+        /// authoring state, not a wiring fault.
+        /// </summary>
+        private void ResolveEntryRefs(StateTreeNodeAsset node, int depth)
+        {
+            if (node == null || depth > 256)
+                return;
+
+            for (int i = 0; i < node.tasks.Count; i++)
+                BindReferenceFields(node.tasks[i], node.nodeId);
+            for (int i = 0; i < node.transitions.Count; i++)
+            {
+                if (node.transitions[i] != null)
+                    BindReferenceFields(node.transitions[i].condition, node.nodeId);
+            }
+
+            for (int i = 0; i < node.children.Count; i++)
+                ResolveEntryRefs(node.children[i], depth + 1);
+        }
+
+        private void BindReferenceFields(UnityEngine.Object target, string nodeId)
+        {
+            if (target == null)
+                return;
+
+            FieldInfo[] fields = target.GetType().GetFields(
+                BindingFlags.Public | BindingFlags.Instance);
+            for (int i = 0; i < fields.Length; i++)
+            {
+                if (typeof(IStateTreeEntryRef).IsAssignableFrom(fields[i].FieldType))
+                {
+                    if (fields[i].GetValue(target) is IStateTreeEntryRef reference)
+                        BindEntryRef(reference, fields[i].Name, nodeId);
+                }
+                else if (typeof(IStateTreeRegistryRef).IsAssignableFrom(fields[i].FieldType))
+                {
+                    if (fields[i].GetValue(target) is IStateTreeRegistryRef reference)
+                        BindRegistryRef(reference, fields[i].Name, nodeId);
+                }
+            }
+        }
+
+        private void BindEntryRef(IStateTreeEntryRef reference, string fieldName, string nodeId)
+        {
+            if (string.IsNullOrEmpty(reference.EntryId))
+                return;
+
+            List<StateTreeRegistryAsset> registries = m_ActiveData.registries;
+            for (int i = 0; registries != null && i < registries.Count; i++)
+            {
+                StateTreeRegistryAsset registry = registries[i];
+                if (registry == null
+                    || !reference.EntryType.IsAssignableFrom(registry.entryType))
+                    continue;
+
+                StateTreeRegistryEntry entry = registry.FindById(reference.EntryId);
+                if (entry != null)
+                {
+                    reference.Bind(entry);
+                    return;
+                }
+            }
+
+            Debug.LogError(logLabel + ": entry reference on state '" + nodeId + "' field '"
+                + fieldName + "' resolves no entry (id '" + reference.EntryId
+                + "') in the tree's registries — the reference stays empty.", logContext);
+        }
+
+        private void BindRegistryRef(IStateTreeRegistryRef reference, string fieldName,
+            string nodeId)
+        {
+            List<StateTreeRegistryAsset> registries = m_ActiveData.registries;
+            for (int i = 0; registries != null && i < registries.Count; i++)
+            {
+                StateTreeRegistryAsset registry = registries[i];
+                if (registry != null
+                    && reference.EntryType.IsAssignableFrom(registry.entryType))
+                {
+                    reference.Bind(registry);
+                    return;
+                }
+            }
+
+            Debug.LogError(logLabel + ": state '" + nodeId + "' field '" + fieldName
+                + "' wants a registry of " + reference.EntryType.Name
+                + " entries and the tree lists none — the reference stays empty.", logContext);
         }
 
         private void ApplyBindings(StateTreeNodeAsset node, int depth)

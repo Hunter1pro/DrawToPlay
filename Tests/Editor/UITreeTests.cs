@@ -26,7 +26,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         private StateTreeContextHost m_Player;
         private UIScreenBehaviour m_InvScreen;
         private UIScreenBehaviour m_TipScreen;
-        private ItemRegistryAsset m_Registry;
+        private ItemRegistry m_Registry;
 
         [SetUp]
         public void SetUp()
@@ -145,14 +145,14 @@ namespace PowerOfFire.DrawToPlay.Tests
             var context = new StateTreeContext(unit);
 
             var add = ScriptableObject.CreateInstance<InventoryAddTask>();
-            add.itemId = "sword";
+            SetItem(add.item, "sword");
             add.count = 2;
             m_Assets.Add(add);
             Assert.AreEqual(StateTreeStatus.Success, add.OnTick(context, 0.1f));
             Assert.AreEqual(2, StateTreeInventoryUtil.Count(m_Player.Context, "sword"));
 
             var remove = ScriptableObject.CreateInstance<InventoryRemoveTask>();
-            remove.itemId = "sword";
+            SetItem(remove.item, "sword");
             remove.count = 3;
             m_Assets.Add(remove);
             Assert.AreEqual(StateTreeStatus.Failure, remove.OnTick(context, 0.1f),
@@ -165,7 +165,7 @@ namespace PowerOfFire.DrawToPlay.Tests
                 StateTreeInventoryUtil.Key("sword")), "zero removes the key entirely");
 
             var count = ScriptableObject.CreateInstance<InventoryCountCondition>();
-            count.itemId = "potion";
+            SetItem(count.item, "potion");
             count.atLeast = 2;
             m_Assets.Add(count);
             Assert.IsFalse(count.Evaluate(context));
@@ -173,7 +173,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.IsTrue(count.Evaluate(context));
 
             var kind = ScriptableObject.CreateInstance<ItemKindCondition>();
-            kind.registry = m_Registry;
+            ((IStateTreeRegistryRef)kind.items).Bind(m_Registry);
             kind.kind = ItemKind.Weapon;
             m_Assets.Add(kind);
             context.blackboard[k_ClickedKey] = "sword";
@@ -203,9 +203,9 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_InvScreen.RegisterToUI();
             m_TipScreen.RegisterToUI();
 
-            m_Registry = ScriptableObject.CreateInstance<ItemRegistryAsset>();
-            m_Registry.items.Add(MakeItem("sword", "Iron Sword", ItemKind.Weapon));
-            m_Registry.items.Add(MakeItem("potion", "Health Potion", ItemKind.Consumable));
+            m_Registry = ScriptableObject.CreateInstance<ItemRegistry>();
+            m_Registry.entries.Add(MakeItem("sword", "Iron Sword", ItemKind.Weapon));
+            m_Registry.entries.Add(MakeItem("potion", "Health Potion", ItemKind.Consumable));
             m_Assets.Add(m_Registry);
 
             StateTreeInventoryUtil.SetCount(m_Player.Context, "sword", 1);
@@ -234,7 +234,6 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Assets.Add(consumeTrigger);
             var bind = ScriptableObject.CreateInstance<BindInventoryListTask>();
             bind.screenId = "inv";
-            bind.registry = m_Registry;
             m_Assets.Add(bind);
             var showInv = ScriptableObject.CreateInstance<ShowScreenTask>();
             showInv.screenId = "inv";
@@ -269,7 +268,6 @@ namespace PowerOfFire.DrawToPlay.Tests
             // tooltip: content from the click, then hold the screen open.
             var detail = ScriptableObject.CreateInstance<BindItemDetailTask>();
             detail.screenId = "tooltip";
-            detail.registry = m_Registry;
             m_Assets.Add(detail);
             var showTip = ScriptableObject.CreateInstance<ShowScreenTask>();
             showTip.screenId = "tooltip";
@@ -301,7 +299,6 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             // itemFlow: weapon -> equip; anything else -> tooltip.
             var isWeapon = ScriptableObject.CreateInstance<ItemKindCondition>();
-            isWeapon.registry = m_Registry;
             isWeapon.kind = ItemKind.Weapon;
             m_Assets.Add(isWeapon);
             AddTransition(itemFlow, "equip", isWeapon, interrupt: false);
@@ -324,6 +321,9 @@ namespace PowerOfFire.DrawToPlay.Tests
             tree.name = "InventoryUITree";
             tree.treeName = "InventoryUITree";
             tree.root = rootNode;
+            // The M13 data connection: the tree lists its registry; the executor injects the
+            // bind/detail/kind tasks' typed references from it at StartTree.
+            tree.registries.Add(m_Registry);
             m_Assets.Add(tree);
 
             GameObject unit = MakeUnit("UIUnit", m_Player);
@@ -382,14 +382,27 @@ namespace PowerOfFire.DrawToPlay.Tests
             return go;
         }
 
-        private ItemDefAsset MakeItem(string id, string displayName, ItemKind kind)
+        /// <summary>An entry ROW (M13) — a plain serializable class, not an asset: the id
+        /// is minted the way the dashboard would, the name is the runtime string.</summary>
+        private static ItemDef MakeItem(string name, string displayName, ItemKind kind)
         {
-            var def = ScriptableObject.CreateInstance<ItemDefAsset>();
-            def.id = id;
-            def.displayName = displayName;
-            def.kind = kind;
-            m_Assets.Add(def);
-            return def;
+            return new ItemDef
+            {
+                id = System.Guid.NewGuid().ToString("N"),
+                name = name,
+                displayName = displayName,
+                kind = kind
+            };
+        }
+
+        /// <summary>Aim a typed reference at an entry and bind it live — for the ATOM units,
+        /// which tick tasks directly and so stand in for the executor's StartTree injection.</summary>
+        private void SetItem(StateTreeEntryRef<ItemDef> reference, string name)
+        {
+            var def = (ItemDef)m_Registry.FindByName(name);
+            reference.entryId = def.id;
+            reference.entryName = def.name;
+            ((IStateTreeEntryRef)reference).Bind(def);
         }
 
         private StateTreeNodeAsset MakeNode(string nodeId, params StateTreeTaskAsset[] tasks)

@@ -49,6 +49,12 @@ namespace PowerOfFire.DrawToPlay
         /// the mount chain resolves at runtime by itself.</summary>
         public List<StateTreeAsset> uses = new List<StateTreeAsset>();
 
+        /// <summary>The DATA this tree speaks (M13): the registries whose entries its typed
+        /// reference fields resolve against at StartTree. Listed here — on the tree, like
+        /// keys — instead of asset slots scattered over the tasks. Instantiate copies the
+        /// LIST but not the assets: registries are shared read-only data (§3.7).</summary>
+        public List<StateTreeRegistryAsset> registries = new List<StateTreeRegistryAsset>();
+
         /// <summary>Deep-copy the whole tree (nodes, tasks, conditions) — the
         /// data.duplicate(true) mirror that keeps shared assets from sharing task
         /// instance state across runners.</summary>

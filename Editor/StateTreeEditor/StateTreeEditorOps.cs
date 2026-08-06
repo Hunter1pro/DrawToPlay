@@ -748,6 +748,124 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
         }
 
+        // --- data registries (M13) --------------------------------------------------------
+
+        /// <summary>Whether a named field is a TYPED ENTRY REFERENCE, and which entry class
+        /// it wants. Asked of the live instance (the interface knows its generic argument),
+        /// with the same executor-visibility rule as every other link surface.</summary>
+        internal static bool TryGetEntryRefField(UnityEngine.Object target, string fieldName,
+            out IStateTreeEntryRef reference)
+        {
+            reference = null;
+            if (target == null || string.IsNullOrEmpty(fieldName))
+                return false;
+
+            var field = target.GetType().GetField(fieldName,
+                BindingFlags.Public | BindingFlags.Instance);
+            if (field == null || !typeof(IStateTreeEntryRef).IsAssignableFrom(field.FieldType))
+                return false;
+
+            reference = field.GetValue(target) as IStateTreeEntryRef;
+            return reference != null;
+        }
+
+        /// <summary>The whole-registry flavor — nothing to edit on it, but the row it draws
+        /// says which of the tree's registries will answer.</summary>
+        internal static bool TryGetRegistryRefField(UnityEngine.Object target, string fieldName,
+            out IStateTreeRegistryRef reference)
+        {
+            reference = null;
+            if (target == null || string.IsNullOrEmpty(fieldName))
+                return false;
+
+            var field = target.GetType().GetField(fieldName,
+                BindingFlags.Public | BindingFlags.Instance);
+            if (field == null || !typeof(IStateTreeRegistryRef).IsAssignableFrom(field.FieldType))
+                return false;
+
+            reference = field.GetValue(target) as IStateTreeRegistryRef;
+            return reference != null;
+        }
+
+        /// <summary>Aim a typed entry reference — id is the wire, the name rides along as the
+        /// serialized display cache. Recording the TARGET records the nested serializable.</summary>
+        internal static void SetEntryRef(UnityEngine.Object target, string fieldName,
+            StateTreeRegistryEntry entry, string undoName)
+        {
+            if (entry == null || !TryGetEntryRefField(target, fieldName, out _))
+                return;
+
+            Undo.RecordObject(target, undoName);
+            var field = target.GetType().GetField(fieldName,
+                BindingFlags.Public | BindingFlags.Instance);
+            object reference = field.GetValue(target);
+            WriteRefString(reference, "entryId", entry.id);
+            WriteRefString(reference, "entryName", entry.name);
+            EditorUtility.SetDirty(target);
+        }
+
+        internal static void ClearEntryRef(UnityEngine.Object target, string fieldName,
+            string undoName)
+        {
+            if (!TryGetEntryRefField(target, fieldName, out _))
+                return;
+
+            Undo.RecordObject(target, undoName);
+            var field = target.GetType().GetField(fieldName,
+                BindingFlags.Public | BindingFlags.Instance);
+            object reference = field.GetValue(target);
+            WriteRefString(reference, "entryId", string.Empty);
+            WriteRefString(reference, "entryName", string.Empty);
+            EditorUtility.SetDirty(target);
+        }
+
+        /// <summary>The entry an id resolves to across a TREE's registries, honoring the
+        /// same first-assignable-registry order the executor walks.</summary>
+        internal static StateTreeRegistryEntry FindTreeEntry(StateTreeAsset tree,
+            Type entryType, string entryId)
+        {
+            if (tree == null || string.IsNullOrEmpty(entryId))
+                return null;
+
+            var registries = tree.registries;
+            for (var i = 0; registries != null && i < registries.Count; ++i)
+            {
+                var registry = registries[i];
+                if (registry == null || !entryType.IsAssignableFrom(registry.entryType))
+                    continue;
+                var entry = registry.FindById(entryId);
+                if (entry != null)
+                    return entry;
+            }
+
+            return null;
+        }
+
+        /// <summary>The registry a whole-registry reference will get — first assignable in
+        /// tree order, the executor's rule.</summary>
+        internal static StateTreeRegistryAsset FindTreeRegistry(StateTreeAsset tree,
+            Type entryType)
+        {
+            var registries = tree != null ? tree.registries : null;
+            for (var i = 0; registries != null && i < registries.Count; ++i)
+            {
+                if (registries[i] != null
+                    && entryType.IsAssignableFrom(registries[i].entryType))
+                    return registries[i];
+            }
+
+            return null;
+        }
+
+        private static void WriteRefString(object reference, string fieldName, string value)
+        {
+            var field = reference != null
+                ? reference.GetType().GetField(fieldName,
+                    BindingFlags.Public | BindingFlags.Instance)
+                : null;
+            field?.SetValue(reference, value);
+        }
+
         private static bool WriteKeyFieldText(StateTreeNodeAsset node,
             StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName, string text,
             string undoName)
