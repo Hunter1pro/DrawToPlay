@@ -72,6 +72,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         private ScrollView m_InspectorScroll;
         private StateTreeInspectorPane m_Inspector;
         private Label m_StatusLabel;
+
+        /// <summary>The whole bottom strip, so <see cref="UpdateStatus"/> can remove it
+        /// outside play mode — at edit time it repeated what the pane already shows, which
+        /// made it permanent chrome (user: a bar that is always there is a bar nobody reads).</summary>
+        private VisualElement m_StatusBar;
         private DropdownField m_RunnerDropdown;
 
         private StateTreeNodeAsset m_SelectedNode;
@@ -419,6 +424,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private VisualElement BuildStatusBar()
         {
             var bar = new VisualElement();
+            m_StatusBar = bar;
             bar.style.flexDirection = FlexDirection.Row;
             bar.style.alignItems = Align.Center;
             bar.style.paddingLeft = 6f;
@@ -426,6 +432,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             bar.style.paddingTop = 2f;
             bar.style.paddingBottom = 2f;
             bar.style.backgroundColor = k_PanelBackground;
+            // Play-mode surface only — UpdateStatus shows it when there is a live story
+            // (the runner trace) and keeps edit mode free of permanent chrome.
+            bar.style.display = DisplayStyle.None;
 
             m_StatusLabel = new Label(string.Empty);
             m_StatusLabel.style.flexGrow = 1f;
@@ -889,29 +898,20 @@ namespace PowerOfFire.DrawToPlay.Editor
             RefreshRows();
         }
 
+        /// <summary>The bottom bar exists only while it has a live story to tell: playing
+        /// with a tree loaded. Everything it used to say at edit time (state count, entry,
+        /// "edits apply on the next run") repeated what the panes already show, so outside
+        /// play mode the bar is GONE rather than idling as chrome.</summary>
         private void UpdateStatus()
         {
             if (m_StatusLabel == null)
                 return;
 
-            if (m_Tree == null)
+            var show = EditorApplication.isPlaying && m_Tree != null;
+            if (m_StatusBar != null)
+                m_StatusBar.style.display = show ? DisplayStyle.Flex : DisplayStyle.None;
+            if (!show)
             {
-                m_StatusLabel.text = "No state tree loaded.";
-                SetRunnerChoices();
-                return;
-            }
-
-            if (!EditorApplication.isPlaying)
-            {
-                var nodes = StateTreeEditorOps.CollectNodes(m_Tree);
-                var entry = m_Tree.root != null
-                    ? StateTreeEditorOps.ResolveEntryNode(m_Tree.root)
-                    : null;
-                var kind = StateTreeEditorOps.IsTaskTree(m_Tree) ? " · reusable task" : string.Empty;
-                m_StatusLabel.text = entry != null
-                    ? $"{nodes.Count} states · entry '{entry.nodeId}'{kind} · edits apply on the "
-                        + "next run"
-                    : $"{nodes.Count} states{kind}";
                 SetRunnerChoices();
                 return;
             }
