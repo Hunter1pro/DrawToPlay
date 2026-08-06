@@ -36,7 +36,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const string k_ClearedEvent = "evt:cleared";
         private const string k_DummyTag = "dummy";
         private const string k_ZombieTag = "zombie";
-        private const string k_SmiteCommand = "cmd:smite";
+        private const string k_AttackCommand = "cmd:attack";
         private const string k_PlayerTreePath = k_DemoFolder + "/M11PlayerTree.asset";
 
         [MenuItem("Tools/Draw To Play/Verify M11 Game Loop")]
@@ -111,10 +111,42 @@ namespace PowerOfFire.DrawToPlay.Editor
             boot.tasks.Add(seedScore);
             Wire(boot, watch, null, false);
 
+            StateTreeNodeAsset gameOver = Node(tree, root, 4, "gameOver", "Game Over");
+
+            // Interrupt ORDER is priority: a downed hero outranks a cleared wave.
+            var heroDown = Sub<HasContextKeyCondition>(tree, "Cond watch->gameOver HeroDown");
+            heroDown.scope = StateTreeContextKind.Root;
+            heroDown.key = "evt:heroDown";
+            Wire(watch, gameOver, heroDown, true);
             var cleared = Sub<HasContextKeyCondition>(tree, "Cond watch->score Cleared");
             cleared.scope = StateTreeContextKind.Root;
             cleared.key = k_ClearedEvent;
             Wire(watch, score, cleared, true);
+
+            // gameOver: say it, hold the beat, put the hero back, say nothing again.
+            var consumeDown = Sub<SetContextValueTask>(tree, "Task gameOver ConsumeEvent");
+            consumeDown.scope = StateTreeContextKind.Root;
+            consumeDown.key = "evt:heroDown";
+            consumeDown.kind = SetBlackboardTask.ValueKind.Clear;
+            gameOver.tasks.Add(consumeDown);
+            var wasted = Sub<SetContextValueTask>(tree, "Task gameOver ShowStatus");
+            wasted.scope = StateTreeContextKind.Root;
+            wasted.key = "status";
+            wasted.kind = SetBlackboardTask.ValueKind.String;
+            wasted.stringValue = "WASTED — respawning...";
+            gameOver.tasks.Add(wasted);
+            var mourn = Sub<WaitTask>(tree, "Task gameOver Mourn");
+            mourn.seconds = 2f;
+            gameOver.tasks.Add(mourn);
+            var respawn = Sub<ReviveByTagTask>(tree, "Task gameOver ReviveHero");
+            respawn.tag = "hero";
+            gameOver.tasks.Add(respawn);
+            var clearStatus = Sub<SetContextValueTask>(tree, "Task gameOver ClearStatus");
+            clearStatus.scope = StateTreeContextKind.Root;
+            clearStatus.key = "status";
+            clearStatus.kind = SetBlackboardTask.ValueKind.Clear;
+            gameOver.tasks.Add(clearStatus);
+            Wire(gameOver, watch, null, false);
 
             var consume = Sub<SetContextValueTask>(tree, "Task score ConsumeEvent");
             consume.scope = StateTreeContextKind.Root;
@@ -152,8 +184,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreeNodeAsset fight = Node(tree, root, 2, "fight", "Fight");
             StateTreeNodeAsset clearedNode = Node(tree, root, 3, "cleared", "Wave Cleared");
 
-            var revive = Sub<ReviveByTagTask>(tree, "Task prep ReviveDummies");
-            revive.tag = k_DummyTag;
+            var revive = Sub<ReviveByTagTask>(tree, "Task prep ReviveHorde");
+            revive.tag = k_ZombieTag;
             prep.tasks.Add(revive);
             var bumpWave = Sub<AddContextNumberTask>(tree, "Task prep WavePlusOne");
             bumpWave.scope = StateTreeContextKind.Level;
@@ -165,10 +197,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             prep.tasks.Add(breathe);
             Wire(prep, fight, null, false);
 
-            var allDown = Sub<AnyAliveWithTagCondition>(tree, "Cond fight->cleared AllDown");
-            allDown.tag = k_DummyTag;
-            allDown.invert = true;
-            Wire(fight, clearedNode, allDown, true);
+            var hordeDown = Sub<AnyAliveWithTagCondition>(tree, "Cond fight->cleared HordeDown");
+            hordeDown.tag = k_ZombieTag;
+            hordeDown.invert = true;
+            Wire(fight, clearedNode, hordeDown, true);
 
             var publish = Sub<SetContextValueTask>(tree, "Task cleared PublishToRoot");
             publish.scope = StateTreeContextKind.Root;
@@ -199,36 +231,66 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             var tree = ScriptableObject.CreateInstance<StateTreeAsset>();
             tree.name = "M11PlayerTree";
-            tree.treeName = "Defender";
+            tree.treeName = "Hero";
             tree.treeKind = "player";
             AssetDatabase.CreateAsset(tree, k_PlayerTreePath);
 
             var root = Sub<StateTreeNodeAsset>(tree, "Node 0 root");
             root.nodeId = "root";
-            root.displayName = "Defender";
+            root.displayName = "Hero";
             tree.root = root;
 
-            StateTreeNodeAsset idle = Node(tree, root, 1, "idle", "Listen");
-            StateTreeNodeAsset smite = Node(tree, root, 2, "smite", "Smite");
+            StateTreeNodeAsset alive = Node(tree, root, 1, "alive", "Alive");
+            StateTreeNodeAsset strike = Node(tree, root, 2, "strike", "Strike");
+            StateTreeNodeAsset down = Node(tree, root, 3, "down", "Down");
 
-            var commanded = Sub<HasContextKeyCondition>(tree, "Cond idle->smite Commanded");
+            // alive: the legs run exactly while this state does — a stun or a death takes the
+            // controls away by LEAVING, which is the whole point of movement-as-a-task.
+            var move = Sub<MoveOwnerByAxisTask>(tree, "Task alive Move");
+            move.scope = StateTreeContextKind.Player;
+            move.speed = 2.4f;
+            move.clampExtents = new Vector2(4.4f, 2.6f);
+            alive.tasks.Add(move);
+
+            // Death outranks the attack command.
+            var died = Sub<HealthThresholdCondition>(tree, "Cond alive->down Died");
+            died.source = HealthThresholdCondition.Source.Owner;
+            died.comparison = HealthThresholdCondition.Comparison.AtOrBelow;
+            died.fraction = 0f;
+            Wire(alive, down, died, true);
+            var commanded = Sub<HasContextKeyCondition>(tree, "Cond alive->strike Commanded");
             commanded.scope = StateTreeContextKind.Player;
-            commanded.key = k_SmiteCommand;
-            Wire(idle, smite, commanded, true);
+            commanded.key = k_AttackCommand;
+            Wire(alive, strike, commanded, true);
 
-            var consume = Sub<SetContextValueTask>(tree, "Task smite ConsumeCommand");
+            // strike: a melee SWING, not a smite — reach-limited, three hits fell a zombie.
+            var consume = Sub<SetContextValueTask>(tree, "Task strike ConsumeCommand");
             consume.scope = StateTreeContextKind.Player;
-            consume.key = k_SmiteCommand;
+            consume.key = k_AttackCommand;
             consume.kind = SetBlackboardTask.ValueKind.Clear;
-            smite.tasks.Add(consume);
-            var strike = Sub<DamageByTagTask>(tree, "Task smite StrikeNearest");
-            strike.tag = k_ZombieTag;
-            strike.amount = 9999f;
-            smite.tasks.Add(strike);
-            var cooldown = Sub<WaitTask>(tree, "Task smite Cooldown");
-            cooldown.seconds = 0.4f;
-            smite.tasks.Add(cooldown);
-            Wire(smite, idle, null, false);
+            strike.tasks.Add(consume);
+            var swing = Sub<DamageByTagTask>(tree, "Task strike Swing");
+            swing.tag = k_ZombieTag;
+            swing.amount = 1f;
+            swing.maxRange = 1.3f;
+            strike.tasks.Add(swing);
+            var recover = Sub<WaitTask>(tree, "Task strike Recover");
+            recover.seconds = 0.25f;
+            strike.tasks.Add(recover);
+            Wire(strike, alive, null, false);
+
+            // down: report up, then lie there until the session puts the hero back.
+            var report = Sub<SetContextValueTask>(tree, "Task down ReportUp");
+            report.scope = StateTreeContextKind.Root;
+            report.key = "evt:heroDown";
+            report.kind = SetBlackboardTask.ValueKind.Float;
+            report.floatValue = 1f;
+            down.tasks.Add(report);
+            var revived = Sub<HealthThresholdCondition>(tree, "Cond down->alive Revived");
+            revived.source = HealthThresholdCondition.Source.Owner;
+            revived.comparison = HealthThresholdCondition.Comparison.Above;
+            revived.fraction = 0f;
+            Wire(down, alive, revived, true);
 
             EditorUtility.SetDirty(tree);
             return tree;
@@ -260,36 +322,54 @@ namespace PowerOfFire.DrawToPlay.Editor
             levelHost.kind = StateTreeContextKind.Level;
             levelHost.tree = levelTree;
 
-            var playerObject = new GameObject("Player");
-            playerObject.transform.SetParent(levelObject.transform);
-            var playerHost = playerObject.AddComponent<StateTreeContextHost>();
+            // The HERO IS the Player context: host, tree, body, health and input on one
+            // object — moving the owner moves you, and every zombie targets you the ordinary
+            // perception way (nearest living Player-team combatant).
+            var heroObject = new GameObject("Hero P");
+            heroObject.transform.SetParent(levelObject.transform);
+            heroObject.transform.position = new Vector3(-2.5f, 0.5f, 0f);
+            AddText(heroObject, "P", new Color(1f, 0.95f, 0.5f), 64, 0.12f);
+            var playerHost = heroObject.AddComponent<StateTreeContextHost>();
             playerHost.kind = StateTreeContextKind.Player;
             playerHost.tree = playerTree;
-            var smiteKey = playerObject.AddComponent<ContextKeyHotkeyBehaviour>();
+            var heroHealth = heroObject.AddComponent<HealthComponent>();
+            heroHealth.team = CombatTeam.Player;
+            heroHealth.maxHP = 5f;
+            heroHealth.fragmentOnDeath = false;
+            var heroCitizen = heroObject.AddComponent<WorldObjectBehaviour>();
+            heroCitizen.tags.Add("hero");
+            var heroTint = heroObject.AddComponent<HealthGlyphTintView>();
+            heroTint.aliveColor = new Color(1f, 0.95f, 0.5f);
+            heroObject.AddComponent<AxisInputBehaviour>();
+            var attackKey = heroObject.AddComponent<ContextKeyHotkeyBehaviour>();
 #if ENABLE_INPUT_SYSTEM
-            smiteKey.hotkey = UnityEngine.InputSystem.Key.Space;
+            attackKey.hotkey = UnityEngine.InputSystem.Key.Space;
 #else
-            smiteKey.hotkey = KeyCode.Space;
+            attackKey.hotkey = KeyCode.Space;
 #endif
-            smiteKey.scope = StateTreeContextKind.Player;
-            smiteKey.blackboardKey = k_SmiteCommand;
+            attackKey.scope = StateTreeContextKind.Player;
+            attackKey.blackboardKey = k_AttackCommand;
 
             BuildHud("Score HUD", new Vector3(-2.6f, 2.4f, 0f), StateTreeContextKind.Root,
                 "score", "SCORE ", new Color(1f, 0.9f, 0.5f));
             BuildHud("Wave HUD", new Vector3(2.6f, 2.4f, 0f), StateTreeContextKind.Level,
                 "wave", "WAVE ", new Color(0.6f, 0.9f, 1f));
+            var statusHud = new GameObject("Status HUD");
+            statusHud.transform.position = new Vector3(0f, 1.9f, 0f);
+            AddText(statusHud, "", new Color(1f, 0.45f, 0.4f), 56, 0.1f);
+            var statusView = statusHud.AddComponent<ContextKeyTextView>();
+            statusView.scope = StateTreeContextKind.Root;
+            statusView.key = "status";
+            statusView.missingText = "";
 
-            BuildZombie(zombieTree, new Vector3(-2.5f, -0.5f, 0f));
-            BuildDummy("Dummy A", new Vector3(0.8f, -0.5f, 0f));
-            BuildDummy("Dummy B", new Vector3(1.8f, 0.4f, 0f));
-            BuildDummy("Dummy C", new Vector3(2.6f, -1.1f, 0f));
+            BuildZombie(zombieTree, new Vector3(2.6f, -0.8f, 0f));
 
             var hint = new GameObject("Hint");
             hint.transform.position = new Vector3(0f, -2.5f, 0f);
-            var mesh = AddText(hint, "Z hunts the dummies; every cleared wave spawns ANOTHER "
-                + "Z. SPACE smites the nearest zombie (your Player tree). Gray glyph = dead.\n"
-                + "Root keeps the score, Level runs the circle, Player answers your input — "
-                + "three rungs, three trees.", new Color(0.72f, 0.75f, 0.82f), 36, 0.06f);
+            var mesh = AddText(hint, "WASD/arrows: move P. SPACE: strike (short reach, 3 hits "
+                + "fell a Z). Clear the horde: +100 and one MORE spawns.\nThey hunt YOU. Die "
+                + "and the session mourns you back in. Three rungs, three trees, zero managers.",
+                new Color(0.72f, 0.75f, 0.82f), 36, 0.06f);
             mesh.anchor = TextAnchor.MiddleCenter;
 
             Selection.activeObject = levelObject;
@@ -318,7 +398,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var health = go.AddComponent<HealthComponent>();
             health.team = CombatTeam.Enemy;
-            health.maxHP = 999f;
+            health.maxHP = 3f;
             health.fragmentOnDeath = false;
 
             var citizen = go.AddComponent<WorldObjectBehaviour>();
@@ -331,27 +411,6 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var tint = go.AddComponent<HealthGlyphTintView>();
             tint.aliveColor = new Color(0.95f, 0.4f, 0.35f);
-        }
-
-        /// <summary>A one-hit victim that DOES NOT fragment: death leaves the object in place,
-        /// dead in the registry's eyes, which is exactly what lets ReviveByTagTask flip the
-        /// wave back on without any spawning machinery.</summary>
-        private static void BuildDummy(string goName, Vector3 position)
-        {
-            var go = new GameObject(goName);
-            go.transform.position = position;
-            AddText(go, "D", new Color(0.5f, 0.9f, 0.55f), 64, 0.12f);
-
-            var health = go.AddComponent<HealthComponent>();
-            health.team = CombatTeam.Player;
-            health.maxHP = 1f;
-            health.fragmentOnDeath = false;
-
-            var citizen = go.AddComponent<WorldObjectBehaviour>();
-            citizen.tags.Add(k_DummyTag);
-
-            var tint = go.AddComponent<HealthGlyphTintView>();
-            tint.aliveColor = new Color(0.5f, 0.9f, 0.55f);
         }
 
         private static TextMesh AddText(GameObject go, string text, Color color, int fontSize,

@@ -20,6 +20,11 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Nearest to the owner only (default), or everyone carrying the tag.</summary>
         public bool nearestOnly = true;
 
+        /// <summary>Zero or less = unlimited (the god-hand smite). Positive = a REACH: nothing
+        /// living inside it means Failure — which turns this into a melee swing the tree can
+        /// branch on ("whiffed").</summary>
+        public float maxRange;
+
         private readonly List<WorldObjectBehaviour> m_Buffer = new List<WorldObjectBehaviour>();
 
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
@@ -33,6 +38,7 @@ namespace PowerOfFire.DrawToPlay
 
             m_Buffer.Clear();
             world.CollectByTag(tag, m_Buffer);
+            float rangeSq = maxRange > 0f ? maxRange * maxRange : float.PositiveInfinity;
 
             HealthComponent nearest = null;
             float nearestSq = float.PositiveInfinity;
@@ -46,6 +52,11 @@ namespace PowerOfFire.DrawToPlay
                 if (health == null || !health.isAlive)
                     continue;
 
+                float sq = StateTreeLibraryUtil
+                    .PlanarOffset(context.owner, m_Buffer[i].gameObject).sqrMagnitude;
+                if (sq > rangeSq)
+                    continue;
+
                 if (!nearestOnly)
                 {
                     health.TakeDamage(amount, OwnerPosition(context));
@@ -53,8 +64,6 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 }
 
-                float sq = StateTreeLibraryUtil
-                    .PlanarOffset(context.owner, m_Buffer[i].gameObject).sqrMagnitude;
                 if (sq < nearestSq)
                 {
                     nearestSq = sq;
