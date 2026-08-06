@@ -25,11 +25,11 @@ namespace PowerOfFire.DrawToPlay
         public string scopeId = "";
 
         /// <summary>Key on the SCOPE's blackboard.</summary>
-        [StateTreeKey(StateTreeKeyKind.Float)]
+        [StateTreeKey(StateTreeKeyKind.Float, any: true)]
         public string key = "";
 
         /// <summary>Key to write locally. Empty = same as <see cref="key"/>.</summary>
-        [StateTreeKey(StateTreeKeyKind.Float)]
+        [StateTreeKey(StateTreeKeyKind.Float, any: true)]
         public string localKey = "";
 
         public bool failIfMissing = true;

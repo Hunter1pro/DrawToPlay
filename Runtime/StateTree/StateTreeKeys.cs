@@ -65,16 +65,23 @@ namespace PowerOfFire.DrawToPlay
 
     /// <summary>Marks a string field as KEY-SEMANTIC — a blackboard/context key or a world
     /// tag — so the inspector offers the declaration picker there and validation knows what
-    /// the text means. Unmarked string fields are just text.</summary>
+    /// the text means. Unmarked string fields are just text. <see cref="any"/> is for the
+    /// GENERIC atoms (set/get/has-key): their field works on a key of every kind — clearing
+    /// an event, presence-testing a string — so the picker offers all declarations, with
+    /// <see cref="kind"/> demoted to the "most likely" hint that sorts them.</summary>
     [AttributeUsage(AttributeTargets.Field)]
     public sealed class StateTreeKeyAttribute : Attribute
     {
-        public StateTreeKeyAttribute(StateTreeKeyKind kind = StateTreeKeyKind.Float)
+        public StateTreeKeyAttribute(StateTreeKeyKind kind = StateTreeKeyKind.Float,
+            bool any = false)
         {
             this.kind = kind;
+            this.any = any;
         }
 
         public StateTreeKeyKind kind { get; }
+
+        public bool any { get; }
     }
 
     /// <summary>

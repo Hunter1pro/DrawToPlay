@@ -29,7 +29,7 @@ namespace PowerOfFire.DrawToPlay
         /// one it means. Empty = nearest/unique of the kind.</summary>
         public string scopeId = "";
 
-        [StateTreeKey(StateTreeKeyKind.Float)]
+        [StateTreeKey(StateTreeKeyKind.Float, any: true)]
         public string key = "";
 
         public SetBlackboardTask.ValueKind kind = SetBlackboardTask.ValueKind.Float;

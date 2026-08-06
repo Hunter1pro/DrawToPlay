@@ -607,9 +607,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// and for the same reason: the executor rewrites the field through
         /// <c>GetField(name, Public | Instance)</c>, so anything else cannot be wired at all.</summary>
         internal static bool TryGetKeyField(UnityEngine.Object target, string fieldName,
-            out StateTreeKeyKind kind)
+            out StateTreeKeyKind kind, out bool anyKind)
         {
             kind = StateTreeKeyKind.Float;
+            anyKind = false;
             if (target == null || string.IsNullOrEmpty(fieldName))
                 return false;
 
@@ -623,7 +624,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (marks.Length == 0)
                 return false;
 
-            kind = ((StateTreeKeyAttribute)marks[0]).kind;
+            var mark = (StateTreeKeyAttribute)marks[0];
+            kind = mark.kind;
+            anyKind = mark.any;
             return true;
         }
 

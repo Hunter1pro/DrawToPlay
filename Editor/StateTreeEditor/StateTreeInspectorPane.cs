@@ -1513,8 +1513,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             string fieldName, StateTreeFieldBinding.TargetKind kind, int targetIndex)
         {
             if (targetIndex >= 0 && m_Node != null && m_Tree != null
-                && StateTreeEditorOps.TryGetKeyField(target, fieldName, out var keyKind))
-                return BuildKeyContractField(field, target, fieldName, kind, targetIndex, keyKind);
+                && StateTreeEditorOps.TryGetKeyField(target, fieldName, out var keyKind,
+                    out var anyKind))
+            {
+                return BuildKeyContractField(field, target, fieldName, kind, targetIndex, keyKind,
+                    anyKind);
+            }
 
             return BuildBindableField(field, target, fieldName, kind, targetIndex);
         }
@@ -1531,7 +1535,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// </summary>
         private VisualElement BuildKeyContractField(PropertyField field, UnityEngine.Object target,
             string fieldName, StateTreeFieldBinding.TargetKind kind, int targetIndex,
-            StateTreeKeyKind keyKind)
+            StateTreeKeyKind keyKind, bool anyKind)
         {
             var link = StateTreeEditorOps.FindKeyLink(m_Node, kind, targetIndex, fieldName);
             if (link == null)
@@ -1539,7 +1543,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 var binding = StateTreeEditorOps.FindFieldBinding(m_Node, kind, targetIndex,
                     fieldName);
                 var slot = binding == null
-                    ? BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, null)
+                    ? BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, anyKind,
+                        null)
                     : null;
                 return BuildBindableField(field, target, fieldName, kind, targetIndex, slot);
             }
@@ -1560,7 +1565,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 field.style.flexGrow = 1f;
                 field.style.flexShrink = 1f;
                 row.Add(field);
-                row.Add(BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, link));
+                row.Add(BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, anyKind,
+                    link));
                 row.Add(BuildKeyUnlinkButton(kind, targetIndex, fieldName, stale: true));
 
                 var help = new HelpBox($"'{fieldName}' is wired to a declared key that no longer "
@@ -1591,10 +1597,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                     : " " + declaration.description);
             row.Add(standIn);
 
-            row.Add(BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, link));
+            row.Add(BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, anyKind,
+                link));
             row.Add(BuildKeyUnlinkButton(kind, targetIndex, fieldName, stale: false));
 
-            if (declaration.kind != keyKind)
+            // Not on an any-kind field: those atoms genuinely take a key of every kind (clearing
+            // an event, presence-testing a string is Tuesday), so a note would cry wolf.
+            if (!anyKind && declaration.kind != keyKind)
             {
                 var help = new HelpBox($"'{declaration.name}' is declared as "
                     + $"{KeyKindLabel(declaration.kind)}; this field expects a "
@@ -1610,18 +1619,19 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private Button BuildKeyPickButton(UnityEngine.Object target, string fieldName,
             StateTreeFieldBinding.TargetKind kind, int targetIndex, StateTreeKeyKind keyKind,
-            StateTreeKeyLink link)
+            bool anyKind, StateTreeKeyLink link)
         {
             var pick = new Button { text = k_KeyGlyph };
             pick.style.flexShrink = 0f;
             EnlargeRowButton(pick, k_GlyphMinWidth);
             pick.tooltip = link == null
-                ? $"'{fieldName}' names a {KeyKindLabel(keyKind)} key as plain text. Wire it to a "
-                + "declared key instead — the wire is by id, so renaming the declaration renames "
-                + "this field with it."
+                ? $"'{fieldName}' names a "
+                + (anyKind ? "key" : $"{KeyKindLabel(keyKind)} key")
+                + " as plain text. Wire it to a declared key instead — the wire is by id, so "
+                + "renaming the declaration renames this field with it."
                 : "Wire this field to a different declared key.";
             pick.clicked += () => ShowKeyContractMenu(target, fieldName, kind, targetIndex,
-                keyKind, link);
+                keyKind, anyKind, link);
             return pick;
         }
 
@@ -1647,42 +1657,57 @@ namespace PowerOfFire.DrawToPlay.Editor
             return unlink;
         }
 
+        /// <summary>A ⚿ menu row waiting to be emitted: the label carries its source prefix, the
+        /// declaration is what picking it wires.</summary>
+        private struct KeyMenuEntry
+        {
+            public string label;
+            public StateTreeKeyDeclaration declaration;
+        }
+
         /// <summary>
         /// The ⚿ menu: this tree's declarations at the top level, each import's under its tree
         /// name — presentation mirroring resolution order, nearest first. Kind-filtered, because
-        /// that is what the kinds are FOR. The last item promotes the text already in the field to
-        /// a declaration on this tree in one gesture, offered only while no visible declaration
-        /// carries that name — otherwise the item above IS the right gesture.
+        /// that is what the kinds are FOR — except on an any-kind field, where every other kind
+        /// follows below a separator, each row saying which kind it is: the generic atoms work on
+        /// all of them and a filter would refuse real wires. The last item promotes the text
+        /// already in the field to a declaration on this tree in one gesture, offered only while
+        /// no visible declaration carries that name — otherwise the item above IS the right
+        /// gesture.
         /// </summary>
         private void ShowKeyContractMenu(UnityEngine.Object target, string fieldName,
             StateTreeFieldBinding.TargetKind kind, int targetIndex, StateTreeKeyKind keyKind,
-            StateTreeKeyLink link)
+            bool anyKind, StateTreeKeyLink link)
         {
-            var menu = new GenericMenu();
             var linkedId = link != null ? link.keyId : null;
             var seen = new HashSet<string>(StringComparer.Ordinal);
 
-            var offered = AddKeyMenuItems(menu, m_Tree, string.Empty, keyKind, linkedId, kind,
-                targetIndex, fieldName, seen);
+            var matching = new List<KeyMenuEntry>();
+            CollectKeyMenuEntries(matching, keyKind, seen);
+            var others = new List<KeyMenuEntry>();
+            if (anyKind)
+                CollectKeyMenuEntries(others, null, seen);
 
-            var uses = m_Tree.uses;
-            for (var i = 0; uses != null && i < uses.Count; ++i)
-            {
-                var import = uses[i];
-                if (import == null || import == m_Tree)
-                    continue;
+            var menu = new GenericMenu();
+            for (var i = 0; i < matching.Count; ++i)
+                AddKeyMenuItem(menu, matching[i], string.Empty, linkedId, kind, targetIndex,
+                    fieldName);
 
-                var prefix = StateTreeEditorOps.TreeDisplayName(import)
-                    .Replace('/', k_MenuSeparatorStandIn) + "/";
-                offered += AddKeyMenuItems(menu, import, prefix, keyKind, linkedId, kind,
-                    targetIndex, fieldName, seen);
-            }
-
-            if (offered == 0)
+            if (matching.Count == 0 && others.Count == 0)
             {
                 menu.AddDisabledItem(new GUIContent(
-                    $"No {KeyKindLabel(keyKind)} keys declared — add one in the tree's Keys "
-                    + "section"));
+                    (anyKind ? "No keys declared" : $"No {KeyKindLabel(keyKind)} keys declared")
+                    + " — add one in the tree's Keys section"));
+            }
+
+            if (others.Count > 0)
+            {
+                if (matching.Count > 0)
+                    menu.AddSeparator(string.Empty);
+                for (var i = 0; i < others.Count; ++i)
+                    AddKeyMenuItem(menu, others[i],
+                        "  · " + KeyKindLabel(others[i].declaration.kind), linkedId, kind,
+                        targetIndex, fieldName);
             }
 
             var text = CurrentKeyFieldText(target, fieldName);
@@ -1697,16 +1722,45 @@ namespace PowerOfFire.DrawToPlay.Editor
             menu.ShowAsContext();
         }
 
-        /// <summary>One source's rows. The tree's OWN level lists only its own declarations (the
-        /// imports get their own prefixes from the caller); an import lists everything IT can see,
-        /// because its own imports arrive through it and belong under its name. Deduped by id
-        /// across the whole menu — nearest wins, so the first appearance is the resolving one.</summary>
-        private int AddKeyMenuItems(GenericMenu menu, StateTreeAsset source, string prefix,
-            StateTreeKeyKind keyKind, string linkedId, StateTreeFieldBinding.TargetKind kind,
-            int targetIndex, string fieldName, HashSet<string> seen)
+        private void AddKeyMenuItem(GenericMenu menu, KeyMenuEntry entry, string suffix,
+            string linkedId, StateTreeFieldBinding.TargetKind kind, int targetIndex,
+            string fieldName)
+        {
+            var declaration = entry.declaration;
+            menu.AddItem(new GUIContent(entry.label + suffix),
+                string.Equals(declaration.id, linkedId, StringComparison.Ordinal),
+                () => LinkFieldKey(kind, targetIndex, fieldName, declaration));
+        }
+
+        /// <summary>One pass over everything visible, in resolution order: own declarations bare,
+        /// each import's under its tree name — an import listing everything IT can see, because
+        /// its own imports arrive through it and belong under its name. Deduped by id ACROSS
+        /// passes through the shared set — nearest wins, so the first appearance is the resolving
+        /// one. A null filter takes every kind (the any-kind second pass).</summary>
+        private void CollectKeyMenuEntries(List<KeyMenuEntry> into, StateTreeKeyKind? filterKind,
+            HashSet<string> seen)
+        {
+            CollectSourceKeyEntries(into, m_Tree, string.Empty, filterKind, seen, ownOnly: true);
+
+            var uses = m_Tree.uses;
+            for (var i = 0; uses != null && i < uses.Count; ++i)
+            {
+                var import = uses[i];
+                if (import == null || import == m_Tree)
+                    continue;
+
+                var prefix = StateTreeEditorOps.TreeDisplayName(import)
+                    .Replace('/', k_MenuSeparatorStandIn) + "/";
+                CollectSourceKeyEntries(into, import, prefix, filterKind, seen, ownOnly: false);
+            }
+        }
+
+        private static void CollectSourceKeyEntries(List<KeyMenuEntry> into,
+            StateTreeAsset source, string prefix, StateTreeKeyKind? filterKind,
+            HashSet<string> seen, bool ownOnly)
         {
             var declarations = new List<StateTreeKeyDeclaration>();
-            if (prefix.Length == 0)
+            if (ownOnly)
             {
                 var own = source.keys;
                 for (var i = 0; own != null && i < own.Count; ++i)
@@ -1720,23 +1774,20 @@ namespace PowerOfFire.DrawToPlay.Editor
                 StateTreeKeyResolver.CollectVisible(source, declarations);
             }
 
-            var added = 0;
             for (var i = 0; i < declarations.Count; ++i)
             {
                 var entry = declarations[i];
-                if (entry.kind != keyKind || string.IsNullOrEmpty(entry.id)
-                    || string.IsNullOrEmpty(entry.name) || !seen.Add(entry.id))
+                if (string.IsNullOrEmpty(entry.id) || string.IsNullOrEmpty(entry.name)
+                    || (filterKind.HasValue && entry.kind != filterKind.Value)
+                    || !seen.Add(entry.id))
                     continue;
 
-                var declaration = entry;
-                var label = prefix + entry.name.Replace('/', k_MenuSeparatorStandIn);
-                menu.AddItem(new GUIContent(label),
-                    string.Equals(entry.id, linkedId, StringComparison.Ordinal),
-                    () => LinkFieldKey(kind, targetIndex, fieldName, declaration));
-                ++added;
+                into.Add(new KeyMenuEntry
+                {
+                    label = prefix + entry.name.Replace('/', k_MenuSeparatorStandIn),
+                    declaration = entry
+                });
             }
-
-            return added;
         }
 
         private void LinkFieldKey(StateTreeFieldBinding.TargetKind kind, int targetIndex,
