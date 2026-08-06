@@ -33,6 +33,14 @@ namespace PowerOfFire.DrawToPlay
         [TaskOutput("Item id of the clicked row")]
         public string clickedItemId = "";
 
+        /// <summary>Hide the screen when this state exits (the modal default). FALSE makes the
+        /// screen a PERSISTENT panel — it stays up across the states a click flows through
+        /// (master-detail: the list never blinks), and hiding becomes some other state's
+        /// explicit job (<see cref="SetScreenVisibleTask"/> in the closed state). That
+        /// includes Cancelled: a tree that can be interrupted above this state should keep
+        /// the default, or its teardown state must hide what it left showing.</summary>
+        public bool closeOnExit = true;
+
         private UIScreenBehaviour m_Screen;
         private bool m_ClickPending;
         private bool m_ClosePending;
@@ -97,7 +105,8 @@ namespace PowerOfFire.DrawToPlay
                 return;
             m_Screen.itemClicked -= OnItemClicked;
             m_Screen.closeRequested -= OnCloseRequested;
-            m_Screen.Hide();
+            if (closeOnExit)
+                m_Screen.Hide();
             m_Screen = null;
         }
 

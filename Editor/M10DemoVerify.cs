@@ -125,7 +125,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreeNodeAsset inventory = Node(tree, root, 3, "inventory", "Inventory Screen");
             StateTreeNodeAsset itemFlow = Node(tree, root, 4, "itemFlow", "Item Flow");
             StateTreeNodeAsset equip = Node(tree, root, 5, "equip", "Equip");
-            StateTreeNodeAsset tooltip = Node(tree, root, 6, "tooltip", "Tooltip Screen");
+            StateTreeNodeAsset unequip = Node(tree, root, 6, "unequip", "Unequip");
+            StateTreeNodeAsset showInfo = Node(tree, root, 7, "showInfo", "Show Item Info");
 
             // boot: give the player something to look at, with the atoms themselves.
             var addSword = Sub<InventoryAddTask>(tree, "Task boot AddSword");
@@ -138,7 +139,17 @@ namespace PowerOfFire.DrawToPlay.Editor
             boot.tasks.Add(addPotion);
             Wire(boot, closed, null, false);
 
-            // closed: parked, no tasks; the trigger interrupts in.
+            // closed: hiding is ITS explicit job now — the inventory panel is persistent
+            // (closeOnExit off), so nothing else ever takes the screens down. Then it parks;
+            // the trigger interrupts in.
+            var hideInv = Sub<SetScreenVisibleTask>(tree, "Task closed HideInventory");
+            hideInv.screenId = "inv";
+            hideInv.visible = false;
+            closed.tasks.Add(hideInv);
+            var hideInfo = Sub<SetScreenVisibleTask>(tree, "Task closed HideInfo");
+            hideInfo.screenId = "tooltip";
+            hideInfo.visible = false;
+            closed.tasks.Add(hideInfo);
             var opened = Sub<HasContextKeyCondition>(tree, "Cond closed->inventory Opened");
             opened.scope = StateTreeContextKind.Player;
             opened.key = k_OpenKey;
@@ -157,6 +168,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             inventory.tasks.Add(bind);
             var showInv = Sub<ShowScreenTask>(tree, "Task inventory ShowScreen");
             showInv.screenId = "inv";
+            showInv.closeOnExit = false;
             inventory.tasks.Add(showInv);
             var clicked = Sub<HasBlackboardKeyCondition>(tree, "Cond inventory->itemFlow Clicked");
             clicked.key = k_ClickedKey;
@@ -169,12 +181,29 @@ namespace PowerOfFire.DrawToPlay.Editor
             mark.kind = SetBlackboardTask.ValueKind.Float;
             mark.floatValue = 1f;
             itemFlow.tasks.Add(mark);
+            // Order IS the logic: "clicked the equipped weapon" outranks "clicked a weapon",
+            // and everything else falls through to plain info. The comparand of the toggle
+            // test arrives through a ⚑ binding on the TRANSITION CONDITION — the M7k
+            // condition-target flavor earning its keep.
+            var alreadyEquipped = Sub<ContextStringEqualsCondition>(tree,
+                "Cond itemFlow->unequip AlreadyEquipped");
+            alreadyEquipped.scope = StateTreeContextKind.Player;
+            alreadyEquipped.key = "equipped";
+            Wire(itemFlow, unequip, alreadyEquipped, false);
+            itemFlow.bindings.Add(new StateTreeFieldBinding
+            {
+                targetKind = StateTreeFieldBinding.TargetKind.TransitionCondition,
+                targetIndex = 0,
+                fieldName = "value",
+                sourceKind = StateTreeFieldBinding.SourceKind.BlackboardKey,
+                blackboardKey = k_ClickedKey
+            });
             var isWeapon = Sub<ItemKindCondition>(tree, "Cond itemFlow->equip IsWeapon");
             isWeapon.registry = registry;
             isWeapon.kind = ItemKind.Weapon;
             isWeapon.itemIdKey = k_ClickedKey;
             Wire(itemFlow, equip, isWeapon, false);
-            Wire(itemFlow, tooltip, null, false);
+            Wire(itemFlow, showInfo, null, false);
 
             // equip: publish the clicked weapon on the Player scope — stringValue arrives
             // through the ⚑ entry binding, exactly as the inspector would wire it. The state
@@ -187,13 +216,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             publish.kind = SetBlackboardTask.ValueKind.String;
             equip.tasks.Add(publish);
             var equipLabel = Sub<BindItemDetailTask>(tree, "Task equip ShowEquipped");
-            equipLabel.screenId = "inv";
+            equipLabel.screenId = "tooltip";
             equipLabel.registry = registry;
             equipLabel.prefix = "EQUIPPED: ";
             equip.tasks.Add(equipLabel);
-            var equipDwell = Sub<WaitTask>(tree, "Task equip Dwell");
-            equipDwell.seconds = 0.35f;
-            equip.tasks.Add(equipDwell);
+            var showPanelOnEquip = Sub<SetScreenVisibleTask>(tree, "Task equip ShowInfoPanel");
+            showPanelOnEquip.screenId = "tooltip";
+            showPanelOnEquip.visible = true;
+            equip.tasks.Add(showPanelOnEquip);
             equip.bindings.Add(new StateTreeFieldBinding
             {
                 targetKind = StateTreeFieldBinding.TargetKind.Task,
@@ -212,16 +242,41 @@ namespace PowerOfFire.DrawToPlay.Editor
             });
             Wire(equip, inventory, null, false);
 
-            // tooltip: content from the click (same ⚑ delivery), then hold the screen open.
-            var detail = Sub<BindItemDetailTask>(tree, "Task tooltip BindDetail");
+            // unequip: the other half of the toggle — clear the slot, say so on the panel.
+            var clearEquipped = Sub<SetContextValueTask>(tree, "Task unequip ClearEquipped");
+            clearEquipped.scope = StateTreeContextKind.Player;
+            clearEquipped.key = "equipped";
+            clearEquipped.kind = SetBlackboardTask.ValueKind.Clear;
+            unequip.tasks.Add(clearEquipped);
+            var unequipLabel = Sub<BindItemDetailTask>(tree, "Task unequip ShowUnequipped");
+            unequipLabel.screenId = "tooltip";
+            unequipLabel.registry = registry;
+            unequipLabel.prefix = "UNEQUIPPED: ";
+            unequip.tasks.Add(unequipLabel);
+            var showPanelOnUnequip = Sub<SetScreenVisibleTask>(tree, "Task unequip ShowInfoPanel");
+            showPanelOnUnequip.screenId = "tooltip";
+            showPanelOnUnequip.visible = true;
+            unequip.tasks.Add(showPanelOnUnequip);
+            unequip.bindings.Add(new StateTreeFieldBinding
+            {
+                targetKind = StateTreeFieldBinding.TargetKind.Task,
+                targetIndex = 1,
+                fieldName = "itemId",
+                sourceKind = StateTreeFieldBinding.SourceKind.BlackboardKey,
+                blackboardKey = k_ClickedKey
+            });
+            Wire(unequip, inventory, null, false);
+
+            // showInfo: any other click just fills the side panel — no modal, no blink.
+            var detail = Sub<BindItemDetailTask>(tree, "Task showInfo BindDetail");
             detail.screenId = "tooltip";
             detail.registry = registry;
-            tooltip.tasks.Add(detail);
-            var showTip = Sub<ShowScreenTask>(tree, "Task tooltip ShowScreen");
-            showTip.screenId = "tooltip";
-            showTip.resultKey = "tooltipClicked";
-            tooltip.tasks.Add(showTip);
-            tooltip.bindings.Add(new StateTreeFieldBinding
+            showInfo.tasks.Add(detail);
+            var showPanelOnInfo = Sub<SetScreenVisibleTask>(tree, "Task showInfo ShowInfoPanel");
+            showPanelOnInfo.screenId = "tooltip";
+            showPanelOnInfo.visible = true;
+            showInfo.tasks.Add(showPanelOnInfo);
+            showInfo.bindings.Add(new StateTreeFieldBinding
             {
                 targetKind = StateTreeFieldBinding.TargetKind.Task,
                 targetIndex = 0,
@@ -229,7 +284,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 sourceKind = StateTreeFieldBinding.SourceKind.BlackboardKey,
                 blackboardKey = k_ClickedKey
             });
-            Wire(tooltip, inventory, null, false);
+            Wire(showInfo, inventory, null, false);
 
             EditorUtility.SetDirty(tree);
             return tree;
@@ -276,8 +331,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             var hint = new GameObject("Hint");
             hint.transform.position = new Vector3(0f, -2.4f, 0f);
             var mesh = hint.AddComponent<TextMesh>();
-            mesh.text = "Press I to open the inventory. Click a row: the sword EQUIPS (see the "
-                + "EQUIPPED line), the potion opens a tooltip.\nThe clicked row flashes; the "
+            mesh.text = "Press I to open the inventory. Click the sword to EQUIP / UNEQUIP; "
+                + "any item shows its info on the right panel.\nThe clicked row flashes; the "
                 + "State Tree window shows the active state — the tree IS the UI.";
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             mesh.font = font;
