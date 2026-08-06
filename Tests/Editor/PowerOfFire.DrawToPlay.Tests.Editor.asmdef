@@ -4,7 +4,8 @@
     "references": [
         "PowerOfFire.DrawToPlay",
         "UnityEngine.TestRunner",
-        "UnityEditor.TestRunner"
+        "UnityEditor.TestRunner",
+        "PowerOfFire.DrawToPlay.Examples"
     ],
     "includePlatforms": [
         "Editor"
