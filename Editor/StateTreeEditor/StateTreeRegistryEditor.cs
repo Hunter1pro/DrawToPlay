@@ -22,8 +22,27 @@ namespace PowerOfFire.DrawToPlay.Editor
     {
         private const string k_AddUndo = "Add Registry Entry";
         private const string k_RemoveUndo = "Remove Registry Entry";
+        private const string k_AllGroupsLabel = "all groups";
+        private const string k_NoGroupLabel = "(no group)";
 
         private VisualElement m_Root;
+
+        /// <summary>The list half of the pane — the only part <see cref="Rebuild"/> replaces.
+        /// The toolbar above it is built once and never torn down, which is what lets the
+        /// search field keep keyboard focus while every keystroke refilters the rows.</summary>
+        private VisualElement m_ListRoot;
+
+        private TextField m_SearchField;
+        private DropdownField m_GroupField;
+
+        /// <summary>View state, not data: the search text, and the group filter — null shows
+        /// everything, empty string shows the ungrouped section, anything else one path.</summary>
+        private string m_Search = string.Empty;
+        private string m_GroupFilter;
+
+        /// <summary>The dropdown's rows in display order, index-matched to its choices — the
+        /// same index-addressing every dropdown in the tree window uses.</summary>
+        private readonly List<string> m_GroupChoices = new List<string>();
 
         public override VisualElement CreateInspectorGUI()
         {
@@ -35,22 +54,85 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Root.RegisterCallback<DetachFromPanelEvent>(_ =>
                 Undo.undoRedoPerformed -= Rebuild);
 
+            m_Root.Add(BuildToolbar());
+            m_ListRoot = new VisualElement();
+            m_Root.Add(m_ListRoot);
+
             Rebuild();
             return m_Root;
         }
 
+        /// <summary>Search + group filter. Both MANUAL fields (the bound-field-with-rebuild
+        /// -handler trap), and both persistent — rebuilt controls lose focus mid-word.</summary>
+        private VisualElement BuildToolbar()
+        {
+            var toolbar = new VisualElement();
+            toolbar.style.flexDirection = FlexDirection.Row;
+            toolbar.style.alignItems = Align.Center;
+            toolbar.style.marginBottom = 4f;
+
+            m_SearchField = new TextField();
+            m_SearchField.style.flexGrow = 1f;
+            m_SearchField.style.flexBasis = 0f;
+            m_SearchField.textEdition.placeholder = "search entries";
+            m_SearchField.tooltip = "Filters rows by ANY of the entry's text fields — name, "
+                + "group, display name, whatever the entry class declares.";
+            m_SearchField.RegisterValueChangedCallback(evt =>
+            {
+                m_Search = evt.newValue ?? string.Empty;
+                Rebuild();
+            });
+            toolbar.Add(m_SearchField);
+
+            m_GroupField = new DropdownField();
+            m_GroupField.style.width = 120f;
+            m_GroupField.style.flexShrink = 0f;
+            m_GroupField.style.marginLeft = 2f;
+            m_GroupField.tooltip = "Show one group's rows, or all.";
+            m_GroupField.RegisterValueChangedCallback(evt =>
+            {
+                if (m_GroupField.index >= 0 && m_GroupField.index < m_GroupChoices.Count + 1)
+                {
+                    m_GroupFilter = m_GroupField.index == 0
+                        ? null
+                        : m_GroupChoices[m_GroupField.index - 1];
+                    Rebuild();
+                }
+            });
+            toolbar.Add(m_GroupField);
+
+            return toolbar;
+        }
+
         private void Rebuild()
         {
-            m_Root.Clear();
+            m_ListRoot.Clear();
             serializedObject.Update();
 
             var registry = (StateTreeRegistryAsset)target;
+            UpdateGroupChoices(registry);
 
-            var title = new Label($"{registry.entryType.Name} registry · {registry.Count} "
-                + "entr" + (registry.Count == 1 ? "y" : "ies"));
+            SerializedProperty entries = serializedObject.FindProperty("entries");
+            if (entries == null)
+            {
+                m_ListRoot.Add(new HelpBox("This registry serializes no 'entries' list — the "
+                    + "asset class must derive from StateTreeRegistry<TEntry>.",
+                    HelpBoxMessageType.Error));
+                return;
+            }
+
+            var shown = 0;
+            var sections = new List<KeyValuePair<string, List<int>>>(Sections(registry));
+            foreach (KeyValuePair<string, List<int>> section in sections)
+                shown += section.Value.Count;
+
+            var filtered = shown != registry.Count;
+            var title = new Label($"{registry.entryType.Name} registry · "
+                + (filtered ? $"{shown} of {registry.Count}" : registry.Count.ToString())
+                + " entr" + (shown == 1 ? "y" : "ies"));
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
             title.style.marginBottom = 4f;
-            m_Root.Add(title);
+            m_ListRoot.Add(title);
 
             var hint = new Label("Rows are the data; trees list this asset in their Data "
                 + "section and pick entries with ⛃. Rename freely — references follow by id. "
@@ -58,38 +140,69 @@ namespace PowerOfFire.DrawToPlay.Editor
             hint.style.whiteSpace = WhiteSpace.Normal;
             hint.style.opacity = 0.75f;
             hint.style.marginBottom = 6f;
-            m_Root.Add(hint);
-
-            SerializedProperty entries = serializedObject.FindProperty("entries");
-            if (entries == null)
-            {
-                m_Root.Add(new HelpBox("This registry serializes no 'entries' list — the "
-                    + "asset class must derive from StateTreeRegistry<TEntry>.",
-                    HelpBoxMessageType.Error));
-                return;
-            }
+            m_ListRoot.Add(hint);
 
             // Sectioned by group, rows in list order inside each — the order the asset
             // serializes and the executor searches.
-            foreach (KeyValuePair<string, List<int>> section in Sections(registry))
+            foreach (KeyValuePair<string, List<int>> section in sections)
             {
                 if (!string.IsNullOrEmpty(section.Key))
                 {
                     var header = new Label(section.Key);
                     header.style.unityFontStyleAndWeight = FontStyle.Bold;
                     header.style.marginTop = 6f;
-                    m_Root.Add(header);
+                    m_ListRoot.Add(header);
                 }
 
                 foreach (int index in section.Value)
-                    m_Root.Add(BuildRow(entries, index));
+                    m_ListRoot.Add(BuildRow(entries, index));
+            }
+
+            if (shown == 0 && registry.Count > 0)
+            {
+                m_ListRoot.Add(new HelpBox("No entries match the search/filter.",
+                    HelpBoxMessageType.Info));
             }
 
             var add = new Button(AddEntry) { text = "Add Entry" };
             add.style.marginTop = 6f;
             add.tooltip = "Add a row. Its id is minted now and never changes — that id is "
-                + "what every typed reference in every tree stores.";
-            m_Root.Add(add);
+                + "what every typed reference in every tree stores."
+                + (m_GroupFilter != null
+                    ? " With a group filtered, the new row lands in that group."
+                    : string.Empty);
+            m_ListRoot.Add(add);
+        }
+
+        /// <summary>Keep the dropdown honest against the data: distinct groups in section
+        /// order, the current filter preserved when its group still exists and reset to "all"
+        /// when it does not (deleting a group's last row must not leave an empty view).</summary>
+        private void UpdateGroupChoices(StateTreeRegistryAsset registry)
+        {
+            m_GroupChoices.Clear();
+            for (var i = 0; i < registry.Count; ++i)
+            {
+                StateTreeRegistryEntry entry = registry.EntryAt(i);
+                var group = entry != null ? entry.group ?? string.Empty : string.Empty;
+                if (!m_GroupChoices.Contains(group))
+                    m_GroupChoices.Add(group);
+            }
+
+            if (m_GroupFilter != null && !m_GroupChoices.Contains(m_GroupFilter))
+                m_GroupFilter = null;
+
+            var labels = new List<string> { k_AllGroupsLabel };
+            for (var i = 0; i < m_GroupChoices.Count; ++i)
+            {
+                labels.Add(m_GroupChoices[i].Length == 0
+                    ? k_NoGroupLabel
+                    : m_GroupChoices[i].Replace('/', '∕'));
+            }
+
+            m_GroupField.choices = labels;
+            m_GroupField.SetValueWithoutNotify(m_GroupFilter == null
+                ? k_AllGroupsLabel
+                : labels[m_GroupChoices.IndexOf(m_GroupFilter) + 1]);
         }
 
         private IEnumerable<KeyValuePair<string, List<int>>> Sections(
@@ -100,7 +213,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (var i = 0; i < registry.Count; ++i)
             {
                 StateTreeRegistryEntry entry = registry.EntryAt(i);
-                var group = entry != null ? entry.group ?? string.Empty : string.Empty;
+                if (entry == null || !PassesFilter(entry))
+                    continue;
+
+                var group = entry.group ?? string.Empty;
                 if (!sections.TryGetValue(group, out List<int> rows))
                 {
                     rows = new List<int>();
@@ -112,6 +228,34 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             foreach (var group in order)
                 yield return new KeyValuePair<string, List<int>>(group, sections[group]);
+        }
+
+        /// <summary>The search matches ANY public string field of the entry — name and group
+        /// from the base, display names and descriptions from whatever the entry class adds —
+        /// so the dashboard needs no knowledge of the kind it is showing.</summary>
+        private bool PassesFilter(StateTreeRegistryEntry entry)
+        {
+            if (m_GroupFilter != null
+                && !string.Equals(entry.group ?? string.Empty, m_GroupFilter,
+                    StringComparison.Ordinal))
+                return false;
+
+            if (string.IsNullOrEmpty(m_Search))
+                return true;
+
+            var fields = entry.GetType().GetFields(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            for (var i = 0; i < fields.Length; ++i)
+            {
+                if (fields[i].FieldType != typeof(string) || fields[i].Name == "id")
+                    continue;
+                var value = fields[i].GetValue(entry) as string;
+                if (!string.IsNullOrEmpty(value)
+                    && value.IndexOf(m_Search, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>One entry: identity row (name, group, remove), then the entry class's own
@@ -213,6 +357,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             var entry = (StateTreeRegistryEntry)Activator.CreateInstance(registry.entryType);
             entry.id = Guid.NewGuid().ToString("N");
             entry.name = UniqueName(registry);
+            // A new row must be VISIBLE where the author is looking: with a group filtered it
+            // joins that group, and a search that would hide it is cleared.
+            entry.group = m_GroupFilter ?? string.Empty;
+            if (!string.IsNullOrEmpty(m_Search))
+            {
+                m_Search = string.Empty;
+                m_SearchField.SetValueWithoutNotify(string.Empty);
+            }
             list.Add(entry);
             EditorUtility.SetDirty(registry);
             serializedObject.Update();
