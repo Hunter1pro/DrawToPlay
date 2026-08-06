@@ -290,6 +290,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             var view = screenObject.AddComponent<UIScreenTextView>();
             view.screen = screen;
             view.title = title;
+            view.debugClicks = true;
         }
 
         // --- small builders ---------------------------------------------------------------

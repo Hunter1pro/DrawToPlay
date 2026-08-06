@@ -23,7 +23,15 @@ namespace PowerOfFire.DrawToPlay
 
         public float rowHeight = 0.55f;
 
-        public float rowWidth = 4.5f;
+        /// <summary>Hit width around each row's center. Sized to the TEXT, not the panel: a
+        /// rect much wider than what the eye aims at silently claims off-target clicks for
+        /// whichever row happens to share the height.</summary>
+        public float rowWidth = 3f;
+
+        /// <summary>Log every click this view judges — pixel position, world position, and the
+        /// verdict — the deep-log rule applied to picking, because a wrong hit is invisible
+        /// exactly when it matters. The demo builder turns it on.</summary>
+        public bool debugClicks;
 
         private sealed class Row
         {
@@ -60,12 +68,28 @@ namespace PowerOfFire.DrawToPlay
 
         private void Update()
         {
+            if (m_FlashMesh != null && Time.time >= m_FlashUntil)
+            {
+                m_FlashMesh.color = m_FlashRestore;
+                m_FlashMesh = null;
+            }
+
             if (screen == null || !screen.isVisible)
                 return;
-            if (!TryReadClick(out Vector2 screenPosition))
-                return;
+            if (TryReadClick(out Vector2 screenPosition))
+                HandleClick(screenPosition);
+        }
+
+        /// <summary>
+        /// Judge one click at a game-view pixel position — public so a probe can drive the
+        /// EXACT shipping path with synthetic positions. The hit row FLASHES, which turns
+        /// "clicks feel wrong" from a guess into an observation: the flash is what the view
+        /// decided, wherever the press seemed to land.
+        /// </summary>
+        public void HandleClick(Vector2 screenPosition)
+        {
             Camera camera = Camera.main;
-            if (camera == null)
+            if (camera == null || screen == null)
                 return;
 
             Vector3 world = camera.ScreenToWorldPoint(screenPosition);
@@ -80,12 +104,46 @@ namespace PowerOfFire.DrawToPlay
                 if (!bounds.Contains(new Vector2(world.x, world.y)))
                     continue;
 
+                if (debugClicks)
+                {
+                    Debug.Log("[UIView " + screen.screenId + "] click px=" + screenPosition
+                        + " world=(" + world.x.ToString("F2") + "," + world.y.ToString("F2")
+                        + ") -> " + (row.isClose ? "[close]" : "'" + row.itemId + "'"), this);
+                }
+                Flash(row.holder);
+
                 if (row.isClose)
                     screen.ReportClose();
                 else
                     screen.ReportItemClick(row.itemId);
                 return;
             }
+
+            if (debugClicks)
+            {
+                Debug.Log("[UIView " + screen.screenId + "] click px=" + screenPosition
+                    + " world=(" + world.x.ToString("F2") + "," + world.y.ToString("F2")
+                    + ") -> miss (no row there)", this);
+            }
+        }
+
+        private TextMesh m_FlashMesh;
+        private Color m_FlashRestore;
+        private float m_FlashUntil;
+
+        /// <summary>Tint the judged row for a beat. One row at a time — a second click restores
+        /// the first before flashing the next, so colors cannot stick.</summary>
+        private void Flash(GameObject rowHolder)
+        {
+            if (m_FlashMesh != null)
+                m_FlashMesh.color = m_FlashRestore;
+            TextMesh mesh = rowHolder != null ? rowHolder.GetComponent<TextMesh>() : null;
+            if (mesh == null)
+                return;
+            m_FlashRestore = mesh.color;
+            mesh.color = new Color(1f, 0.85f, 0.2f);
+            m_FlashMesh = mesh;
+            m_FlashUntil = Time.time + 0.25f;
         }
 
         /// <summary>The RagdollDemoInput backend arrangement: new Input System first, legacy
