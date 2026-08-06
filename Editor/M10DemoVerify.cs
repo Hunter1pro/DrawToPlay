@@ -177,17 +177,36 @@ namespace PowerOfFire.DrawToPlay.Editor
             Wire(itemFlow, tooltip, null, false);
 
             // equip: publish the clicked weapon on the Player scope — stringValue arrives
-            // through the ⚑ entry binding, exactly as the inspector would wire it.
+            // through the ⚑ entry binding, exactly as the inspector would wire it. The state
+            // also SHOWS what it did (an "EQUIPPED:" line on the inventory screen) and dwells a
+            // beat: an equip that finishes inside three frames reads as "the click did
+            // nothing", which is exactly what the first hands-on pass reported.
             var publish = Sub<SetContextValueTask>(tree, "Task equip PublishEquipped");
             publish.scope = StateTreeContextKind.Player;
             publish.key = "equipped";
             publish.kind = SetBlackboardTask.ValueKind.String;
             equip.tasks.Add(publish);
+            var equipLabel = Sub<BindItemDetailTask>(tree, "Task equip ShowEquipped");
+            equipLabel.screenId = "inv";
+            equipLabel.registry = registry;
+            equipLabel.prefix = "EQUIPPED: ";
+            equip.tasks.Add(equipLabel);
+            var equipDwell = Sub<WaitTask>(tree, "Task equip Dwell");
+            equipDwell.seconds = 0.35f;
+            equip.tasks.Add(equipDwell);
             equip.bindings.Add(new StateTreeFieldBinding
             {
                 targetKind = StateTreeFieldBinding.TargetKind.Task,
                 targetIndex = 0,
                 fieldName = "stringValue",
+                sourceKind = StateTreeFieldBinding.SourceKind.BlackboardKey,
+                blackboardKey = k_ClickedKey
+            });
+            equip.bindings.Add(new StateTreeFieldBinding
+            {
+                targetKind = StateTreeFieldBinding.TargetKind.Task,
+                targetIndex = 1,
+                fieldName = "itemId",
                 sourceKind = StateTreeFieldBinding.SourceKind.BlackboardKey,
                 blackboardKey = k_ClickedKey
             });
@@ -257,9 +276,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             var hint = new GameObject("Hint");
             hint.transform.position = new Vector3(0f, -2.4f, 0f);
             var mesh = hint.AddComponent<TextMesh>();
-            mesh.text = "Press I to open the inventory. Click a row: weapon equips, potion "
-                + "shows a tooltip.\nWatch the tree in the State Tree window — the active "
-                + "state IS the UI.";
+            mesh.text = "Press I to open the inventory. Click a row: the sword EQUIPS (see the "
+                + "EQUIPPED line), the potion opens a tooltip.\nThe clicked row flashes; the "
+                + "State Tree window shows the active state — the tree IS the UI.";
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             mesh.font = font;
             mesh.fontSize = 40;

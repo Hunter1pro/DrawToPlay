@@ -22,6 +22,10 @@ namespace PowerOfFire.DrawToPlay
         /// transition routes into this state.</summary>
         public string itemId = "";
 
+        /// <summary>Text in front of the item's description — "EQUIPPED: ", "Sold: " — so the
+        /// same atom labels what HAPPENED, not just what the item is.</summary>
+        public string prefix = "";
+
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
         {
             if (context == null || registry == null || string.IsNullOrEmpty(itemId))
@@ -34,11 +38,11 @@ namespace PowerOfFire.DrawToPlay
 
             if (!registry.TryGet(itemId, out ItemDefAsset def))
             {
-                screen.SetDetail(itemId + " (unknown item)");
+                screen.SetDetail(prefix + itemId + " (unknown item)");
                 return StateTreeStatus.Failure;
             }
 
-            screen.SetDetail(def.displayName + " — " + def.kind);
+            screen.SetDetail(prefix + def.displayName + " — " + def.kind);
             return StateTreeStatus.Success;
         }
     }
