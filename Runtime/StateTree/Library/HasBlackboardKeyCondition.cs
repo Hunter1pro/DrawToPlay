@@ -14,6 +14,7 @@ namespace PowerOfFire.DrawToPlay
     [StateTreeCategory("Conditions/Blackboard", "This tree's blackboard holds (or lacks) a key")]
     public sealed class HasBlackboardKeyCondition : StateTreeConditionAsset
     {
+        [StateTreeKey(StateTreeKeyKind.Event)]
         public string key = "";
 
         public bool invert;

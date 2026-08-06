@@ -16,6 +16,7 @@ namespace PowerOfFire.DrawToPlay
     [StateTreeCategory("Conditions/World", "A world object with this tag exists (or none does)")]
     public sealed class HasWorldTagCondition : StateTreeConditionAsset
     {
+        [StateTreeKey(StateTreeKeyKind.Tag)]
         public string tag = "";
 
         /// <summary>True while NO object carries the tag instead — "all enemies cleared".</summary>

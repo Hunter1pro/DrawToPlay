@@ -17,6 +17,7 @@ namespace PowerOfFire.DrawToPlay
     public sealed class SpawnClonesByTagTask : StateTreeTaskAsset
     {
         /// <summary>Tag naming the TEMPLATE. Several carriers: the first found is the mold.</summary>
+        [StateTreeKey(StateTreeKeyKind.Tag)]
         public string templateTag = "";
 
         public int count = 1;

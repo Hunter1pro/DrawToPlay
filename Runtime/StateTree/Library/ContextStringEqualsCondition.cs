@@ -20,6 +20,7 @@ namespace PowerOfFire.DrawToPlay
         public string scopeId = "";
 
         /// <summary>Key on the SCOPE's blackboard.</summary>
+        [StateTreeKey(StateTreeKeyKind.String)]
         public string key = "";
 
         /// <summary>The string to compare against — bindable, so a routed value (the clicked

@@ -18,6 +18,7 @@ namespace PowerOfFire.DrawToPlay
 
         public string scopeId = "";
 
+        [StateTreeKey(StateTreeKeyKind.Float)]
         public string key = "";
 
         public float delta = 1f;

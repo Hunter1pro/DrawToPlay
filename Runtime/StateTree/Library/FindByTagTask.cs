@@ -18,10 +18,12 @@ namespace PowerOfFire.DrawToPlay
     [StateTreeCategory("Tasks/World", "Find a world object by tag onto the blackboard")]
     public sealed class FindByTagTask : StateTreeTaskAsset
     {
+        [StateTreeKey(StateTreeKeyKind.Tag)]
         public string tag = "";
 
         /// <summary>Blackboard key the found GameObject lands under. The perception convention
         /// key by default, so combat tasks read it unchanged.</summary>
+        [StateTreeKey(StateTreeKeyKind.Object)]
         public string targetKey = "target";
 
         /// <summary>Nearest to the owner (default), or simply the first registered — the cheap

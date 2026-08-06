@@ -39,6 +39,16 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public List<GraphTaskParameter> parameters = new List<GraphTaskParameter>();
 
+        /// <summary>The M12 KEY CONTRACT: the keys this tree owns, id-identified and freely
+        /// renameable — a scope's contract is simply its mounted tree's list. Same
+        /// serialization ride as <see cref="parameters"/>.</summary>
+        public List<StateTreeKeyDeclaration> keys = new List<StateTreeKeyDeclaration>();
+
+        /// <summary>Trees whose declarations this tree IMPORTS — the horizontal share, made a
+        /// visible dependency instead of matching text. Vertical sharing needs no entry here:
+        /// the mount chain resolves at runtime by itself.</summary>
+        public List<StateTreeAsset> uses = new List<StateTreeAsset>();
+
         /// <summary>Deep-copy the whole tree (nodes, tasks, conditions) — the
         /// data.duplicate(true) mirror that keeps shared assets from sharing task
         /// instance state across runners.</summary>

@@ -30,6 +30,7 @@ namespace PowerOfFire.DrawToPlay
     public sealed class TimerElapsedCondition : StateTreeConditionAsset
     {
         /// <summary>Blackboard key holding the absolute time the timer started.</summary>
+        [StateTreeKey(StateTreeKeyKind.Float)]
         public string timerKey = "stateTimer";
 
         /// <summary>Seconds that must elapse. 0 or less is always elapsed.</summary>

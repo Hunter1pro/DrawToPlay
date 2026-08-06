@@ -44,6 +44,7 @@ namespace PowerOfFire.DrawToPlay
         public Vector2 offset = Vector2.zero;
 
         /// <summary>Optional extra payload entry. Empty = omitted.</summary>
+        [StateTreeKey(StateTreeKeyKind.Object)]
         public string payloadKey = "";
 
         public float payloadValue;

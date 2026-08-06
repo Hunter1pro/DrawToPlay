@@ -23,6 +23,7 @@ namespace PowerOfFire.DrawToPlay
 
         public string scopeId = "";
 
+        [StateTreeKey(StateTreeKeyKind.Event)]
         public string key = "";
 
         /// <summary>True while the key is ABSENT instead — "until the alarm is raised".</summary>

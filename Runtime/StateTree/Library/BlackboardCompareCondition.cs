@@ -29,6 +29,7 @@ namespace PowerOfFire.DrawToPlay
             GreaterOrEqual
         }
 
+        [StateTreeKey(StateTreeKeyKind.Float)]
         public string key = "";
 
         public Operator op = Operator.GreaterOrEqual;

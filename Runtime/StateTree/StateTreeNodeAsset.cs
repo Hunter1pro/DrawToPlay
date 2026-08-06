@@ -31,6 +31,14 @@ namespace PowerOfFire.DrawToPlay
         /// means — the extension is additive and nothing above it moved.
         /// </summary>
         public List<StateTreeFieldBinding> bindings = new List<StateTreeFieldBinding>();
+
+        /// <summary>The M12 key wires: which of this node's key-semantic string fields are
+        /// connected to a DECLARED key (by id). The executor rewrites each linked field to
+        /// the declaration's current name at StartTree; the field's own text is the fallback
+        /// for unmanaged (free-typed) keys. Node-level list, so it rides
+        /// <see cref="StateTreeAsset.DeepCopy"/>'s Instantiate like <see cref="bindings"/>
+        /// does — only TRANSITION fields need DeepCopyNode's hand-copy.</summary>
+        public List<StateTreeKeyLink> keyLinks = new List<StateTreeKeyLink>();
     }
 
 }

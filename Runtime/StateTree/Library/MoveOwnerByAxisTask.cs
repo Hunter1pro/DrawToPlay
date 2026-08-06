@@ -22,8 +22,10 @@ namespace PowerOfFire.DrawToPlay
 
         public string scopeId = "";
 
+        [StateTreeKey(StateTreeKeyKind.Float)]
         public string xKey = "input:x";
 
+        [StateTreeKey(StateTreeKeyKind.Float)]
         public string yKey = "input:y";
 
         /// <summary>World units per second.</summary>

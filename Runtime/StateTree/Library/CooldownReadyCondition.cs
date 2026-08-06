@@ -32,6 +32,7 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Blackboard key holding the absolute time the cooldown expires. Name it
         /// after what it gates ("attackCooldown", "shootCooldown") so two abilities on one
         /// entity do not share a clock by accident.</summary>
+        [StateTreeKey(StateTreeKeyKind.Float)]
         public string cooldownKey = "attackCooldown";
 
         /// <summary>Seconds re-armed when <see cref="armOnReady"/> is set.</summary>

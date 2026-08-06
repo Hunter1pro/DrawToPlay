@@ -192,6 +192,11 @@ namespace PowerOfFire.DrawToPlay
             // observes changing under it.
             BuildParameterScope();
             PushParameterScope();
+            // Declared keys resolve BEFORE bindings: a binding's blackboardKey may itself be
+            // a linked field, and it must hold the declaration's CURRENT name by the time the
+            // binding machinery reads it. This rewrite is what makes renaming a declared key
+            // free — every wired string on the DEEP COPY is refreshed from the id here.
+            ResolveKeyLinks(m_ActiveData.root, 0);
             ApplyBindings(m_ActiveData.root, 0);
 
             treeStarted?.Invoke();
@@ -854,6 +859,60 @@ namespace PowerOfFire.DrawToPlay
         /// exist yet when the tree starts, and re-reading it is the point of them. They belong to
         /// <see cref="ApplyEntryBindings"/>, which runs on every entry of the state that owns
         /// them.</summary>
+        /// <summary>
+        /// The M12 rewrite: every key-linked string field on the deep copy gets the linked
+        /// declaration's CURRENT name — which is the entire trick that makes declared keys
+        /// renameable while runtime stays plain strings. A link whose id resolves nowhere
+        /// (declaration deleted, import removed, mounted elsewhere) is ONE warning and the
+        /// field keeps its serialized text — degraded to an unmanaged key, not broken.
+        /// </summary>
+        private void ResolveKeyLinks(StateTreeNodeAsset node, int depth)
+        {
+            if (node == null || depth > 256)
+                return;
+
+            List<StateTreeKeyLink> links = node.keyLinks;
+            for (int i = 0; links != null && i < links.Count; i++)
+            {
+                StateTreeKeyLink link = links[i];
+                if (link == null || string.IsNullOrEmpty(link.fieldName)
+                    || string.IsNullOrEmpty(link.keyId))
+                    continue;
+
+                StateTreeKeyDeclaration declaration =
+                    StateTreeKeyResolver.Find(m_ActiveData, owner, link.keyId);
+                if (declaration == null || string.IsNullOrEmpty(declaration.name))
+                {
+                    Debug.LogError(logLabel + ": key link on state '" + node.nodeId + "' field '"
+                        + link.fieldName + "' resolves no declaration (id '" + link.keyId
+                        + "') — the field keeps its own text.", logContext);
+                    continue;
+                }
+
+                var probe = new StateTreeFieldBinding
+                {
+                    targetKind = link.targetKind,
+                    targetIndex = link.targetIndex,
+                    fieldName = link.fieldName
+                };
+                UnityEngine.Object target = BindingTarget(node, probe);
+                FieldInfo field = target != null
+                    ? Field(target.GetType(), link.fieldName)
+                    : null;
+                if (field == null || field.FieldType != typeof(string))
+                {
+                    Debug.LogError(logLabel + ": key link on state '" + node.nodeId
+                        + "' names no writable string field '" + link.fieldName + "'.",
+                        logContext);
+                    continue;
+                }
+                field.SetValue(target, declaration.name);
+            }
+
+            for (int i = 0; i < node.children.Count; i++)
+                ResolveKeyLinks(node.children[i], depth + 1);
+        }
+
         private void ApplyBindings(StateTreeNodeAsset node, int depth)
         {
             // 256 matches the authored-children guard in StateTreeAsset.DeepCopyNode.

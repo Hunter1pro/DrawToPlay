@@ -39,6 +39,7 @@ namespace PowerOfFire.DrawToPlay
             Clear
         }
 
+        [StateTreeKey(StateTreeKeyKind.Float)]
         public string key = "";
 
         public ValueKind kind = ValueKind.Float;
