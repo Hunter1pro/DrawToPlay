@@ -142,10 +142,20 @@ namespace PowerOfFire.DrawToPlay
                 itemClicked?.Invoke(itemId);
         }
 
+        /// <summary>A close is ANSWERED BY WHOEVER OWNS THE SCREEN. While a
+        /// <see cref="ShowScreenTask"/> runs, it is subscribed and the TREE decides what
+        /// closing means (a state exit, usually). A PASSIVE panel — shown by
+        /// <see cref="SetScreenVisibleTask"/>, owned by no state, so nobody is listening —
+        /// answers for itself and just hides: a close button that only works on modal screens
+        /// would make passive panels look broken.</summary>
         public void ReportClose()
         {
-            if (m_Visible)
-                closeRequested?.Invoke();
+            if (!m_Visible)
+                return;
+            if (closeRequested != null)
+                closeRequested.Invoke();
+            else
+                Hide();
         }
     }
 }
