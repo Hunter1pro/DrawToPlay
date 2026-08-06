@@ -4583,6 +4583,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// transitions away, none of which this scan can see — so it says what it knows ("nothing
         /// routes it here") and what happens if that is the whole story, rather than claiming a fault
         /// it cannot establish.
+        ///
+        /// A DECLARED key says nothing at all (M12): the tree's header owns that name, which is the
+        /// author stating "this key exists and something speaks it" — repeating a hedge under every
+        /// reader of a declared key would train authors to skim past the one note that matters, the
+        /// unrouted UNDECLARED key that looks exactly like a typo.
         /// </summary>
         private HelpBox BuildKeyBindingNote(string fieldName, string blackboardKey)
         {
@@ -4593,11 +4598,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                     + "— nothing is read and the value in the field runs.",
                     HelpBoxMessageType.Warning);
             }
-            else if (!IsRoutedIn(blackboardKey))
+            else if (!IsRoutedIn(blackboardKey) && !VisibleKeyNameExists(blackboardKey))
             {
-                help = new HelpBox($"No transition into this state routes '{blackboardKey}'. That is "
-                    + "fine if something else writes it — a graph, a task, or an earlier state — but "
-                    + "on any entry where the key is missing the value in the field is kept.",
+                help = new HelpBox($"No transition into this state routes '{blackboardKey}' and no "
+                    + "declared key carries that name. Fine if a graph, a task, or an earlier state "
+                    + "writes it — but a typo would look exactly like this, and on any entry where "
+                    + "the key is missing the value in the field is kept. Declaring the key in the "
+                    + "tree's Keys section records the intent and retires this note.",
                     HelpBoxMessageType.Info);
             }
             else
