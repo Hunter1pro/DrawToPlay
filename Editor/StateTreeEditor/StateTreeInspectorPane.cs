@@ -374,6 +374,24 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// recognisable as "the graph side said no" wherever it comes from.</summary>
         private const string k_GraphDialogTitle = "Graph Tasks";
 
+        /// <summary>The key-contract glyph — a key, as ⚑ is a flag: ⚑ sources a field's VALUE,
+        /// ⚿ wires a field's NAME to a declaration.</summary>
+        private const string k_KeyGlyph = "⚿";
+
+        private const string k_AddKeyUndo = "Declare Tree Key";
+        private const string k_RemoveKeyUndo = "Undeclare Tree Key";
+        private const string k_EditKeyUndo = "Edit Tree Key";
+        private const string k_RenameKeyUndo = "Rename Tree Key";
+        private const string k_LinkKeyUndo = "Wire Field to Key";
+        private const string k_UnlinkKeyUndo = "Unwire Field Key";
+        private const string k_EditImportsUndo = "Edit Key Imports";
+
+        /// <summary>Key-kind labels in ENUM ORDER, index-addressed like
+        /// <see cref="k_ParameterKindChoices"/> and sharing its first three words — the two
+        /// vocabularies meet in tooltips and must not name the same thing twice.</summary>
+        private static readonly string[] k_KeyKindChoices =
+            { "number", "text", "checkbox", "object", "event", "tag" };
+
         private readonly ScrollView m_Root;
         private readonly Action m_StructuralChanged;
         private readonly Action m_Edited;
@@ -392,6 +410,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// could not be closed at all. Open by default: a declaration nobody can see is the problem
         /// this section exists to fix.</summary>
         private bool m_ParametersOpen = true;
+
+        /// <summary>Whether the key-contract foldout is open — remembered for the reason
+        /// <see cref="m_ParametersOpen"/> is. CLOSED by default, unlike parameters: keys are
+        /// wired from the fields that use them (⚿), so the section is reference material rather
+        /// than the working surface, and two open foldouts above every state is a wall.</summary>
+        private bool m_KeysOpen;
 
         /// <summary>Which transitions' "Route outputs" foldouts the author has opened, by transition
         /// index. Remembered on the pane for the same reason <see cref="m_ParametersOpen"/> is —
@@ -444,6 +468,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             // Above the state, not below it: the declaration belongs to the TREE, and a section that
             // followed the state's own tasks would read as part of that state.
             m_Root.Add(BuildTreeParameters());
+            m_Root.Add(BuildTreeKeys());
 
             BuildHeader();
             BuildIdentity();
@@ -534,6 +559,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             m_Root.Add(BuildTreeParameters());
+            m_Root.Add(BuildTreeKeys());
 
             m_Root.Add(SectionLabel("States"));
             var nodes = StateTreeEditorOps.CollectNodes(m_Tree);
@@ -1048,6 +1074,740 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             return stem + Guid.NewGuid().ToString("N").Substring(0, 6);
+        }
+
+        // --- tree keys: the M12 contract --------------------------------------------------
+
+        /// <summary>
+        /// The tree's declared KEYS — the names its tasks and conditions address state by: a
+        /// blackboard entry, a context value, a world tag. A parameter above is a VALUE the tree
+        /// receives; a key is a NAME it speaks. Declaring one gives the name an identity: fields
+        /// wire to the declaration by id (the ⚿ button beside them), so renaming here renames
+        /// every wired use, and the executor rewrites the runtime copy at StartTree so even trees
+        /// that only see this one through an import catch up when they next run.
+        ///
+        /// Same two mounts as <see cref="BuildTreeParameters"/> and the same remembered foldout,
+        /// for the same reasons.
+        /// </summary>
+        private VisualElement BuildTreeKeys()
+        {
+            HealKeyDeclarationIds(m_Tree);
+
+            var keys = m_Tree.keys;
+            var count = keys != null ? keys.Count : 0;
+            var uses = m_Tree.uses;
+            var imports = uses != null ? uses.Count : 0;
+
+            var foldout = new Foldout
+            {
+                text = $"Keys · {StateTreeEditorOps.TreeDisplayName(m_Tree)} ({count}"
+                    + (imports > 0 ? $" + {imports} imported tree(s))" : ")"),
+                value = m_KeysOpen
+            };
+            foldout.style.marginTop = 2f;
+            foldout.style.marginBottom = 4f;
+            foldout.RegisterValueChangedCallback(evt =>
+            {
+                if (evt.target == foldout)
+                    m_KeysOpen = evt.newValue;
+            });
+
+            var note = Hint(count == 0 && imports == 0
+                ? "None declared. A key is a name this tree's tasks and conditions address state "
+                + "by — a blackboard entry, a context value, a world tag. Declare it here and "
+                + "fields wire to it (⚿) instead of holding matching text: renames follow, typos "
+                + "stop compiling into silence."
+                : "The names this tree owns. Fields wired to one (⚿) follow renames by id; the "
+                + "kind filters which fields' pickers offer it. Another tree's keys are spoken "
+                + "here by importing that tree below — or, at runtime, by mounting this tree "
+                + "under it.");
+            note.style.marginBottom = 4f;
+            foldout.Add(note);
+
+            for (var i = 0; i < count; ++i)
+            {
+                if (keys[i] != null)
+                    foldout.Add(BuildKeyRow(i));
+            }
+
+            var add = new Button(AddTreeKey) { text = "Add Key" };
+            add.style.marginTop = 4f;
+            add.tooltip = "Declare a key this tree owns. Wire fields to it with their ⚿ button; "
+                + "rename it here and every wired field follows.";
+            foldout.Add(add);
+
+            foldout.Add(BuildKeyImports());
+            return foldout;
+        }
+
+        /// <summary>One declared key: name, kind, what it means, gone — the same
+        /// refusal-under-the-row shape as <see cref="BuildDeclarationRow"/>.</summary>
+        private VisualElement BuildKeyRow(int index)
+        {
+            var declaration = m_Tree.keys[index];
+
+            var container = new VisualElement();
+
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            container.Add(row);
+
+            var refusal = new HelpBox(string.Empty, HelpBoxMessageType.Warning);
+            refusal.style.display = DisplayStyle.None;
+            container.Add(refusal);
+
+            var name = new TextField
+            {
+                value = declaration.name ?? string.Empty,
+                isDelayed = true
+            };
+            name.style.flexGrow = 1f;
+            name.style.flexBasis = 0f;
+            name.style.minWidth = k_KeyFieldMinWidth;
+            name.style.marginRight = 2f;
+            name.tooltip = "The name — what runtime dictionaries and tags actually use. Renaming "
+                + "rewrites every field in THIS tree wired to it, silently: the wires are by id. "
+                + "Trees that import this one catch up when they next start.";
+            name.RegisterValueChangedCallback(evt => RenameTreeKey(index, evt.newValue, name,
+                refusal));
+            row.Add(name);
+
+            var kind = new DropdownField(new List<string>(k_KeyKindChoices),
+                (int)declaration.kind);
+            kind.style.width = 92f;
+            kind.style.flexShrink = 0f;
+            kind.tooltip = "What the name addresses — the filter deciding which fields' ⚿ pickers "
+                + "offer this key. An event is a presence key (raised by writing it, consumed by "
+                + "clearing it); a tag is world vocabulary the registry matches.";
+            kind.RegisterValueChangedCallback(evt => SetTreeKeyKind(index, kind.index));
+            row.Add(kind);
+
+            var description = new TextField
+            {
+                value = declaration.description ?? string.Empty,
+                isDelayed = true
+            };
+            description.style.flexGrow = 1.2f;
+            description.style.flexBasis = 0f;
+            description.style.marginLeft = 2f;
+            description.textEdition.placeholder = "what this key means";
+            description.tooltip = "Shown wherever the key is offered.";
+            description.RegisterValueChangedCallback(evt => CommitKeyDeclaration(index,
+                entry => entry.description = evt.newValue ?? string.Empty));
+            row.Add(description);
+
+            var remove = new Button(() => RemoveTreeKey(index)) { text = "✕" };
+            remove.tooltip = "Undeclare this key. Fields wired to it keep their text and warn in "
+                + "place until re-wired or unwired — deleting it here cannot reach other trees.";
+            remove.style.width = 22f;
+            remove.style.flexShrink = 0f;
+            row.Add(remove);
+
+            return container;
+        }
+
+        /// <summary>
+        /// Rename a declared key — refusing blanks and in-tree duplicates for the reasons
+        /// <see cref="RenameTreeParameter"/> does — and rewrite every wired field in this tree to
+        /// the new name. NO dialog and no offer, where the parameter path asks: a parameter's
+        /// readers hold matching TEXT the editor can only guess about, while a key's wires are
+        /// id-bound rows this window holds both ends of — the M7m doctrine one level up. One undo
+        /// step covers the name and every rewrite.
+        /// </summary>
+        private void RenameTreeKey(int index, string requested, TextField field, HelpBox refusal)
+        {
+            if (!TryGetKeyDeclaration(index, out var entry))
+                return;
+
+            var current = entry.name ?? string.Empty;
+            var trimmed = (requested ?? string.Empty).Trim();
+
+            if (string.Equals(trimmed, current, StringComparison.Ordinal))
+            {
+                Refuse(refusal, null);
+                field.SetValueWithoutNotify(current);
+                return;
+            }
+
+            if (trimmed.Length == 0)
+            {
+                Refuse(refusal, "A key needs a name: the name IS what runs.");
+                field.SetValueWithoutNotify(current);
+                return;
+            }
+
+            if (DeclaresKeyName(trimmed, index))
+            {
+                Refuse(refusal, $"'{trimmed}' is already declared by this tree. Two declarations "
+                    + "sharing a name are one runtime key wearing two ids — every wire looks fine "
+                    + "and half of them mean the other one.");
+                field.SetValueWithoutNotify(current);
+                return;
+            }
+
+            Refuse(refusal, null);
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_RenameKeyUndo);
+            Undo.RecordObject(m_Tree, k_RenameKeyUndo);
+            entry.name = trimmed;
+            EditorUtility.SetDirty(m_Tree);
+            StateTreeEditorOps.RewriteLinkedKeyFields(m_Tree, entry.id, trimmed, k_RenameKeyUndo);
+            StateTreeEditorOps.EndUndoGroup(group);
+
+            field.SetValueWithoutNotify(trimmed);
+            RebuildPane();
+        }
+
+        private void AddTreeKey()
+        {
+            if (m_Tree == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_AddKeyUndo);
+            Undo.RecordObject(m_Tree, k_AddKeyUndo);
+
+            if (m_Tree.keys == null)
+                m_Tree.keys = new List<StateTreeKeyDeclaration>();
+
+            m_Tree.keys.Add(new StateTreeKeyDeclaration
+            {
+                id = NewParameterId(),
+                name = UniqueKeyName(),
+                kind = StateTreeKeyKind.Float
+            });
+
+            EditorUtility.SetDirty(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        private void RemoveTreeKey(int index)
+        {
+            if (!TryGetKeyDeclaration(index, out _))
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_RemoveKeyUndo);
+            Undo.RecordObject(m_Tree, k_RemoveKeyUndo);
+            m_Tree.keys.RemoveAt(index);
+            EditorUtility.SetDirty(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        /// <summary>Rebuilds rather than swapping the row like the parameter path: a key's kind
+        /// changes which field pickers offer it and which wired rows warn of a mismatch, and those
+        /// live all over the pane.</summary>
+        private void SetTreeKeyKind(int index, int choice)
+        {
+            if (choice < 0 || choice >= k_KeyKindChoices.Length)
+                return;
+
+            CommitKeyDeclaration(index, entry => entry.kind = (StateTreeKeyKind)choice);
+            RebuildPane();
+        }
+
+        private void CommitKeyDeclaration(int index, Action<StateTreeKeyDeclaration> write)
+        {
+            if (!TryGetKeyDeclaration(index, out var entry))
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_EditKeyUndo);
+            Undo.RecordObject(m_Tree, k_EditKeyUndo);
+            write(entry);
+            EditorUtility.SetDirty(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            m_Edited?.Invoke();
+        }
+
+        private bool TryGetKeyDeclaration(int index, out StateTreeKeyDeclaration declaration)
+        {
+            declaration = null;
+            var keys = m_Tree != null ? m_Tree.keys : null;
+            if (keys == null || index < 0 || index >= keys.Count)
+                return false;
+
+            declaration = keys[index];
+            return declaration != null;
+        }
+
+        private bool DeclaresKeyName(string name, int except)
+        {
+            var keys = m_Tree != null ? m_Tree.keys : null;
+            for (var i = 0; keys != null && i < keys.Count; ++i)
+            {
+                if (i == except || keys[i] == null)
+                    continue;
+                if (string.Equals(keys[i].name, name, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private string UniqueKeyName()
+        {
+            const string stem = "key";
+            if (!DeclaresKeyName(stem, -1))
+                return stem;
+
+            for (var i = 2; i < 1000; ++i)
+            {
+                var candidate = stem + i;
+                if (!DeclaresKeyName(candidate, -1))
+                    return candidate;
+            }
+
+            return stem + Guid.NewGuid().ToString("N").Substring(0, 6);
+        }
+
+        /// <summary>The keys mirror of <see cref="HealDeclarationIds"/>, with its no-undo
+        /// reasoning.</summary>
+        private static void HealKeyDeclarationIds(StateTreeAsset tree)
+        {
+            var keys = tree != null ? tree.keys : null;
+            if (keys == null)
+                return;
+
+            var healed = false;
+            for (var i = 0; i < keys.Count; ++i)
+            {
+                var entry = keys[i];
+                if (entry == null || !string.IsNullOrEmpty(entry.id))
+                    continue;
+
+                entry.id = NewParameterId();
+                healed = true;
+            }
+
+            if (healed)
+                EditorUtility.SetDirty(tree);
+        }
+
+        /// <summary>The `uses` list — the HORIZONTAL share, a visible dependency instead of
+        /// matching text. Vertical sharing has no UI because it has no data: mounting this tree
+        /// under another at runtime is the share.</summary>
+        private VisualElement BuildKeyImports()
+        {
+            var container = new VisualElement();
+            container.style.marginTop = 6f;
+
+            var title = new Label("Imported keys");
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            container.Add(title);
+
+            var uses = m_Tree.uses;
+            for (var i = 0; uses != null && i < uses.Count; ++i)
+                container.Add(BuildImportRow(i));
+
+            var add = new ObjectField("Import from")
+            {
+                objectType = typeof(StateTreeAsset),
+                allowSceneObjects = false
+            };
+            add.tooltip = "Drop a tree here to speak its declared keys — they appear in this "
+                + "tree's ⚿ pickers under the imported tree's name, along with its own imports.";
+            add.RegisterValueChangedCallback(evt =>
+            {
+                var import = evt.newValue as StateTreeAsset;
+                add.SetValueWithoutNotify(null);
+                AddKeyImport(import);
+            });
+            container.Add(add);
+
+            return container;
+        }
+
+        private VisualElement BuildImportRow(int index)
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+
+            var field = new ObjectField
+            {
+                value = m_Tree.uses[index],
+                objectType = typeof(StateTreeAsset),
+                allowSceneObjects = false
+            };
+            field.style.flexGrow = 1f;
+            field.RegisterValueChangedCallback(evt =>
+            {
+                var replacement = evt.newValue as StateTreeAsset;
+                if (replacement == null || replacement == m_Tree
+                    || ImportsKeyTree(replacement, index))
+                {
+                    field.SetValueWithoutNotify(m_Tree.uses[index]);
+                    return;
+                }
+
+                var group = StateTreeEditorOps.BeginUndoGroup(k_EditImportsUndo);
+                Undo.RecordObject(m_Tree, k_EditImportsUndo);
+                m_Tree.uses[index] = replacement;
+                EditorUtility.SetDirty(m_Tree);
+                StateTreeEditorOps.EndUndoGroup(group);
+                RebuildPane();
+            });
+            row.Add(field);
+
+            var remove = new Button(() => RemoveKeyImport(index)) { text = "✕" };
+            remove.tooltip = "Stop importing this tree's keys. Fields wired to one of them keep "
+                + "their text and warn in place.";
+            remove.style.width = 22f;
+            remove.style.flexShrink = 0f;
+            row.Add(remove);
+
+            return row;
+        }
+
+        private void AddKeyImport(StateTreeAsset import)
+        {
+            if (m_Tree == null || import == null || import == m_Tree
+                || ImportsKeyTree(import, -1))
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_EditImportsUndo);
+            Undo.RecordObject(m_Tree, k_EditImportsUndo);
+
+            if (m_Tree.uses == null)
+                m_Tree.uses = new List<StateTreeAsset>();
+            m_Tree.uses.Add(import);
+
+            EditorUtility.SetDirty(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        private void RemoveKeyImport(int index)
+        {
+            var uses = m_Tree != null ? m_Tree.uses : null;
+            if (uses == null || index < 0 || index >= uses.Count)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_EditImportsUndo);
+            Undo.RecordObject(m_Tree, k_EditImportsUndo);
+            uses.RemoveAt(index);
+            EditorUtility.SetDirty(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        private bool ImportsKeyTree(StateTreeAsset candidate, int except)
+        {
+            var uses = m_Tree != null ? m_Tree.uses : null;
+            for (var i = 0; uses != null && i < uses.Count; ++i)
+            {
+                if (i != except && uses[i] == candidate)
+                    return true;
+            }
+
+            return false;
+        }
+
+        // --- key-semantic fields: the ⚿ wire ----------------------------------------------
+
+        /// <summary>Every task/condition field enters here: a field marked
+        /// <see cref="StateTreeKeyAttribute"/> gets the key-contract treatment, everything else
+        /// goes straight to the ⚑ machinery unchanged.</summary>
+        private VisualElement BuildFieldRow(PropertyField field, UnityEngine.Object target,
+            string fieldName, StateTreeFieldBinding.TargetKind kind, int targetIndex)
+        {
+            if (targetIndex >= 0 && m_Node != null && m_Tree != null
+                && StateTreeEditorOps.TryGetKeyField(target, fieldName, out var keyKind))
+                return BuildKeyContractField(field, target, fieldName, kind, targetIndex, keyKind);
+
+            return BuildBindableField(field, target, fieldName, kind, targetIndex);
+        }
+
+        /// <summary>
+        /// A key-semantic field. UNWIRED, it is the ⚑ row it always was with a ⚿ button riding in
+        /// it — the button offered only while no ⚑ source is in force, because a sourced value is
+        /// not a name to re-point. WIRED, the declaration owns the name (the M7m rule one level
+        /// up): the field is replaced by a read-only display of the declaration's CURRENT name —
+        /// which after a rename in an imported tree is the truth whatever the serialized fallback
+        /// still says — and changing anything is a deliberate gesture: ⚿ re-wires, ✕ unwires. A
+        /// wire whose declaration is GONE degrades exactly like the executor does: the typed text
+        /// runs, the field is editable again, and the row says so in the stale-link shape.
+        /// </summary>
+        private VisualElement BuildKeyContractField(PropertyField field, UnityEngine.Object target,
+            string fieldName, StateTreeFieldBinding.TargetKind kind, int targetIndex,
+            StateTreeKeyKind keyKind)
+        {
+            var link = StateTreeEditorOps.FindKeyLink(m_Node, kind, targetIndex, fieldName);
+            if (link == null)
+            {
+                var binding = StateTreeEditorOps.FindFieldBinding(m_Node, kind, targetIndex,
+                    fieldName);
+                var slot = binding == null
+                    ? BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, null)
+                    : null;
+                return BuildBindableField(field, target, fieldName, kind, targetIndex, slot);
+            }
+
+            var container = new VisualElement();
+
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.minHeight = k_RowMinHeight;
+            container.Add(row);
+
+            // Edit-time resolution is own + imports only — the mount chain is a runtime fact.
+            var declaration = StateTreeKeyResolver.Find(m_Tree, null, link.keyId);
+
+            if (declaration == null)
+            {
+                field.style.flexGrow = 1f;
+                field.style.flexShrink = 1f;
+                row.Add(field);
+                row.Add(BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, link));
+                row.Add(BuildKeyUnlinkButton(kind, targetIndex, fieldName, stale: true));
+
+                var help = new HelpBox($"'{fieldName}' is wired to a declared key that no longer "
+                    + "resolves here — deleted, or its tree dropped from the imports. The typed "
+                    + "text runs as a plain key (a mounted ancestor may still resolve the id at "
+                    + "runtime). Re-wire it (⚿) or unwire it (✕).",
+                    HelpBoxMessageType.Warning);
+                help.style.marginTop = 2f;
+                container.Add(help);
+                return container;
+            }
+
+            var standIn = new TextField(ObjectNames.NicifyVariableName(fieldName))
+            {
+                value = declaration.name,
+                isReadOnly = true
+            };
+            standIn.AddToClassList(TextField.alignedFieldUssClassName);
+            standIn.style.flexGrow = 1f;
+            standIn.style.flexShrink = 1f;
+            standIn.style.minHeight = k_ControlMinHeight;
+            ApplyOverrideStyle(standIn, false);
+            standIn.tooltip = $"'{fieldName}' is wired to the declared key '{declaration.name}' "
+                + $"({KeyKindLabel(declaration.kind)}) by id — renaming the declaration renames "
+                + "every wired use with it."
+                + (string.IsNullOrEmpty(declaration.description)
+                    ? string.Empty
+                    : " " + declaration.description);
+            row.Add(standIn);
+
+            row.Add(BuildKeyPickButton(target, fieldName, kind, targetIndex, keyKind, link));
+            row.Add(BuildKeyUnlinkButton(kind, targetIndex, fieldName, stale: false));
+
+            if (declaration.kind != keyKind)
+            {
+                var help = new HelpBox($"'{declaration.name}' is declared as "
+                    + $"{KeyKindLabel(declaration.kind)}; this field expects a "
+                    + $"{KeyKindLabel(keyKind)} key. The name still flows — kinds filter the "
+                    + "pickers, the runtime never checks them — but one of the two is probably "
+                    + "mislabeled.", HelpBoxMessageType.Info);
+                help.style.marginTop = 2f;
+                container.Add(help);
+            }
+
+            return container;
+        }
+
+        private Button BuildKeyPickButton(UnityEngine.Object target, string fieldName,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex, StateTreeKeyKind keyKind,
+            StateTreeKeyLink link)
+        {
+            var pick = new Button { text = k_KeyGlyph };
+            pick.style.flexShrink = 0f;
+            EnlargeRowButton(pick, k_GlyphMinWidth);
+            pick.tooltip = link == null
+                ? $"'{fieldName}' names a {KeyKindLabel(keyKind)} key as plain text. Wire it to a "
+                + "declared key instead — the wire is by id, so renaming the declaration renames "
+                + "this field with it."
+                : "Wire this field to a different declared key.";
+            pick.clicked += () => ShowKeyContractMenu(target, fieldName, kind, targetIndex,
+                keyKind, link);
+            return pick;
+        }
+
+        private Button BuildKeyUnlinkButton(StateTreeFieldBinding.TargetKind kind, int targetIndex,
+            string fieldName, bool stale)
+        {
+            var unlink = new Button { text = "✕" };
+            unlink.style.width = 26f;
+            unlink.style.minHeight = k_ControlMinHeight;
+            unlink.style.flexShrink = 0f;
+            unlink.tooltip = stale
+                ? "Drop the dead wire — the typed text keeps running, now without the warning."
+                : "Unwire this field from the declared key. The name it holds stays as plain text "
+                + "and stops following renames.";
+            unlink.clicked += () =>
+            {
+                var group = StateTreeEditorOps.BeginUndoGroup(k_UnlinkKeyUndo);
+                StateTreeEditorOps.ClearKeyLink(m_Node, kind, targetIndex, fieldName,
+                    k_UnlinkKeyUndo);
+                StateTreeEditorOps.EndUndoGroup(group);
+                RebuildPane();
+            };
+            return unlink;
+        }
+
+        /// <summary>
+        /// The ⚿ menu: this tree's declarations at the top level, each import's under its tree
+        /// name — presentation mirroring resolution order, nearest first. Kind-filtered, because
+        /// that is what the kinds are FOR. The last item promotes the text already in the field to
+        /// a declaration on this tree in one gesture, offered only while no visible declaration
+        /// carries that name — otherwise the item above IS the right gesture.
+        /// </summary>
+        private void ShowKeyContractMenu(UnityEngine.Object target, string fieldName,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex, StateTreeKeyKind keyKind,
+            StateTreeKeyLink link)
+        {
+            var menu = new GenericMenu();
+            var linkedId = link != null ? link.keyId : null;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            var offered = AddKeyMenuItems(menu, m_Tree, string.Empty, keyKind, linkedId, kind,
+                targetIndex, fieldName, seen);
+
+            var uses = m_Tree.uses;
+            for (var i = 0; uses != null && i < uses.Count; ++i)
+            {
+                var import = uses[i];
+                if (import == null || import == m_Tree)
+                    continue;
+
+                var prefix = StateTreeEditorOps.TreeDisplayName(import)
+                    .Replace('/', k_MenuSeparatorStandIn) + "/";
+                offered += AddKeyMenuItems(menu, import, prefix, keyKind, linkedId, kind,
+                    targetIndex, fieldName, seen);
+            }
+
+            if (offered == 0)
+            {
+                menu.AddDisabledItem(new GUIContent(
+                    $"No {KeyKindLabel(keyKind)} keys declared — add one in the tree's Keys "
+                    + "section"));
+            }
+
+            var text = CurrentKeyFieldText(target, fieldName);
+            if (!string.IsNullOrEmpty(text) && !VisibleKeyNameExists(text))
+            {
+                menu.AddSeparator(string.Empty);
+                menu.AddItem(new GUIContent(
+                    $"Declare '{text.Replace('/', k_MenuSeparatorStandIn)}' on this tree"),
+                    false, () => DeclareAndLinkKey(text, keyKind, kind, targetIndex, fieldName));
+            }
+
+            menu.ShowAsContext();
+        }
+
+        /// <summary>One source's rows. The tree's OWN level lists only its own declarations (the
+        /// imports get their own prefixes from the caller); an import lists everything IT can see,
+        /// because its own imports arrive through it and belong under its name. Deduped by id
+        /// across the whole menu — nearest wins, so the first appearance is the resolving one.</summary>
+        private int AddKeyMenuItems(GenericMenu menu, StateTreeAsset source, string prefix,
+            StateTreeKeyKind keyKind, string linkedId, StateTreeFieldBinding.TargetKind kind,
+            int targetIndex, string fieldName, HashSet<string> seen)
+        {
+            var declarations = new List<StateTreeKeyDeclaration>();
+            if (prefix.Length == 0)
+            {
+                var own = source.keys;
+                for (var i = 0; own != null && i < own.Count; ++i)
+                {
+                    if (own[i] != null)
+                        declarations.Add(own[i]);
+                }
+            }
+            else
+            {
+                StateTreeKeyResolver.CollectVisible(source, declarations);
+            }
+
+            var added = 0;
+            for (var i = 0; i < declarations.Count; ++i)
+            {
+                var entry = declarations[i];
+                if (entry.kind != keyKind || string.IsNullOrEmpty(entry.id)
+                    || string.IsNullOrEmpty(entry.name) || !seen.Add(entry.id))
+                    continue;
+
+                var declaration = entry;
+                var label = prefix + entry.name.Replace('/', k_MenuSeparatorStandIn);
+                menu.AddItem(new GUIContent(label),
+                    string.Equals(entry.id, linkedId, StringComparison.Ordinal),
+                    () => LinkFieldKey(kind, targetIndex, fieldName, declaration));
+                ++added;
+            }
+
+            return added;
+        }
+
+        private void LinkFieldKey(StateTreeFieldBinding.TargetKind kind, int targetIndex,
+            string fieldName, StateTreeKeyDeclaration declaration)
+        {
+            var group = StateTreeEditorOps.BeginUndoGroup(k_LinkKeyUndo);
+            StateTreeEditorOps.SetKeyLink(m_Node, kind, targetIndex, fieldName, declaration,
+                k_LinkKeyUndo);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        /// <summary>The promote: declaration and wire in one undo step. The name arrives already
+        /// carried by the field, so none of the rename refusals can apply — except a duplicate on
+        /// this tree, which the menu's visibility check already ruled out.</summary>
+        private void DeclareAndLinkKey(string name, StateTreeKeyKind keyKind,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex, string fieldName)
+        {
+            if (m_Tree == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup(k_LinkKeyUndo);
+            Undo.RecordObject(m_Tree, k_LinkKeyUndo);
+
+            if (m_Tree.keys == null)
+                m_Tree.keys = new List<StateTreeKeyDeclaration>();
+
+            var declaration = new StateTreeKeyDeclaration
+            {
+                id = NewParameterId(),
+                name = name,
+                kind = keyKind
+            };
+            m_Tree.keys.Add(declaration);
+            EditorUtility.SetDirty(m_Tree);
+
+            StateTreeEditorOps.SetKeyLink(m_Node, kind, targetIndex, fieldName, declaration,
+                k_LinkKeyUndo);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        private static string KeyKindLabel(StateTreeKeyKind kind)
+        {
+            var index = (int)kind;
+            return index >= 0 && index < k_KeyKindChoices.Length
+                ? k_KeyKindChoices[index]
+                : kind.ToString();
+        }
+
+        private bool VisibleKeyNameExists(string name)
+        {
+            var visible = new List<StateTreeKeyDeclaration>();
+            StateTreeKeyResolver.CollectVisible(m_Tree, visible);
+            for (var i = 0; i < visible.Count; ++i)
+            {
+                if (visible[i] != null
+                    && string.Equals(visible[i].name, name, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static string CurrentKeyFieldText(UnityEngine.Object target, string fieldName)
+        {
+            var info = target != null
+                ? target.GetType().GetField(fieldName,
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public)
+                : null;
+            return info != null ? info.GetValue(target) as string : null;
         }
 
         /// <summary>Redraw the pane in place — for every edit that changes the SHAPE of a section
@@ -3174,7 +3934,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 // Only the top level is walked (NextVisible stops entering children after the
                 // first step), so a path IS a field name — which is what a link row stores and what
                 // the executor's reflection looks up.
-                container.Add(BuildBindableField(new PropertyField(iterator.Copy()), target,
+                container.Add(BuildFieldRow(new PropertyField(iterator.Copy()), target,
                     iterator.propertyPath, bindingKind, targetIndex));
                 any = true;
             }
@@ -3222,7 +3982,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// fix is one gesture rather than remove-then-link.
         /// </summary>
         private VisualElement BuildBindableField(PropertyField field, UnityEngine.Object target,
-            string fieldName, StateTreeFieldBinding.TargetKind kind, int targetIndex)
+            string fieldName, StateTreeFieldBinding.TargetKind kind, int targetIndex,
+            VisualElement keySlot = null)
         {
             if (targetIndex < 0 || m_Node == null || m_Tree == null
                 || !StateTreeEditorOps.TryGetBindableKind(target, fieldName, out var fieldKind))
@@ -3266,6 +4027,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                 ApplyOverrideStyle(field, !live && !keyBound);
                 row.Add(field);
             }
+
+            // A key-semantic field's ⚿ button rides in this row (M12), passed in only while no ⚑
+            // source is in force — a sourced value is not a name for that menu to re-point.
+            if (keySlot != null)
+                row.Add(keySlot);
 
             var pick = new Button
             {
