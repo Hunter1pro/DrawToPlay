@@ -28,6 +28,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         public override VisualElement CreateInspectorGUI()
         {
             m_Root = new VisualElement();
+
+            // Add/remove mutate the list through Undo.RecordObject, so an undo lands outside
+            // the binding system's sight — rebuild to catch up. Unhooked with the panel.
+            Undo.undoRedoPerformed += Rebuild;
+            m_Root.RegisterCallback<DetachFromPanelEvent>(_ =>
+                Undo.undoRedoPerformed -= Rebuild);
+
             Rebuild();
             return m_Root;
         }
@@ -136,17 +143,35 @@ namespace PowerOfFire.DrawToPlay.Editor
                 + (id != null ? id.stringValue : "") + ").";
             row.Add(nameField);
 
+            // NOT bound: a bound field fires its change event on the binding's own initial
+            // sync, and this one's handler rebuilds the pane — bound, that loop rebuilds the
+            // inspector every frame and every button dies mid-click. Manual value + manual
+            // write means only a real user edit re-sections the dashboard.
             SerializedProperty groupProp = element.FindPropertyRelative("group");
-            var groupField = new TextField { isDelayed = true };
-            groupField.BindProperty(groupProp);
+            var groupField = new TextField
+            {
+                value = groupProp != null ? groupProp.stringValue : string.Empty,
+                isDelayed = true
+            };
             groupField.style.flexGrow = 0.7f;
             groupField.style.flexBasis = 0f;
             groupField.style.marginLeft = 2f;
             groupField.textEdition.placeholder = "group/path";
             groupField.tooltip = "Organization only: sections this dashboard and the ⛃ "
                 + "pickers' submenus.";
-            groupField.RegisterValueChangedCallback(_ =>
-                m_Root.schedule.Execute(Rebuild).ExecuteLater(0));
+            var elementPath = element.propertyPath;
+            groupField.RegisterValueChangedCallback(evt =>
+            {
+                serializedObject.Update();
+                SerializedProperty live = serializedObject.FindProperty(elementPath);
+                SerializedProperty liveGroup = live?.FindPropertyRelative("group");
+                if (liveGroup == null
+                    || liveGroup.stringValue == (evt.newValue ?? string.Empty))
+                    return;
+                liveGroup.stringValue = evt.newValue ?? string.Empty;
+                serializedObject.ApplyModifiedProperties();
+                m_Root.schedule.Execute(Rebuild).ExecuteLater(0);
+            });
             row.Add(groupField);
 
             var remove = new Button(() => RemoveEntry(index)) { text = "✕" };
