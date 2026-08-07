@@ -964,7 +964,36 @@ namespace PowerOfFire.DrawToPlay
                     if (fields[i].GetValue(target) is IStateTreeRegistryRef reference)
                         BindRegistryRef(reference, fields[i].Name, nodeId);
                 }
+                else if (typeof(IStateTreeServiceRef).IsAssignableFrom(fields[i].FieldType))
+                {
+                    if (fields[i].GetValue(target) is IStateTreeServiceRef reference)
+                        BindServiceRef(reference, fields[i].Name, nodeId);
+                }
             }
+        }
+
+        /// <summary>The M15 capability injection: resolve the field's service type through the
+        /// OWNER's view of the spine (nearest host of any kind, else the unique Root — the
+        /// FindService rule), so scope follows the mount point. No capability = one error and
+        /// the reference stays empty for the task's guard to answer.</summary>
+        private void BindServiceRef(IStateTreeServiceRef reference, string fieldName,
+            string nodeId)
+        {
+            StateTreeContextHost host = owner != null
+                ? StateTreeContextHost.ResolveNearest(owner)
+                : null;
+            if (host == null)
+                host = StateTreeContextHost.Resolve(owner, StateTreeContextKind.Root);
+
+            object service = host != null ? host.GetService(reference.ServiceType) : null;
+            if (service == null)
+            {
+                Debug.LogError(logLabel + ": state '" + nodeId + "' field '" + fieldName
+                    + "' wants a " + reference.ServiceType.Name
+                    + " and the spine provides none — the reference stays empty.", logContext);
+                return;
+            }
+            reference.Bind(service);
         }
 
         private void BindEntryRef(IStateTreeEntryRef reference, string fieldName, string nodeId)

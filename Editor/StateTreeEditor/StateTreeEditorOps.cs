@@ -783,6 +783,24 @@ namespace PowerOfFire.DrawToPlay.Editor
             return reference != null;
         }
 
+        /// <summary>The capability flavor (M15) — like the registry ref, nothing to edit; the
+        /// row it draws states what the spine must provide at run time.</summary>
+        internal static bool TryGetServiceRefField(UnityEngine.Object target, string fieldName,
+            out IStateTreeServiceRef reference)
+        {
+            reference = null;
+            if (target == null || string.IsNullOrEmpty(fieldName))
+                return false;
+
+            var field = target.GetType().GetField(fieldName,
+                BindingFlags.Public | BindingFlags.Instance);
+            if (field == null || !typeof(IStateTreeServiceRef).IsAssignableFrom(field.FieldType))
+                return false;
+
+            reference = field.GetValue(target) as IStateTreeServiceRef;
+            return reference != null;
+        }
+
         /// <summary>Aim a typed entry reference — id is the wire, the name rides along as the
         /// serialized display cache. Recording the TARGET records the nested serializable.</summary>
         internal static void SetEntryRef(UnityEngine.Object target, string fieldName,

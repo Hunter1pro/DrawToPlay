@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
@@ -123,6 +124,7 @@ namespace PowerOfFire.DrawToPlay
         {
             Unregister();
             StopTree();
+            DisposeOwnedServices();
         }
 
         public void StartTree()
@@ -333,9 +335,29 @@ namespace PowerOfFire.DrawToPlay
 
         private readonly Dictionary<Type, Component> m_Services = new Dictionary<Type, Component>();
 
+        /// <summary>Installer-provided and lazily constructed instances, keyed by the
+        /// CAPABILITY they were registered under — one instance may sit under several keys
+        /// (register it once per interface it serves).</summary>
+        private readonly Dictionary<Type, object> m_Provided = new Dictionary<Type, object>();
+
+        /// <summary>Type-only registrations (M15): capability → implementation to construct
+        /// ON FIRST ASK, constructor-injected from this scope's view of the spine. This is
+        /// what keeps installers order-free at MissionSystem scale — registration declares,
+        /// the first resolve builds the graph.</summary>
+        private readonly Dictionary<Type, Type> m_Recipes = new Dictionary<Type, Type>();
+
+        /// <summary>Instances THIS host constructed that asked for disposal — swept with the
+        /// host. Installer-provided instances are the installer's to dispose.</summary>
+        private List<IDisposable> m_Owned;
+
+        /// <summary>Implementations mid-construction — the cycle guard. Static is safe: Unity
+        /// resolves on the main thread, and a cycle is a cycle whichever scope started it.</summary>
+        private static readonly HashSet<Type> s_Constructing = new HashSet<Type>();
+
         /// <summary>Registered under its CONCRETE type; last registration of a type wins, which
-        /// a re-enabled service relies on. Services are atoms (§3.7) — this dictionary is a
-        /// phone book, not a container: no construction, no dependencies, no lifetime.</summary>
+        /// a re-enabled service relies on. Behaviour services stay a phone book — the scene
+        /// constructs them; only <see cref="Provide{TInterface, TImpl}"/> recipes get the
+        /// container treatment.</summary>
         public void RegisterService(Component service)
         {
             if (service != null)
@@ -350,28 +372,153 @@ namespace PowerOfFire.DrawToPlay
                 m_Services.Remove(service.GetType());
         }
 
+        /// <summary>Register a ready instance under a capability — the installer's verb for
+        /// hand-made and plain-C# services. Call once per interface the instance serves.</summary>
+        public void Provide<T>(T instance) where T : class
+        {
+            if (instance != null)
+                m_Provided[typeof(T)] = instance;
+        }
+
+        /// <summary>Register a RECIPE: the first <see cref="GetService{T}"/> for the capability
+        /// constructs <typeparamref name="TImpl"/> through its greediest public constructor,
+        /// resolving every parameter from this scope's view of the spine (own scope first,
+        /// then parents), and caches the instance here. Registration order never matters —
+        /// the graph resolves itself on demand, cycle-guarded.</summary>
+        public void Provide<TInterface, TImpl>()
+            where TInterface : class
+            where TImpl : class, TInterface
+        {
+            m_Recipes[typeof(TInterface)] = typeof(TImpl);
+        }
+
         /// <summary>
-        /// A service visible from this scope: own registrations first (exact type, then
-        /// assignable — so a lookup by base class or interface finds the concrete registration),
-        /// then the parent chain, ending at Root. A Player asking for a global service simply
-        /// asks; where it lives is the wiring's business, not the caller's.
+        /// A service visible from this scope: own registrations first (provided instances,
+        /// then recipes, then behaviours — exact type before assignable, so a lookup by
+        /// interface finds the concrete registration), then the parent chain, ending at Root.
+        /// A Player asking for a global service simply asks; where it lives is the wiring's
+        /// business, not the caller's.
         /// </summary>
         public T GetService<T>() where T : class
         {
+            return GetService(typeof(T)) as T;
+        }
+
+        /// <summary>The non-generic core — what the executor's ServiceRef injection and the
+        /// recipe constructor share with the generic face.</summary>
+        public object GetService(Type type)
+        {
+            if (type == null)
+                return null;
+
             StateTreeContextHost walk = this;
             int guard = 0;
             while (walk != null && ++guard < 32)
             {
-                if (walk.m_Services.TryGetValue(typeof(T), out Component exact) && exact != null)
-                    return exact as T;
-                foreach (KeyValuePair<Type, Component> entry in walk.m_Services)
-                {
-                    if (entry.Value is T assignable)
-                        return assignable;
-                }
+                object hit = walk.ResolveOwn(type);
+                if (hit != null)
+                    return hit;
                 walk = walk.ParentHost;
             }
             return null;
+        }
+
+        private object ResolveOwn(Type type)
+        {
+            if (m_Provided.TryGetValue(type, out object provided) && provided != null)
+                return provided;
+            if (m_Recipes.TryGetValue(type, out Type impl))
+                return Construct(type, impl);
+            if (m_Services.TryGetValue(type, out Component exact) && exact != null)
+                return exact;
+            foreach (KeyValuePair<Type, Component> entry in m_Services)
+            {
+                if (entry.Value != null && type.IsInstanceOfType(entry.Value))
+                    return entry.Value;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The whole container, in one method: greediest public constructor, each parameter
+        /// resolved through THIS host's chain (the registering scope — a Level recipe may
+        /// depend on Root services, never sideways), instance cached under the capability and
+        /// owned for disposal when it asks. Every failure is ONE error naming the service and
+        /// what it hungered for, and resolves to null — a boot tree can route that to an
+        /// error state; a hidden throw mid-scene-load cannot.
+        /// </summary>
+        private object Construct(Type key, Type impl)
+        {
+            if (!s_Constructing.Add(impl))
+            {
+                Debug.LogError($"[{name}] service recipe cycle: {impl.Name} is already being "
+                    + "constructed further up this resolve — breaking the loop with null.", this);
+                return null;
+            }
+
+            try
+            {
+                var constructors = impl.GetConstructors();
+                if (constructors.Length == 0)
+                {
+                    Debug.LogError($"[{name}] service recipe {impl.Name} has no public "
+                        + "constructor.", this);
+                    return null;
+                }
+                ConstructorInfo constructor = constructors[0];
+                for (int i = 1; i < constructors.Length; i++)
+                {
+                    if (constructors[i].GetParameters().Length
+                        > constructor.GetParameters().Length)
+                        constructor = constructors[i];
+                }
+
+                ParameterInfo[] parameters = constructor.GetParameters();
+                object[] arguments = new object[parameters.Length];
+                for (int i = 0; i < parameters.Length; i++)
+                {
+                    arguments[i] = GetService(parameters[i].ParameterType);
+                    if (arguments[i] == null)
+                    {
+                        Debug.LogError($"[{name}] constructing {impl.Name} for "
+                            + $"{key.Name}: nothing on the spine provides "
+                            + $"{parameters[i].ParameterType.Name} (parameter "
+                            + $"'{parameters[i].Name}').", this);
+                        return null;
+                    }
+                }
+
+                object instance = constructor.Invoke(arguments);
+                m_Provided[key] = instance;
+                if (instance is IDisposable disposable)
+                    (m_Owned ?? (m_Owned = new List<IDisposable>())).Add(disposable);
+                return instance;
+            }
+            finally
+            {
+                s_Constructing.Remove(impl);
+            }
+        }
+
+        /// <summary>Constructed-and-owned services die with their scope. Called from the
+        /// lifecycle OnDestroy rather than OnDisable: a disabled host keeps its instances
+        /// for re-enable; destruction is the end of the scope's life.</summary>
+        private void DisposeOwnedServices()
+        {
+            if (m_Owned == null)
+                return;
+            for (int i = 0; i < m_Owned.Count; i++)
+            {
+                try
+                {
+                    m_Owned[i]?.Dispose();
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[{name}] service Dispose threw: {e.Message}", this);
+                }
+            }
+            m_Owned.Clear();
         }
 
         /// <summary>The one-call form behavior uses: "the nearest scope's view of T". Nearest

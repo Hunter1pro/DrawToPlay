@@ -1534,6 +1534,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (StateTreeEditorOps.TryGetRegistryRefField(target, fieldName,
                         out var registryReference))
                     return BuildRegistryRefField(fieldName, registryReference);
+                if (StateTreeEditorOps.TryGetServiceRefField(target, fieldName,
+                        out var serviceReference))
+                    return BuildServiceRefField(fieldName, serviceReference);
                 if (StateTreeEditorOps.TryGetKeyField(target, fieldName, out var keyKind,
                         out var anyKind))
                     return BuildKeyContractField(target, fieldName, keyKind, anyKind);
@@ -1640,6 +1643,27 @@ namespace PowerOfFire.DrawToPlay.Editor
             var nameField = reference?.GetType().GetField("entryName",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
             return nameField?.GetValue(reference) as string ?? string.Empty;
+        }
+
+        /// <summary>A capability requirement (M15): nothing to author — which instance answers
+        /// is a fact of WHERE the tree runs, so the row just states the contract. No warning
+        /// flavor at edit time: the asset cannot know its future spine.</summary>
+        private VisualElement BuildServiceRefField(string fieldName,
+            IStateTreeServiceRef reference)
+        {
+            var display = new TextField(ObjectNames.NicifyVariableName(fieldName))
+            {
+                value = "← " + reference.ServiceType.Name + " from the spine",
+                isReadOnly = true
+            };
+            display.AddToClassList(TextField.alignedFieldUssClassName);
+            display.style.minHeight = k_ControlMinHeight;
+            ApplyOverrideStyle(display, false);
+            display.tooltip = $"'{fieldName}' is injected at start from the running owner's "
+                + $"context chain — the nearest host providing {reference.ServiceType.Name} "
+                + "answers, so the same tree mounted under two players gets each player's own "
+                + "service. Provide the capability with a service component or an installer.";
+            return display;
         }
 
         /// <summary>A whole-registry reference: nothing to edit — the row states which of the
