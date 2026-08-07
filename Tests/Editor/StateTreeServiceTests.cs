@@ -148,10 +148,14 @@ namespace PowerOfFire.DrawToPlay.Tests
             root.Provide<NeedsA, NeedsA>();
             root.Provide<NeedsB, NeedsB>();
 
+            // Three errors, outermost last: the inner re-entry trips the cycle guard,
+            // then each ring member reports the parameter it could not get.
             LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(
                 "recipe cycle"));
             LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(
-                "nothing on the spine provides"));
+                "nothing on the spine provides NeedsA"));
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(
+                "nothing on the spine provides NeedsB"));
             Assert.IsNull(root.GetService<NeedsA>());
         }
 
@@ -213,10 +217,9 @@ namespace PowerOfFire.DrawToPlay.Tests
             PingService constructed = PingService.last;
             Assert.IsNotNull(constructed);
 
-            m_Hosts.Remove(root);
-            UnityEngine.Object.DestroyImmediate(root.gameObject);
-            m_Objects.RemoveAll(o => o == null);
-
+            // EditMode never runs a plain component's OnDestroy, so the sweep is invoked
+            // the way Register/Unregister are — directly, doing what the lifecycle would.
+            root.DisposeOwnedServices();
             Assert.IsTrue(constructed.disposed,
                 "a service the HOST constructed dies with the host's scope");
         }

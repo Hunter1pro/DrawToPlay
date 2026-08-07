@@ -502,8 +502,9 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Constructed-and-owned services die with their scope. Called from the
         /// lifecycle OnDestroy rather than OnDisable: a disabled host keeps its instances
-        /// for re-enable; destruction is the end of the scope's life.</summary>
-        private void DisposeOwnedServices()
+        /// for re-enable; destruction is the end of the scope's life. Public and idempotent
+        /// for the reason Register is — EditMode tests do what the lifecycle would.</summary>
+        public void DisposeOwnedServices()
         {
             if (m_Owned == null)
                 return;

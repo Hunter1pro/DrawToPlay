@@ -1118,8 +1118,11 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         private static GraphTaskParameter Param(string name, GraphTaskParameterKind kind,
-            float floatValue = 0f, string stringValue = null, string id = null)
+            float floatValue = 0f, string stringValue = "", string id = null)
         {
+            // "" rather than null: Unity serialization normalizes null strings to empty on
+            // every Instantiate, so a null here would make the deep-copy equality test fail
+            // on serialization's behavior instead of DeepCopy's.
             return new GraphTaskParameter
             {
                 name = name, kind = kind, floatValue = floatValue, stringValue = stringValue,

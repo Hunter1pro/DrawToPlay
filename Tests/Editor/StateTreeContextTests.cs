@@ -225,17 +225,20 @@ namespace PowerOfFire.DrawToPlay.Tests
             StateTreeContextHost p1 = MakeHost("P1", StateTreeContextKind.Player, "p1", level);
             GameObject unit = MakeUnit("Unit", p1);
 
-            var service = root.gameObject.AddComponent<StubContextService>();
+            // A RUNTIME service class: an editor-assembly MonoBehaviour (the sims' stub)
+            // cannot be AddComponent'd in real Unity — AddComponent returns null for
+            // editor-assembly scripts, which the shims never enforced.
+            var service = root.gameObject.AddComponent<WorldService>();
             service.Connect();
             Assert.AreSame(root, service.connectedTo, "placement under Root connected it there");
 
-            Assert.AreSame(service, p1.GetService<StubContextService>(),
+            Assert.AreSame(service, p1.GetService<WorldService>(),
                 "a Player scope sees the Root service through the parent chain");
-            Assert.AreSame(service, StateTreeContextHost.FindService<StubContextService>(unit),
+            Assert.AreSame(service, StateTreeContextHost.FindService<WorldService>(unit),
                 "and a unit asks with one call, knowing nothing about where it lives");
 
             service.Disconnect();
-            Assert.IsNull(p1.GetService<StubContextService>(),
+            Assert.IsNull(p1.GetService<WorldService>(),
                 "a disconnected service is gone from every scope that saw it");
         }
 

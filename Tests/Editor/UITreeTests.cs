@@ -149,16 +149,18 @@ namespace PowerOfFire.DrawToPlay.Tests
             add.count = 2;
             m_Assets.Add(add);
             Assert.AreEqual(StateTreeStatus.Success, add.OnTick(context, 0.1f));
-            Assert.AreEqual(2, StateTreeInventoryUtil.Count(m_Player.Context, "sword"));
+            // The spine seeds sword=1, so adding 2 lands on 3 — the test respects the
+            // fixture instead of imagining an empty inventory.
+            Assert.AreEqual(3, StateTreeInventoryUtil.Count(m_Player.Context, "sword"));
 
             var remove = ScriptableObject.CreateInstance<InventoryRemoveTask>();
             SetItem(remove.item, "sword");
-            remove.count = 3;
+            remove.count = 4;
             m_Assets.Add(remove);
             Assert.AreEqual(StateTreeStatus.Failure, remove.OnTick(context, 0.1f),
                 "removing more than held FAILS all-or-nothing");
-            Assert.AreEqual(2, StateTreeInventoryUtil.Count(m_Player.Context, "sword"));
-            remove.count = 2;
+            Assert.AreEqual(3, StateTreeInventoryUtil.Count(m_Player.Context, "sword"));
+            remove.count = 3;
             Assert.AreEqual(StateTreeStatus.Success, remove.OnTick(context, 0.1f));
             Assert.AreEqual(0, StateTreeInventoryUtil.Count(m_Player.Context, "sword"));
             Assert.IsFalse(m_Player.Context.blackboard.ContainsKey(
@@ -166,10 +168,10 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             var count = ScriptableObject.CreateInstance<InventoryCountCondition>();
             SetItem(count.item, "potion");
-            count.atLeast = 2;
+            count.atLeast = 3;
             m_Assets.Add(count);
-            Assert.IsFalse(count.Evaluate(context));
-            StateTreeInventoryUtil.SetCount(m_Player.Context, "potion", 2);
+            Assert.IsFalse(count.Evaluate(context), "seeded 2 potions are not 3");
+            StateTreeInventoryUtil.SetCount(m_Player.Context, "potion", 3);
             Assert.IsTrue(count.Evaluate(context));
 
             var kind = ScriptableObject.CreateInstance<ItemKindCondition>();
