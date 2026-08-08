@@ -679,6 +679,16 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     continue;
                 }
 
+                // An OUTPUT variable is the RETURN half of the signature, Blueprint-style:
+                // declared on the panel like the inputs, written by the Set Output node of
+                // the same name, routed by the caller. It is not a parameter — nothing is
+                // passed IN through it.
+                if (SafeVariableKind(variable) == VariableKind.Output)
+                {
+                    context.DeclareOutput(name, kind, null);
+                    continue;
+                }
+
                 if (context.parameterKinds.ContainsKey(name))
                 {
                     context.Warning($"Two graph variables are called '{name}'. The first one is the "
@@ -1176,6 +1186,30 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// model has no computed-key form — see <see cref="SetBlackboardFloatNode"/>).</summary>
         private static string ReadKey(BakeContext context, INode owner, string portName)
         {
+            // A KEY PIN fed by a String PARAMETER binds LIVE: the constant baked below is the
+            // parameter's default, and the recorded binding (field empty = the instruction's
+            // own key) lets ApplyOverrides rewrite the instance's instruction when a state
+            // overrides the parameter — the instruction twin of the library-call key binding.
+            IPort port = owner.GetInputPortByName(portName);
+            if (port != null && port.IsConnected
+                && port.FirstConnectedPort?.GetNode() is IVariableNode variableNode)
+            {
+                string variableName = SafeVariableName(variableNode);
+                if (context.parameterKinds.TryGetValue(variableName,
+                        out GraphTaskParameterKind parameterKind)
+                    && parameterKind == GraphTaskParameterKind.String)
+                {
+                    context.keyBindings.Add(new GraphTaskKeyBinding
+                    {
+                        node = context.indexByNode.TryGetValue(owner, out int ownerIndex)
+                            ? ownerIndex : -1,
+                        field = string.Empty,
+                        parameter = variableName
+                    });
+                    context.consumedAtBake.Add(variableNode);
+                }
+            }
+
             string key = ReadConstantString(context, owner, portName);
             if (string.IsNullOrEmpty(key))
             {
@@ -1255,7 +1289,11 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                         + "ignored. Type the value in, or keep the value on the blackboard.", owner);
                     return null;
                 }
-                if (producer is IVariableNode variableNode)
+                // Consumed-at-bake means a KEY binding was recorded for this wire — the value
+                // is NOT frozen (ApplyOverrides rewrites it per activation), so the warning
+                // would be telling the author the opposite of the truth.
+                if (producer is IVariableNode variableNode
+                    && !context.consumedAtBake.Contains(producer))
                     WarnBakedConstantVariable(context, owner, portName, variableNode);
             }
 
@@ -1423,6 +1461,20 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             catch (Exception)
             {
                 return null;
+            }
+        }
+
+        /// <summary>The panel's Input/Local/Output choice, read under the same lazy-model
+        /// guard. Local when it refuses to answer — the pre-output behavior.</summary>
+        private static VariableKind SafeVariableKind(IVariable variable)
+        {
+            try
+            {
+                return variable != null ? variable.VariableKind : VariableKind.Local;
+            }
+            catch (Exception)
+            {
+                return VariableKind.Local;
             }
         }
 

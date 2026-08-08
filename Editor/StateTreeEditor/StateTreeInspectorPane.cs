@@ -4805,10 +4805,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>
-        /// The OUTCOME half of a program's signature: what it returns (M7j Set Output
-        /// declarations), listed on the task box so the surface is visible where the program is
-        /// mounted. Routing stays where it lives — a transition leaving this state carries an
-        /// output into a blackboard key — this section is the map to it.
+        /// The OUTCOME half of a program's signature: what it returns (Output variables on the
+        /// graph's panel and Set Output declarations), one CONNECTABLE row per output — the
+        /// Blueprint return pin, tree side. The ⚿ picker binds an output to one of this tree's
+        /// declared keys (a <see cref="GraphTaskReturnRoute"/> on the task): when the
+        /// activation ends, the value is published there, however the state ended. Transitions
+        /// can still route per exit wire; this is the unconditional signature connection.
         /// </summary>
         private VisualElement BuildProgramReturns(RunGraphTask program)
         {
@@ -4826,8 +4828,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             title.style.marginTop = 6f;
             container.Add(title);
 
-            var hint = Hint("What the program returns when it ends. Route one on a transition "
-                + "leaving this state — the wire's route rows carry it into a blackboard key.");
+            var hint = Hint("What the program returns when it ends. ⚿ publishes a return to "
+                + "one of this tree's declared keys, however the state ends; a transition's "
+                + "route rows can still carry it per exit wire.");
             hint.style.marginBottom = 2f;
             container.Add(hint);
 
@@ -4836,12 +4839,129 @@ namespace PowerOfFire.DrawToPlay.Editor
                 var output = outputs[i];
                 if (string.IsNullOrEmpty(output.name))
                     continue;
-                var row = new Label("→ " + output.name + "  (" + KindLabel(output.kind) + ")");
-                row.style.marginLeft = 12f;
-                row.style.color = new Color(0.75f, 0.78f, 0.85f);
-                container.Add(row);
+                container.Add(BuildReturnRow(program, output));
             }
             return container;
+        }
+
+        /// <summary>One return pin: name, kind, and where it lands.</summary>
+        private VisualElement BuildReturnRow(RunGraphTask program, TaskOutputValue output)
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.minHeight = k_RowMinHeight;
+            row.style.marginLeft = 6f;
+
+            GraphTaskReturnRoute route = FindReturnRoute(program, output.name);
+            var bound = route != null && !string.IsNullOrEmpty((string)route.key);
+
+            var label = new Label("→ " + output.name + "  (" + KindLabel(output.kind) + ")");
+            label.style.flexGrow = 1f;
+            label.style.color = new Color(0.75f, 0.78f, 0.85f);
+            label.style.overflow = Overflow.Hidden;
+            label.style.textOverflow = TextOverflow.Ellipsis;
+            row.Add(label);
+
+            var target = new Label(bound ? "⚿ " + (string)route.key : "—");
+            target.style.color = bound
+                ? new Color(0.72f, 0.85f, 0.75f)
+                : new Color(0.5f, 0.52f, 0.58f);
+            target.style.marginRight = 4f;
+            target.tooltip = bound
+                ? $"Published to '{(string)route.key}' when the activation ends."
+                : "Not published anywhere — route it on a transition, or bind a key here.";
+            row.Add(target);
+
+            var pick = new Button { text = "⚿" };
+            pick.style.width = 26f;
+            pick.style.minHeight = k_ControlMinHeight;
+            pick.style.flexShrink = 0f;
+            pick.tooltip = $"Publish '{output.name}' to one of this tree's declared keys when "
+                + "the program's activation ends.";
+            pick.clicked += () => ShowReturnKeyMenu(pick, program, output.name);
+            row.Add(pick);
+
+            if (bound)
+            {
+                var unbind = new Button { text = "✕" };
+                unbind.style.width = 26f;
+                unbind.style.minHeight = k_ControlMinHeight;
+                unbind.style.flexShrink = 0f;
+                unbind.tooltip = "Stop publishing this return.";
+                unbind.clicked += () =>
+                {
+                    Undo.RecordObject(program, k_ReturnRouteUndo);
+                    program.returns.RemoveAll(entry => entry != null
+                        && string.Equals(entry.output, output.name, StringComparison.Ordinal));
+                    EditorUtility.SetDirty(program);
+                    m_Edited?.Invoke();
+                    RebuildPane();
+                };
+                row.Add(unbind);
+            }
+
+            return row;
+        }
+
+        private const string k_ReturnRouteUndo = "Route Program Return";
+
+        private static GraphTaskReturnRoute FindReturnRoute(RunGraphTask program, string output)
+        {
+            var routes = program.returns;
+            for (var i = 0; routes != null && i < routes.Count; ++i)
+            {
+                if (routes[i] != null
+                    && string.Equals(routes[i].output, output, StringComparison.Ordinal))
+                    return routes[i];
+            }
+            return null;
+        }
+
+        /// <summary>The declared-key menu for a return pin — the outcome twin of
+        /// <see cref="ShowDeclaredKeyMenu"/>.</summary>
+        private void ShowReturnKeyMenu(VisualElement anchor, RunGraphTask program, string output)
+        {
+            var declarations = new List<StateTreeKeyDeclaration>();
+            StateTreeKeyResolver.CollectVisible(m_Tree, declarations);
+
+            GraphTaskReturnRoute existing = FindReturnRoute(program, output);
+            var current = existing != null ? (string)existing.key : null;
+
+            var menu = new GenericMenu();
+            if (declarations.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent("This tree declares no keys yet — add them "
+                    + "in the Keys section."));
+            }
+            for (var i = 0; i < declarations.Count; ++i)
+            {
+                var declaration = declarations[i];
+                if (declaration == null || string.IsNullOrEmpty(declaration.name))
+                    continue;
+                var keyName = declaration.name;
+                var keyId = declaration.id;
+                var label = (keyName + "  (" + declaration.kind + ")")
+                    .Replace('/', k_MenuSeparatorStandIn);
+                menu.AddItem(new GUIContent(label),
+                    string.Equals(keyName, current, StringComparison.Ordinal),
+                    () =>
+                    {
+                        Undo.RecordObject(program, k_ReturnRouteUndo);
+                        var route = FindReturnRoute(program, output);
+                        if (route == null)
+                        {
+                            route = new GraphTaskReturnRoute { output = output };
+                            (program.returns ??= new List<GraphTaskReturnRoute>()).Add(route);
+                        }
+                        route.key.text = keyName;
+                        route.key.keyId = keyId;
+                        EditorUtility.SetDirty(program);
+                        m_Edited?.Invoke();
+                        RebuildPane();
+                    });
+            }
+            menu.DropDown(anchor.worldBound);
         }
 
         private static void ShowParameterMenu(VisualElement anchor,

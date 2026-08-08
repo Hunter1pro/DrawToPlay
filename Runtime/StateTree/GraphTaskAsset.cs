@@ -327,12 +327,37 @@ namespace PowerOfFire.DrawToPlay
         /// task/condition carries the field.</summary>
         public int node;
 
-        /// <summary>The <see cref="StateTreeKeyField"/> field's name on the embedded instance.</summary>
+        /// <summary>The <see cref="StateTreeKeyField"/> field's name on the embedded instance —
+        /// or EMPTY, meaning the binding targets the INSTRUCTION's own key
+        /// (<see cref="GraphTaskNode.stringValue"/> of a blackboard node whose key pin a String
+        /// parameter feeds), rewritten by ApplyOverrides on the activation copy.</summary>
         public string field;
 
         /// <summary>The String parameter (by its runtime NAME, like every parameter read) whose
         /// effective value is the key name.</summary>
         public string parameter;
+    }
+
+    /// <summary>
+    /// One RETURN connection at a call site: when the program finishes, the declared output
+    /// named here is written to a blackboard key — the outcome half of the signature, bound
+    /// where the program is MOUNTED (the state tree), exactly as the income half binds
+    /// parameters to declared keys. Carried by <see cref="RunGraphTask.returns"/> and applied
+    /// the moment the activation ends, while the instance's output buffer is still alive.
+    ///
+    /// Transitions can ALSO route outputs (per exit wire, M7k); this is the unconditional
+    /// flavor — "whatever way this state ends, publish the return here".
+    /// </summary>
+    [Serializable]
+    public sealed class GraphTaskReturnRoute
+    {
+        /// <summary>The declared output's name (the program's contract).</summary>
+        public string output = "";
+
+        /// <summary>Where it lands on the running tree's blackboard — ⚑-wireable to a
+        /// declared key, free-typed text otherwise.</summary>
+        [StateTreeKey(StateTreeKeyKind.Float, any: true)]
+        public StateTreeKeyField key = new StateTreeKeyField();
     }
 
     /// <summary>
@@ -579,7 +604,10 @@ namespace PowerOfFire.DrawToPlay
             m_Parameters = null;
             Dictionary<string, GraphTaskParameter> effective = EffectiveParameters();
             if (overrides == null)
+            {
+                ApplyInstructionKeyBindings();
                 return;
+            }
 
             string unknown = null;
             for (int i = 0; i < overrides.Count; i++)
@@ -611,12 +639,38 @@ namespace PowerOfFire.DrawToPlay
                     parameter.floatValue = row.floatValue;
             }
 
+            ApplyInstructionKeyBindings();
+
             if (unknown == null || m_UnknownOverrideLogged)
                 return;
             m_UnknownOverrideLogged = true;
             Debug.LogWarning($"GraphTaskAsset '{name}': override for {unknown} — this graph " +
                 "declares no parameter with that id (deleted, or the row was never bound). Using " +
                 "the graph default.", this);
+        }
+
+        /// <summary>Key bindings with an EMPTY field name target an INSTRUCTION's own key
+        /// (a blackboard node's key pin fed by a String parameter): rewrite the instance's
+        /// instruction to the parameter's effective value. Runs on the per-activation copy —
+        /// <see cref="ApplyOverrides"/> is only ever called on one — so the authored asset is
+        /// never written.</summary>
+        private void ApplyInstructionKeyBindings()
+        {
+            if (keyBindings == null)
+                return;
+            for (int i = 0; i < keyBindings.Count; i++)
+            {
+                GraphTaskKeyBinding binding = keyBindings[i];
+                if (binding == null || !string.IsNullOrEmpty(binding.field))
+                    continue;
+                GraphTaskNode node = NodeAt(binding.node);
+                if (node == null || string.IsNullOrEmpty(binding.parameter)
+                    || !EffectiveParameters().TryGetValue(binding.parameter,
+                        out GraphTaskParameter parameter)
+                    || parameter.kind != GraphTaskParameterKind.String)
+                    continue;
+                node.stringValue = parameter.stringValue ?? string.Empty;
+            }
         }
 
         /// <summary>The effective set, built from the authored defaults on first use.</summary>
@@ -1351,8 +1405,9 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < keyBindings.Count; i++)
             {
                 GraphTaskKeyBinding binding = keyBindings[i];
-                if (binding == null || binding.node != index)
-                    continue;
+                if (binding == null || binding.node != index
+                    || string.IsNullOrEmpty(binding.field))
+                    continue; // empty field = an INSTRUCTION binding, ApplyOverrides' job
 
                 GraphTaskParameter parameter = null;
                 if (!string.IsNullOrEmpty(binding.parameter))
