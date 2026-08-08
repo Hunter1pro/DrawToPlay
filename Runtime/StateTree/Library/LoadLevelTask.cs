@@ -1,4 +1,5 @@
 using System;
+using Cysharp.Threading.Tasks;
 using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
@@ -57,12 +58,21 @@ namespace PowerOfFire.DrawToPlay
                 if (service.service == null)
                     return StateTreeStatus.Failure;
 
-                service.service.Load(target, ok => { m_Done = true; m_Ok = ok; });
+                // Fire-and-observe: the tick model polls the flags, so the UniTask's only
+                // job here is to land them. Forget() is safe — LoadAsync owns its own
+                // cancellation (the service's destruction) and never throws past it.
+                Await(service.service.LoadAsync(target)).Forget();
             }
 
             if (!m_Done)
                 return StateTreeStatus.Running;
             return m_Ok ? StateTreeStatus.Success : StateTreeStatus.Failure;
+        }
+
+        private async UniTask Await(UniTask<bool> load)
+        {
+            m_Ok = await load;
+            m_Done = true;
         }
 
         private LevelDef ResolveTarget(StateTreeContext context)

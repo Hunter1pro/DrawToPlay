@@ -1,5 +1,6 @@
 using System;
-using System.Collections;
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -16,8 +17,10 @@ namespace PowerOfFire.DrawToPlay
     /// the Root scope (the loading overlay is a Root overlay watching that key — no
     /// transition scene), unload the current level, load the next, seed the entry's
     /// parameters onto the fresh Level scope, announce <see cref="CurrentKey"/>, drop the
-    /// veil. Nothing here decides WHICH level — that is the session tree's job through
-    /// <see cref="LoadLevelTask"/>; this component only executes transitions.
+    /// veil. Async is UniTask — the project standard — cancelled by this component's
+    /// destruction, so a torn-down Root never leaves a transition running into a dead scene.
+    /// Nothing here decides WHICH level; that is the session tree's job through
+    /// <see cref="LoadLevelTask"/>.
     /// </summary>
     [AddComponentMenu("Draw To Play/Level Service")]
     public sealed class LevelService : StateTreeServiceBehaviour
@@ -36,69 +39,72 @@ namespace PowerOfFire.DrawToPlay
 
         private Scene m_LoadedScene;
 
-        /// <summary>Run one transition. One at a time: a second call while loading fails
-        /// fast — the session tree's states make overlapping requests unrepresentable, and a
-        /// queue here would hide a wiring mistake.</summary>
-        public void Load(LevelDef level, Action<bool> done)
+        /// <summary>
+        /// Run one transition; true when the level landed. One at a time: a second call
+        /// while loading fails fast — the session tree's states make overlapping requests
+        /// unrepresentable, and a queue here would hide a wiring mistake.
+        /// </summary>
+        public async UniTask<bool> LoadAsync(LevelDef level)
         {
             if (level == null || string.IsNullOrEmpty(level.scenePath))
             {
-                Debug.LogError("[LevelService] Load called with no level / empty scenePath.",
-                    this);
-                done?.Invoke(false);
-                return;
+                Debug.LogError("[LevelService] LoadAsync called with no level / empty "
+                    + "scenePath.", this);
+                return false;
             }
             if (isLoading)
             {
                 Debug.LogError($"[LevelService] already loading — '{level.name}' refused. One "
                     + "transition at a time; the session tree's states should make this "
                     + "unrepresentable.", this);
-                done?.Invoke(false);
-                return;
+                return false;
             }
 
-            StartCoroutine(Transition(level, done));
-        }
-
-        private IEnumerator Transition(LevelDef level, Action<bool> done)
-        {
+            CancellationToken token = destroyCancellationToken;
             isLoading = true;
             WriteRootKey(LoadingKey, level.Label);
-
-            if (m_LoadedScene.IsValid() && m_LoadedScene.isLoaded)
+            try
             {
-                AsyncOperation unload = SceneManager.UnloadSceneAsync(m_LoadedScene);
-                while (unload != null && !unload.isDone)
-                    yield return null;
+                if (m_LoadedScene.IsValid() && m_LoadedScene.isLoaded)
+                {
+                    AsyncOperation unload = SceneManager.UnloadSceneAsync(m_LoadedScene);
+                    if (unload != null)
+                        await unload.ToUniTask(cancellationToken: token);
+                }
+                current = null;
+                ClearRootKey(CurrentKey);
+
+                AsyncOperation load = SceneManager.LoadSceneAsync(level.scenePath,
+                    LoadSceneMode.Additive);
+                if (load == null)
+                {
+                    Debug.LogError($"[LevelService] scene '{level.scenePath}' cannot load — "
+                        + "is it in Build Settings?", this);
+                    return false;
+                }
+                await load.ToUniTask(cancellationToken: token);
+
+                m_LoadedScene = SceneManager.GetSceneByPath(level.scenePath);
+                if (m_LoadedScene.IsValid())
+                    SceneManager.SetActiveScene(m_LoadedScene);
+
+                SeedLevelParameters(level);
+
+                current = level;
+                WriteRootKey(CurrentKey, level.name);
+                return true;
             }
-            current = null;
-            ClearRootKey(CurrentKey);
-
-            AsyncOperation load = SceneManager.LoadSceneAsync(level.scenePath,
-                LoadSceneMode.Additive);
-            if (load == null)
+            catch (OperationCanceledException)
             {
-                Debug.LogError($"[LevelService] scene '{level.scenePath}' cannot load — is it "
-                    + "in Build Settings?", this);
+                // The Root died mid-transition — everything this would clean up is going
+                // down with it.
+                return false;
+            }
+            finally
+            {
                 ClearRootKey(LoadingKey);
                 isLoading = false;
-                done?.Invoke(false);
-                yield break;
             }
-            while (!load.isDone)
-                yield return null;
-
-            m_LoadedScene = SceneManager.GetSceneByPath(level.scenePath);
-            if (m_LoadedScene.IsValid())
-                SceneManager.SetActiveScene(m_LoadedScene);
-
-            SeedLevelParameters(level);
-
-            current = level;
-            WriteRootKey(CurrentKey, level.name);
-            ClearRootKey(LoadingKey);
-            isLoading = false;
-            done?.Invoke(true);
         }
 
         /// <summary>The entry's parameters land on the LEVEL host's blackboard before
