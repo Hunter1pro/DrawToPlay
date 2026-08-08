@@ -2603,7 +2603,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 {
                     box.Add(BuildProgramStatus(program));
                     if (program.graph != null)
+                    {
                         box.Add(BuildParameterOverrides(SurfaceOf(program)));
+                        box.Add(BuildProgramReturns(program));
+                    }
                 }
 
                 // The override list is drawn as the Parameters section above — as checkboxes against
@@ -2867,6 +2870,12 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             /// <summary>Tooltip tail for a row <see cref="unused"/> flagged.</summary>
             internal string unusedTooltip;
+
+            /// <summary>True when this String parameter is KEY-SEMANTIC in the callee (it feeds
+            /// key fields of embedded calls), so its row offers the declared-key picker — the
+            /// income-parameter connection: pick one of THIS tree's keys and the program reads
+            /// that key. Null when the surface cannot know (a sub-tree).</summary>
+            internal Predicate<string> isKey;
         }
 
         /// <summary>The logic-graph surface: variables declared on the canvas, read by
@@ -2887,10 +2896,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                 staleMessage = name => $"'{name}' is overridden here, but the graph has no parameter "
                     + "by that name — it was probably renamed or deleted. The override does nothing.",
                 unused = name => !IsParameterRead(graph, name),
-                unusedTooltip = "is declared but no node in the graph reads it, so overriding it "
-                    + "changes nothing. A variable used only on a library call's parameter port "
-                    + "reads this way: those are baked into the graph and cannot be overridden per "
-                    + "state."
+                unusedTooltip = "is declared but nothing in the graph reads it, so overriding it "
+                    + "changes nothing. A variable wired only into a NON-KEY port of a library "
+                    + "call reads this way: those bake as fixed values. (A String variable on a "
+                    + "KEY port does count — the program re-reads it per activation.)",
+                isKey = name => IsKeyParameter(graph, name)
             };
         }
 
@@ -3141,6 +3151,23 @@ namespace PowerOfFire.DrawToPlay.Editor
             // stop being told one level down.
             ApplyOverrideStyle(input, overridden && !linked);
             row.Add(input);
+
+            // The INCOME-parameter connection: a key-semantic String parameter binds to one of
+            // THIS tree's declared keys with a pick, not a retype — the callee then reads that
+            // key, and the tree's vocabulary is the single place the name lives.
+            if (parameter.kind == GraphTaskParameterKind.String
+                && surface.isKey != null && surface.isKey(parameter.name))
+            {
+                var pickKey = new Button { text = "⚿" };
+                pickKey.style.width = 26f;
+                pickKey.style.minHeight = k_ControlMinHeight;
+                pickKey.style.flexShrink = 0f;
+                pickKey.tooltip = $"'{parameter.name}' names a KEY the program reads. Bind it to "
+                    + "one of this tree's declared keys — ticks the override and writes the "
+                    + "key's name as its value.";
+                pickKey.clicked += () => ShowDeclaredKeyMenu(pickKey, surface, parameter);
+                row.Add(pickKey);
+            }
 
             var compatible = CompatibleParameters(parameter.kind);
             if (compatible.Count > 0 || live)
@@ -3556,10 +3583,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static bool IsParameterRead(GraphTaskAsset graph, string name)
         {
             var nodes = graph.nodes;
-            if (nodes == null)
-                return false;
-
-            for (var i = 0; i < nodes.Count; ++i)
+            for (var i = 0; nodes != null && i < nodes.Count; ++i)
             {
                 var node = nodes[i];
                 if (node == null)
@@ -3569,6 +3593,18 @@ namespace PowerOfFire.DrawToPlay.Editor
                     && node.kind != GraphTaskNodeKind.GetParamBool)
                     continue;
                 if (string.Equals(node.stringValue, name, StringComparison.Ordinal))
+                    return true;
+            }
+
+            // A String parameter feeding a KEY field of an embedded call is a real read too:
+            // the interpreter re-applies its effective value to the per-activation copy
+            // (GraphTaskKeyBinding), so overriding it retargets the program's key.
+            var bindings = graph.keyBindings;
+            for (var i = 0; bindings != null && i < bindings.Count; ++i)
+            {
+                var binding = bindings[i];
+                if (binding != null
+                    && string.Equals(binding.parameter, name, StringComparison.Ordinal))
                     return true;
             }
 
@@ -4715,6 +4751,99 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>The parameter popup, shared by both link controls. Names are shown and the id is
         /// what the callback receives — the whole binding model in one method — and the current
         /// choice is ticked so re-opening it reads as "change this" rather than "make one".</summary>
+        /// <summary>True when the program reads <paramref name="name"/> as a KEY — it feeds a
+        /// key field of an embedded call through a <see cref="GraphTaskKeyBinding"/>.</summary>
+        private static bool IsKeyParameter(GraphTaskAsset graph, string name)
+        {
+            var bindings = graph != null ? graph.keyBindings : null;
+            for (var i = 0; bindings != null && i < bindings.Count; ++i)
+            {
+                var binding = bindings[i];
+                if (binding != null
+                    && string.Equals(binding.parameter, name, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>The declared-key menu for a key-semantic parameter row: every key visible
+        /// from this tree, current value ticked; picking one overrides the parameter with the
+        /// key's NAME (the runtime wire — programs read keys by name).</summary>
+        private void ShowDeclaredKeyMenu(VisualElement anchor, ParameterSurface surface,
+            GraphTaskParameter parameter)
+        {
+            var declarations = new List<StateTreeKeyDeclaration>();
+            StateTreeKeyResolver.CollectVisible(m_Tree, declarations);
+
+            var entry = ActiveOverride(surface, parameter);
+            var current = entry != null ? entry.stringValue : null;
+
+            var menu = new GenericMenu();
+            if (declarations.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent("This tree declares no keys yet — add them "
+                    + "in the Keys section."));
+            }
+            for (var i = 0; i < declarations.Count; ++i)
+            {
+                var declaration = declarations[i];
+                if (declaration == null || string.IsNullOrEmpty(declaration.name))
+                    continue;
+                var keyName = declaration.name;
+                var label = (keyName + "  (" + declaration.kind + ")")
+                    .Replace('/', k_MenuSeparatorStandIn);
+                menu.AddItem(new GUIContent(label),
+                    string.Equals(keyName, current, StringComparison.Ordinal),
+                    () =>
+                    {
+                        SetOverride(surface, parameter, true);
+                        CommitOverride(surface, parameter, row => row.stringValue = keyName);
+                        RebuildPane();
+                    });
+            }
+            menu.DropDown(anchor.worldBound);
+        }
+
+        /// <summary>
+        /// The OUTCOME half of a program's signature: what it returns (M7j Set Output
+        /// declarations), listed on the task box so the surface is visible where the program is
+        /// mounted. Routing stays where it lives — a transition leaving this state carries an
+        /// output into a blackboard key — this section is the map to it.
+        /// </summary>
+        private VisualElement BuildProgramReturns(RunGraphTask program)
+        {
+            var container = new VisualElement();
+            var outputs = program.graph != null ? program.graph.declaredOutputs : null;
+            var count = 0;
+            for (var i = 0; outputs != null && i < outputs.Count; ++i)
+                if (!string.IsNullOrEmpty(outputs[i].name))
+                    count++;
+            if (count == 0)
+                return container;
+
+            var title = new Label($"Returns ({count})");
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            title.style.marginTop = 6f;
+            container.Add(title);
+
+            var hint = Hint("What the program returns when it ends. Route one on a transition "
+                + "leaving this state — the wire's route rows carry it into a blackboard key.");
+            hint.style.marginBottom = 2f;
+            container.Add(hint);
+
+            for (var i = 0; outputs != null && i < outputs.Count; ++i)
+            {
+                var output = outputs[i];
+                if (string.IsNullOrEmpty(output.name))
+                    continue;
+                var row = new Label("→ " + output.name + "  (" + KindLabel(output.kind) + ")");
+                row.style.marginLeft = 12f;
+                row.style.color = new Color(0.75f, 0.78f, 0.85f);
+                container.Add(row);
+            }
+            return container;
+        }
+
         private static void ShowParameterMenu(VisualElement anchor,
             List<GraphTaskParameter> choices, string currentId, Action<string> picked)
         {
