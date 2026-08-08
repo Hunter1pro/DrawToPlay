@@ -100,6 +100,10 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <summary>See <see cref="TreeNameOption"/>.</summary>
         public const string TreeKindOption = "treeKind";
 
+        /// <summary>The entry marker's kind map for the graph's declared keys — see
+        /// <see cref="EntryNode.KeyKindsPortName"/> and <see cref="KeyVariables"/>.</summary>
+        public const string KeyKindsOption = "keyKinds";
+
         /// <summary>Node id of the organizational root. Mirrors
         /// <c>StateTreePresets.TreeBuilder</c>: no tasks and no transitions, so the runner's
         /// ResolveEntryNode descends past it into <c>children[0]</c>.</summary>
@@ -307,6 +311,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     typeof(StateTreeRegistryAsset), out object registryValue)
                 && registryValue is StateTreeRegistryAsset registry && registry != null)
                 tree.registries.Add(registry);
+            BakeKeyDeclarations(graph, marker, tree, log, result);
             tree.name = tree.treeName;
             result.tree = tree;
 
@@ -332,6 +337,91 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     AppendStateSubAssets(states[i], result);
 
             return result;
+        }
+
+        /// <summary>
+        /// The graph's variables → the baked tree's KEY HEADER (M12, canvas flavor): every
+        /// string variable is one <see cref="StateTreeKeyDeclaration"/>, named by the variable,
+        /// id'd by the variable's stable identity (so a rename re-bakes to the SAME id and every
+        /// wire survives it), kinded by the marker's Key Kinds port with use-derivation filling
+        /// the gaps. Non-string variables are refused with a warning: a tree's canvas variables
+        /// are its declared keys, and a key is a name.
+        /// </summary>
+        private static void BakeKeyDeclarations(Graph graph, EntryNode marker, StateTreeAsset tree,
+            IBakeLog log, BakeResult result)
+        {
+            IEnumerable<IVariable> variables;
+            try
+            {
+                variables = graph.GetVariables();
+            }
+            catch (Exception)
+            {
+                return;
+            }
+            if (variables == null)
+                return;
+
+            string kindsText = marker != null ? ReadStringValue(marker, KeyKindsOption) : null;
+            var kindProblems = new List<string>();
+            Dictionary<string, StateTreeKeyKind> kinds =
+                KeyVariables.ParseKindOverrides(kindsText, kindProblems);
+            for (int i = 0; i < kindProblems.Count; i++)
+            {
+                log?.Warning(kindProblems[i], marker);
+                result.warningCount++;
+            }
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (IVariable variable in variables)
+            {
+                if (variable == null)
+                    continue;
+                string name = KeyVariables.NameOf(variable);
+                if (string.IsNullOrEmpty(name))
+                    continue;
+
+                Type type = KeyVariables.TypeOf(variable);
+                if (type != typeof(string))
+                {
+                    log?.Warning($"Graph variable '{name}' is a "
+                        + $"{(type != null ? type.Name : "unknown type")}. A state tree's canvas "
+                        + "variables are its DECLARED KEYS, which are names — it was not "
+                        + "declared. Blackboard values belong on the blackboard, through the "
+                        + "context atoms.", marker);
+                    result.warningCount++;
+                    continue;
+                }
+
+                if (!seen.Add(name))
+                {
+                    log?.Warning($"Two graph variables are called '{name}'; a key is declared "
+                        + "once. The second was skipped.", marker);
+                    result.warningCount++;
+                    continue;
+                }
+
+                StateTreeKeyKind kind;
+                if (!kinds.TryGetValue(name, out kind))
+                {
+                    kind = KeyVariables.DeriveKind(variable, out string disagreement);
+                    if (disagreement != null)
+                    {
+                        log?.Warning($"Declared key '{name}': {disagreement}. Pin it on the "
+                            + "Entry node's Key Kinds port ('" + name + "=Event' and so on).",
+                            marker);
+                        result.warningCount++;
+                    }
+                }
+
+                tree.keys.Add(new StateTreeKeyDeclaration
+                {
+                    id = TaskGraphBaker.ReadParameterId(variable, name),
+                    name = name,
+                    kind = kind,
+                    description = string.Empty
+                });
+            }
         }
 
         /// <summary>
@@ -1005,6 +1095,30 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 FieldInfo field = fields[i];
                 if (field.IsInitOnly || field.IsNotSerialized || field.IsStatic)
                     continue;
+
+                // A key-semantic port WIRED TO A VARIABLE is the id-wire, canvas flavor: the
+                // variable is the declaration BakeKeyDeclarations wrote, so the field gets the
+                // declaration's name AND its id — rename the variable, re-bake, and every use
+                // follows. An unconnected port stays the free-typed constant below.
+                if (field.FieldType == typeof(StateTreeKeyField))
+                {
+                    IPort keyPort = FindInputPort(node, field.Name);
+                    if (keyPort != null
+                        && KeyVariables.TryConnectedVariable(keyPort, out IVariable keyVariable))
+                    {
+                        string keyName = KeyVariables.NameOf(keyVariable);
+                        if (!(field.GetValue(target) is StateTreeKeyField wrapper))
+                        {
+                            wrapper = new StateTreeKeyField();
+                            field.SetValue(target, wrapper);
+                        }
+                        wrapper.text = keyName;
+                        wrapper.keyId = TaskGraphBaker.ReadParameterId(keyVariable, keyName);
+                        matched.Add(field.Name);
+                        continue;
+                    }
+                }
+
                 if (!TryReadAuthoredValue(node, field.Name,
                     LibraryParameterPorts.PortDataType(field.FieldType), out object value))
                     continue;
@@ -1054,6 +1168,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         private static bool IsReservedName(string name)
             => name == NodeIdOption || name == DisplayNameOption || name == CheckWhileRunningOption
                 || name == OrderOption || name == TreeNameOption || name == TreeKindOption
+                || name == KeyKindsOption
                 || name == "in" || name == "out" || name == "from" || name == "to"
                 || name == "entry" || name == "condition";
 

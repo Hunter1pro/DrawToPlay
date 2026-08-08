@@ -335,6 +335,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             program.name = ReadProgramName(graph);
             program.nodes = context.program;
             program.parameters = context.parameters;
+            program.keyBindings = context.keyBindings;
             // Filled by the pin pass above (every Set Output declares itself as it resolves its name),
             // so this assignment has to follow the Resolve loop, not precede it.
             program.declaredOutputs = context.declaredOutputs;
@@ -492,6 +493,18 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
             /// <summary>The baked parameter list, in graph-variable order.</summary>
             public readonly List<GraphTaskParameter> parameters = new List<GraphTaskParameter>();
+
+            /// <summary>Key-semantic fields on embedded library calls that a String parameter
+            /// feeds — the one baked-call value the interpreter re-applies per activation, so a
+            /// state's override CAN retarget a key. See
+            /// <see cref="GraphTaskAsset.keyBindings"/>.</summary>
+            public readonly List<GraphTaskKeyBinding> keyBindings = new List<GraphTaskKeyBinding>();
+
+            /// <summary>Nodes whose value the BAKE itself consumed (a variable wired into a
+            /// library call's parameter port, whether it froze there or became a key binding).
+            /// Their pull instruction is legitimately unread at run time, so the dead-value
+            /// diagnostic must not flag them.</summary>
+            public readonly HashSet<INode> consumedAtBake = new HashSet<INode>(NodeIdentity.comparer);
 
             /// <summary>Name → kind for the parameters that MADE IT INTO <see cref="parameters"/>.
             /// A variable node only bakes to a GetParam pull when its name is in here, which is what
@@ -1334,7 +1347,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <param name="variable">The graph variable being baked.</param>
         /// <param name="name">Its name, already validated as non-empty.</param>
         /// <returns>An id, never empty.</returns>
-        private static string ReadParameterId(IVariable variable, string name)
+        internal static string ReadParameterId(IVariable variable, string name)
         {
             string identity = TryReadVariableIdentity(variable);
             return identity.Length > 0 ? identity : k_NameIdPrefix + name;
@@ -1521,7 +1534,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
             var task = (StateTreeTaskAsset)ScriptableObject.CreateInstance(taskType);
             task.name = $"Task {index.ToString(CultureInfo.InvariantCulture)} {taskType.Name}";
-            ApplyParameters(context, source, task, taskType);
+            ApplyParameters(context, source, task, taskType, index);
             node.task = task;
             context.result.subAssets.Add(new StateTreeGraphBaker.SubAsset(task,
                 "Task:" + index.ToString(CultureInfo.InvariantCulture)));
@@ -1542,7 +1555,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
             var condition = (StateTreeConditionAsset)ScriptableObject.CreateInstance(conditionType);
             condition.name = $"Cond {index.ToString(CultureInfo.InvariantCulture)} {conditionType.Name}";
-            ApplyParameters(context, source, condition, conditionType);
+            ApplyParameters(context, source, condition, conditionType, index);
             node.condition = condition;
             context.result.subAssets.Add(new StateTreeGraphBaker.SubAsset(condition,
                 "Cond:" + index.ToString(CultureInfo.InvariantCulture)));
@@ -1555,7 +1568,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// task costs a wrapper class and no baker change.
         /// </summary>
         private static void ApplyParameters(BakeContext context, INode source, ScriptableObject target,
-            Type libraryType)
+            Type libraryType, int nodeIndex)
         {
             IReadOnlyList<FieldInfo> fields = LibraryParameterPorts.GetParameterFields(libraryType);
             for (int i = 0; i < fields.Count; i++)
@@ -1578,7 +1591,31 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                         continue;
                     }
                     if (producer is IVariableNode variableNode)
-                        NoteBakedCallParameter(context, source, field.Name, variableNode);
+                    {
+                        context.consumedAtBake.Add(producer);
+                        // A KEY field fed by a String parameter is the one baked-call value that
+                        // stays LIVE: the binding recorded here makes the interpreter re-apply the
+                        // parameter's effective value to the embedded copy each activation, so a
+                        // state's override retargets the key. Every other field keeps the
+                        // bake-time rule and its note.
+                        string variableName = SafeVariableName(variableNode);
+                        if (field.FieldType == typeof(StateTreeKeyField)
+                            && context.parameterKinds.TryGetValue(variableName,
+                                out GraphTaskParameterKind parameterKind)
+                            && parameterKind == GraphTaskParameterKind.String)
+                        {
+                            context.keyBindings.Add(new GraphTaskKeyBinding
+                            {
+                                node = nodeIndex,
+                                field = field.Name,
+                                parameter = variableName
+                            });
+                        }
+                        else
+                        {
+                            NoteBakedCallParameter(context, source, field.Name, variableNode);
+                        }
+                    }
                 }
 
                 if (!LibraryParameterPorts.TryReadValue(port,
@@ -1645,7 +1682,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
                 if (IsPullKind(node.kind))
                 {
-                    if (!allPulled.Contains(i))
+                    if (!allPulled.Contains(i) && !context.consumedAtBake.Contains(source))
                     {
                         context.Warning($"Nothing reads '{Describe(source)}', so it never runs. Wire "
                             + "its result into a pin, or delete it.", source);

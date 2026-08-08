@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
@@ -307,6 +308,34 @@ namespace PowerOfFire.DrawToPlay
     }
 
     /// <summary>
+    /// One key-semantic field of an embedded library call that a String PARAMETER feeds. Library
+    /// call parameters are baked as values — the note the baker prints — but a KEY is the one
+    /// value whose late binding is the whole point of declaring it: the graph says "the key this
+    /// program reads is the <c>levelKey</c> parameter", and the state that runs the program picks
+    /// which declared key that is. So for these fields, and only these, the interpreter re-applies
+    /// the parameter's EFFECTIVE (post-override) value onto its per-activation copy of the
+    /// embedded task, at the moment that copy is made.
+    ///
+    /// The bound value is the key's NAME, written into the wrapper's <c>text</c>; <c>keyId</c>
+    /// stays empty because a program owns no vocabulary — its host tree does, and a name is how a
+    /// free-typed key legally resolves there.
+    /// </summary>
+    [Serializable]
+    public sealed class GraphTaskKeyBinding
+    {
+        /// <summary>Index into <see cref="GraphTaskAsset.nodes"/> of the call whose embedded
+        /// task/condition carries the field.</summary>
+        public int node;
+
+        /// <summary>The <see cref="StateTreeKeyField"/> field's name on the embedded instance.</summary>
+        public string field;
+
+        /// <summary>The String parameter (by its runtime NAME, like every parameter read) whose
+        /// effective value is the key name.</summary>
+        public string parameter;
+    }
+
+    /// <summary>
     /// One node of a baked logic graph. A FLAT record rather than a class hierarchy on purpose: the
     /// whole program is one <c>List&lt;GraphTaskNode&gt;</c> inside a single asset, so it survives
     /// Unity serialization with no <c>[SerializeReference]</c> polymorphism, deep-copies with the
@@ -425,6 +454,12 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Node index the OnExit chain starts at, -1 for none.</summary>
         public int exitEntry = -1;
 
+        /// <summary>Key-semantic fields on embedded calls that follow a String parameter per
+        /// activation instead of freezing at bake time — see <see cref="GraphTaskKeyBinding"/>.
+        /// Applied by <see cref="TaskCopy"/>/<see cref="ConditionCopy"/> the moment each
+        /// per-activation copy is made, which is after <see cref="ApplyOverrides"/> ran.</summary>
+        public List<GraphTaskKeyBinding> keyBindings = new List<GraphTaskKeyBinding>();
+
         /// <summary>The graph's variables, baked as the task's parameters with their authored
         /// defaults. Empty for every program baked before M7f, which is exactly what "no
         /// parameters" means — the extension is additive by design.</summary>
@@ -511,6 +546,7 @@ namespace PowerOfFire.DrawToPlay
         private bool m_BadIndexLogged;
         private bool m_UnknownOverrideLogged;
         private bool m_MissingParameterLogged;
+        private bool m_BadKeyBindingLogged;
 
         // ---------------------------------------------------------------- parameters
 
@@ -1273,6 +1309,7 @@ namespace PowerOfFire.DrawToPlay
             {
                 copy = Instantiate(node.task);
                 copy.name = node.task.name;
+                ApplyKeyBindings(index, copy);
                 m_TaskCopies[index] = copy;
             }
             return copy;
@@ -1295,9 +1332,57 @@ namespace PowerOfFire.DrawToPlay
             {
                 copy = Instantiate(node.condition);
                 copy.name = node.condition.name;
+                ApplyKeyBindings(index, copy);
                 m_ConditionCopies[index] = copy;
             }
             return copy;
+        }
+
+        /// <summary>Land every key binding of one call onto its fresh per-activation copy: the
+        /// bound String parameter's effective value becomes the wrapper's text. A binding whose
+        /// field or parameter has drifted from the program (only a re-authored graph can do that)
+        /// is reported once and skipped — the copy keeps its baked default, which is the
+        /// variable's.</summary>
+        private void ApplyKeyBindings(int index, ScriptableObject copy)
+        {
+            if (keyBindings == null || copy == null)
+                return;
+
+            for (int i = 0; i < keyBindings.Count; i++)
+            {
+                GraphTaskKeyBinding binding = keyBindings[i];
+                if (binding == null || binding.node != index)
+                    continue;
+
+                GraphTaskParameter parameter = null;
+                if (!string.IsNullOrEmpty(binding.parameter))
+                    EffectiveParameters().TryGetValue(binding.parameter, out parameter);
+                FieldInfo field = string.IsNullOrEmpty(binding.field)
+                    ? null
+                    : copy.GetType().GetField(binding.field,
+                        BindingFlags.Public | BindingFlags.Instance);
+
+                if (parameter == null || parameter.kind != GraphTaskParameterKind.String
+                    || field == null || field.FieldType != typeof(StateTreeKeyField))
+                {
+                    if (!m_BadKeyBindingLogged)
+                    {
+                        m_BadKeyBindingLogged = true;
+                        Debug.LogError($"GraphTaskAsset '{name}': key binding "
+                            + $"'{binding.field}' ← parameter '{binding.parameter}' no longer "
+                            + "matches the program (field or parameter gone, or retyped). The "
+                            + "embedded copy keeps its baked key.", this);
+                    }
+                    continue;
+                }
+
+                if (!(field.GetValue(copy) is StateTreeKeyField key))
+                {
+                    key = new StateTreeKeyField();
+                    field.SetValue(copy, key);
+                }
+                key.text = parameter.stringValue ?? string.Empty;
+            }
         }
 
         private void ReleaseCopies()

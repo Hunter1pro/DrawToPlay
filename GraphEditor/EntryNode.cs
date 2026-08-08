@@ -34,6 +34,13 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// editor's territory.</summary>
         public const string RegistryPortName = "registry";
 
+        /// <summary>Kinds for the graph's DECLARED KEYS (its string variables), as
+        /// <c>name=Kind;name=Kind</c>. A kind is picker/validation metadata a string variable
+        /// has nowhere to carry, so the bake derives it from how each key is used and this port
+        /// overrides the derivation where it cannot see enough (an Event consumed only by
+        /// generic set/has atoms). Written by tree→graph conversion; optional by hand.</summary>
+        public const string KeyKindsPortName = "keyKinds";
+
         /// <inheritdoc />
         protected override void OnDefinePorts(IPortDefinitionContext context)
         {
@@ -59,6 +66,13 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 .WithDisplayName("Registry")
                 .WithTooltip("A data registry the baked tree lists — what the states' entry "
                     + "reference ports (level names, item names) resolve against at run time.")
+                .Build();
+
+            context.AddInputPort<string>(KeyKindsPortName)
+                .WithDisplayName("Key Kinds")
+                .WithTooltip("Kinds for the graph's declared keys (its string variables), as "
+                    + "'name=Kind;name=Kind' (Float, String, Bool, Object, Event, Tag, Screen). "
+                    + "Only needed where the bake cannot derive the kind from the key's uses.")
                 .Build();
         }
 

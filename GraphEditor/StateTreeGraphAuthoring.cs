@@ -102,6 +102,10 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         private const float k_ConditionOffsetX = -200f;
         private const float k_ConditionOffsetY = 55f;
 
+        /// <summary>Where a wired key's variable node lands, relative to its consumer.</summary>
+        private const float k_KeyVariableOffsetX = -280f;
+        private const float k_KeyVariableOffsetY = 48f;
+
         /// <summary>Gap between the authored evaluation orders of one state's transitions. Spaced
         /// rather than consecutive so an author can slot a new transition in between two of them
         /// without renumbering the rest.</summary>
@@ -176,9 +180,10 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             }
 
             // The wire out of "start" is unconditional: a task with nothing in it yet succeeds
-            // immediately, which is the only honest thing for it to do.
-            AddTransition(graph, start, exit, null, null, null, false, k_TransitionOrderStep,
-                TransitionPosition(startPosition, 0), problems);
+            // immediately, which is the only honest thing for it to do. The throwaway model is
+            // an empty key header — a scaffold declares nothing.
+            AddTransition(graph, new TreeModel(), start, exit, null, null, null, false,
+                k_TransitionOrderStep, TransitionPosition(startPosition, 0), problems);
 
             SaveAndImport(graph, path);
 
@@ -331,6 +336,19 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             public string treeName;
             public string treeKind;
             public StateTreeRegistryAsset registry;
+
+            /// <summary>The tree's key header, carried onto the canvas as its VARIABLES (one
+            /// string variable per declaration) and back off it by the bake. Kinds ride the
+            /// entry marker's Key Kinds port; ids are re-minted from the variables' own stable
+            /// identities, which is what keeps rename-safety alive on the canvas.</summary>
+            public readonly List<StateTreeKeyDeclaration> keys =
+                new List<StateTreeKeyDeclaration>();
+
+            /// <summary>Authoring state: the created variable per source declaration ID, so a
+            /// wired key field can connect to the declaration it names.</summary>
+            public readonly Dictionary<string, IVariable> variablesByKeyId =
+                new Dictionary<string, IVariable>(StringComparer.Ordinal);
+
             public readonly List<StateModel> states = new List<StateModel>();
             public StateModel entry;
         }
@@ -359,6 +377,19 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             {
                 notes.Add($"The tree lists {tree.registries.Count} registries; the canvas "
                     + "carries only the first — the graph flavor keeps one registry per tree.");
+            }
+
+            for (int i = 0; tree.keys != null && i < tree.keys.Count; i++)
+            {
+                StateTreeKeyDeclaration declaration = tree.keys[i];
+                if (declaration != null && !string.IsNullOrEmpty(declaration.name))
+                    model.keys.Add(declaration);
+            }
+            if (model.keys.Count > 0)
+            {
+                notes.Add($"The tree's {model.keys.Count} declared key(s) become the graph's "
+                    + "variables; their ids are re-minted from the canvas variables' own stable "
+                    + "identities, so wired uses stay wired — through the new ids.");
             }
             if (string.IsNullOrEmpty(tree.treeName))
                 notes.Add($"The tree had no treeName; the graph's Entry node was named after the asset ('{model.treeName}').");
@@ -563,6 +594,29 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// with its condition tucked in beside it.</summary>
         private static void AuthorModel(StateTreeGraph graph, TreeModel model, List<string> problems)
         {
+            // Declarations first: a key-wired field authored inside any state connects to the
+            // variable that stands for its declaration, so the variables must all exist before
+            // the first state is written.
+            for (int i = 0; i < model.keys.Count; i++)
+            {
+                StateTreeKeyDeclaration declaration = model.keys[i];
+                try
+                {
+                    IVariable variable = graph.CreateVariable(declaration.name, typeof(string),
+                        declaration.name, VariableKind.Local);
+                    if (variable != null)
+                        model.variablesByKeyId[declaration.id] = variable;
+                    else
+                        problems.Add($"Declared key '{declaration.name}' could not become a "
+                            + "graph variable (the graph refused it).");
+                }
+                catch (Exception exception)
+                {
+                    problems.Add($"Declared key '{declaration.name}' could not become a graph "
+                        + $"variable: {Describe(exception)}");
+                }
+            }
+
             for (int i = 0; i < model.states.Count; i++)
             {
                 StateModel state = model.states[i];
@@ -571,7 +625,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     continue;
 
                 for (int t = 0; t < state.tasks.Count; t++)
-                    AddTask(state, state.tasks[t], t, problems);
+                    AddTask(graph, model, state, state.tasks[t], t, problems);
             }
 
             if (model.entry != null && model.entry.node != null)
@@ -586,6 +640,13 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     {
                         WritePort(entry, EntryNode.RegistryPortName,
                             typeof(StateTreeRegistryAsset), model.registry, problems);
+                    }
+                    if (model.keys.Count > 0)
+                    {
+                        // The kinds, which a string variable has nowhere to carry — the bake
+                        // reads this port back so Event/Tag/Screen survive the round trip.
+                        WritePort(entry, EntryNode.KeyKindsPortName, typeof(string),
+                            KeyVariables.FormatKindOverrides(model.keys), problems);
                     }
                     Connect(graph, entry, EntryNode.EntryPortName, model.entry.node,
                         StateTreeFlowPorts.InPortName, problems);
@@ -610,7 +671,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                         continue;
                     }
 
-                    AddTransition(graph, state.node, target.node, transition.conditionNodeType,
+                    AddTransition(graph, model, state.node, target.node, transition.conditionNodeType,
                         transition.conditionType, transition.condition, transition.checkWhileRunning,
                         (t + 1) * k_TransitionOrderStep, TransitionPosition(state.position, t), problems);
                 }
@@ -634,7 +695,8 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <summary>One task block inside a state, with every parameter copied off the authored
         /// asset. Blocks are appended, so the graph's block order IS the baked <c>tasks</c>
         /// order.</summary>
-        private static void AddTask(StateModel state, TaskModel task, int index, List<string> problems)
+        private static void AddTask(StateTreeGraph graph, TreeModel model, StateModel state,
+            TaskModel task, int index, List<string> problems)
         {
             if (task.nodeType == null)
                 return;
@@ -667,7 +729,9 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             }
 
             block.DefineNode();
-            WriteParameters(block, task.taskType, task.source, problems);
+            WriteParameters(graph, model, block, task.taskType, task.source,
+                state.position + new Vector2(k_KeyVariableOffsetX, k_KeyVariableOffsetY * (index + 1)),
+                problems);
         }
 
         /// <summary>
@@ -680,7 +744,8 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// whatever is found on the wire afterwards: one less thing that has to be true (the wire)
         /// for the values to arrive.
         /// </summary>
-        private static TransitionNode AddTransition(StateTreeGraph graph, StateNode from, StateNode to,
+        private static TransitionNode AddTransition(StateTreeGraph graph, TreeModel model,
+            StateNode from, StateNode to,
             Type conditionNodeType, Type conditionType, ScriptableObject conditionSource,
             bool checkWhileRunning, int order, Vector2 position, List<string> problems)
         {
@@ -707,7 +772,8 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     position + new Vector2(k_ConditionOffsetX, k_ConditionOffsetY), problems) as StateTreeConditionNode;
                 if (condition != null)
                 {
-                    WriteParameters(condition, conditionType, conditionSource, problems);
+                    WriteParameters(graph, model, condition, conditionType, conditionSource,
+                        condition.Position + new Vector2(k_KeyVariableOffsetX, 0f), problems);
                     Connect(graph, condition, StateTreeConditionNode.ConditionPortName,
                         transition, TransitionNode.ConditionPortName, problems);
                 }
@@ -720,16 +786,36 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// field list comes from <see cref="LibraryParameterPorts.GetParameterFields"/> — the same
         /// call the node used to DECLARE those ports and the bake uses to read them back — so this
         /// cannot drift from either side.</summary>
-        private static void WriteParameters(INode node, Type libraryType, ScriptableObject source,
+        private static void WriteParameters(StateTreeGraph graph, TreeModel model, INode node,
+            Type libraryType, ScriptableObject source, Vector2 variableAnchor,
             List<string> problems)
         {
             if (node == null || libraryType == null || source == null)
                 return;
 
+            int wiredSlot = 0;
             IReadOnlyList<FieldInfo> fields = LibraryParameterPorts.GetParameterFields(libraryType);
             for (int i = 0; i < fields.Count; i++)
             {
                 FieldInfo field = fields[i];
+
+                // An id-WIRED key field becomes a wire on the canvas too: a variable node for
+                // the declaration, connected into the port. Free-typed fields (no keyId) keep
+                // the flattened constant below — the same two flavors the asset editor has.
+                if (field.FieldType == typeof(StateTreeKeyField)
+                    && field.GetValue(source) is StateTreeKeyField wired
+                    && wired.isWired
+                    && model.variablesByKeyId.TryGetValue(wired.keyId, out IVariable declared))
+                {
+                    if (ConnectVariable(graph, declared, node, field.Name,
+                            variableAnchor + new Vector2(0f, k_KeyVariableOffsetY * wiredSlot),
+                            problems))
+                    {
+                        wiredSlot++;
+                        continue;
+                    }
+                }
+
                 object value = LibraryParameterPorts.PortValue(field.GetValue(source));
 
                 // A null reference is already what a fresh port holds, and TrySetValue on a null
@@ -788,6 +874,55 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             }
 
             return node;
+        }
+
+        /// <summary>Drop a variable node for <paramref name="variable"/> beside its consumer and
+        /// wire it into the named input port — the canvas form of an id-wired key field.</summary>
+        private static bool ConnectVariable(StateTreeGraph graph, IVariable variable, INode to,
+            string toPort, Vector2 position, List<string> problems)
+        {
+            IPort input = to.GetInputPortByName(toPort);
+            if (input == null)
+            {
+                problems.Add($"{to.GetType().Name} has no '{toPort}' port to wire the key "
+                    + "variable into.");
+                return false;
+            }
+
+            try
+            {
+                var variableNode = graph.AddVariableNode(variable, position);
+                if (!(variableNode is INode added))
+                {
+                    problems.Add($"The graph refused a variable node for '{KeyVariables.NameOf(variable)}'.");
+                    return false;
+                }
+
+                IPort output = null;
+                foreach (IPort candidate in added.GetOutputPorts())
+                {
+                    output = candidate;
+                    break;
+                }
+                if (output == null)
+                {
+                    problems.Add($"The variable node for '{KeyVariables.NameOf(variable)}' has no "
+                        + "output port.");
+                    return false;
+                }
+
+                if (graph.Connect(output, input))
+                    return true;
+                problems.Add($"Wiring key variable '{KeyVariables.NameOf(variable)}' → "
+                    + $"{to.GetType().Name}.{toPort} was refused.");
+                return false;
+            }
+            catch (Exception exception)
+            {
+                problems.Add($"Wiring key variable '{KeyVariables.NameOf(variable)}' → "
+                    + $"{to.GetType().Name}.{toPort} failed: {Describe(exception)}");
+                return false;
+            }
         }
 
         private static bool Connect(StateTreeGraph graph, INode from, string fromPort, INode to, string toPort,
@@ -965,6 +1100,35 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     + $"'{(model.registry != null ? model.registry.name : "(none)")}', baked "
                     + $"'{(bakedRegistry != null ? bakedRegistry.name : "(none)")}'.");
             }
+
+            // Declared keys compare by NAME and KIND; ids are deliberately excluded — the canvas
+            // re-mints them from its variables' own identities, and every wired use inside the
+            // baked tree carries the new id, so the pair stays self-consistent.
+            var bakedKeys = new Dictionary<string, StateTreeKeyKind>(StringComparer.Ordinal);
+            for (int i = 0; baked.keys != null && i < baked.keys.Count; i++)
+            {
+                StateTreeKeyDeclaration bakedKey = baked.keys[i];
+                if (bakedKey != null && !string.IsNullOrEmpty(bakedKey.name))
+                    bakedKeys[bakedKey.name] = bakedKey.kind;
+            }
+            for (int i = 0; i < model.keys.Count; i++)
+            {
+                StateTreeKeyDeclaration expected = model.keys[i];
+                if (!bakedKeys.TryGetValue(expected.name, out StateTreeKeyKind bakedKind))
+                {
+                    divergences.Add($"declared key '{expected.name}' is missing from the baked "
+                        + "tree's header.");
+                    continue;
+                }
+                bakedKeys.Remove(expected.name);
+                if (bakedKind != expected.kind)
+                {
+                    divergences.Add($"declared key '{expected.name}' kind: expected "
+                        + $"{expected.kind}, baked {bakedKind}.");
+                }
+            }
+            foreach (KeyValuePair<string, StateTreeKeyKind> extra in bakedKeys)
+                divergences.Add($"the baked tree declares an extra key '{extra.Key}'.");
 
             if (baked.root == null)
             {
