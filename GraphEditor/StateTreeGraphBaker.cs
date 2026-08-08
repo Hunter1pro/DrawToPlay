@@ -277,9 +277,36 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
             StateBuild entry = ResolveEntry(graph, states, log);
 
+            // The tree's settings live on the ENTRY MARKER's ports. ResolveEntry returns
+            // the entry STATE (what the runner enters); the marker itself is found here —
+            // reading these off the state instead was the old dead-letter path that made
+            // every converted graph fall back to file-name/default-kind.
+            EntryNode marker = null;
+            foreach (INode graphNode in graph.GetNodes())
+            {
+                if (graphNode is EntryNode entryMarker)
+                {
+                    marker = entryMarker;
+                    break;
+                }
+            }
+
             var tree = ScriptableObject.CreateInstance<StateTreeAsset>();
-            tree.treeName = ReadTreeName(entry, graph);
-            tree.treeKind = ReadTreeKind(entry);
+            string markerName = marker != null
+                ? ReadStringValue(marker, TreeNameOption) : string.Empty;
+            tree.treeName = !string.IsNullOrEmpty(markerName)
+                ? markerName
+                : ReadTreeName(entry, graph);
+            string markerKind = marker != null
+                ? ReadStringValue(marker, TreeKindOption) : string.Empty;
+            tree.treeKind = !string.IsNullOrEmpty(markerKind)
+                ? markerKind
+                : ReadTreeKind(entry);
+            if (marker != null
+                && TryReadAuthoredValue(marker, EntryNode.RegistryPortName,
+                    typeof(StateTreeRegistryAsset), out object registryValue)
+                && registryValue is StateTreeRegistryAsset registry && registry != null)
+                tree.registries.Add(registry);
             tree.name = tree.treeName;
             result.tree = tree;
 

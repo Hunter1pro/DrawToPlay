@@ -106,6 +106,12 @@ namespace PowerOfFire.DrawToPlay
     {
         string EntryId { get; }
 
+        /// <summary>The serialized name — the display cache when an id is wired, and the
+        /// WHOLE reference when it is not: a name-only reference is the free-typed flavor
+        /// (what a graph port authors), resolved by name at StartTree like a free-typed
+        /// key runs on its text.</summary>
+        string EntryName { get; }
+
         Type EntryType { get; }
 
         void Bind(StateTreeRegistryEntry entry);
@@ -137,6 +143,8 @@ namespace PowerOfFire.DrawToPlay
         public bool isSet => !string.IsNullOrEmpty(entryId);
 
         string IStateTreeEntryRef.EntryId => entryId;
+
+        string IStateTreeEntryRef.EntryName => entryName;
 
         Type IStateTreeEntryRef.EntryType => typeof(TEntry);
 

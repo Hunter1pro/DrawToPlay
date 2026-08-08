@@ -998,7 +998,11 @@ namespace PowerOfFire.DrawToPlay
 
         private void BindEntryRef(IStateTreeEntryRef reference, string fieldName, string nodeId)
         {
-            if (string.IsNullOrEmpty(reference.EntryId))
+            bool byId = !string.IsNullOrEmpty(reference.EntryId);
+            // Name-only is the FREE-TYPED flavor — what a graph port authors, what a hand
+            // types — resolved by name the way a free-typed key runs on its text. Empty
+            // both ways is authoring state, skipped silently.
+            if (!byId && string.IsNullOrEmpty(reference.EntryName))
                 return;
 
             List<StateTreeRegistryAsset> registries = m_ActiveData.registries;
@@ -1009,7 +1013,9 @@ namespace PowerOfFire.DrawToPlay
                     || !reference.EntryType.IsAssignableFrom(registry.entryType))
                     continue;
 
-                StateTreeRegistryEntry entry = registry.FindById(reference.EntryId);
+                StateTreeRegistryEntry entry = byId
+                    ? registry.FindById(reference.EntryId)
+                    : registry.FindByName(reference.EntryName);
                 if (entry != null)
                 {
                     reference.Bind(entry);
@@ -1018,8 +1024,10 @@ namespace PowerOfFire.DrawToPlay
             }
 
             Debug.LogError(logLabel + ": entry reference on state '" + nodeId + "' field '"
-                + fieldName + "' resolves no entry (id '" + reference.EntryId
-                + "') in the tree's registries — the reference stays empty.", logContext);
+                + fieldName + "' resolves no entry (" + (byId
+                    ? "id '" + reference.EntryId + "'"
+                    : "name '" + reference.EntryName + "'")
+                + ") in the tree's registries — the reference stays empty.", logContext);
         }
 
         private void BindRegistryRef(IStateTreeRegistryRef reference, string fieldName,

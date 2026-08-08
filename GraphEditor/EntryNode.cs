@@ -28,6 +28,12 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <summary>Maps to <c>StateTreeAsset.treeKind</c>.</summary>
         public const string TreeKindPortName = "treeKind";
 
+        /// <summary>The tree's DATA connection on the canvas (M16): one registry the baked
+        /// tree lists, so its typed reference fields resolve. One port, one registry — the
+        /// canvas flavor keeps the common case simple; multi-registry trees are the asset
+        /// editor's territory.</summary>
+        public const string RegistryPortName = "registry";
+
         /// <inheritdoc />
         protected override void OnDefinePorts(IPortDefinitionContext context)
         {
@@ -47,6 +53,23 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 .WithTooltip("StateTreeAsset.treeKind. \"enemy_ai\" for an AI tree, \"player_flow\" for the player tree.")
                 .WithDefaultValue(StateTreeGraph.DefaultTreeKind)
                 .Build();
+
+            context.AddInputPort(RegistryPortName)
+                .WithDataType(typeof(StateTreeRegistryAsset))
+                .WithDisplayName("Registry")
+                .WithTooltip("A data registry the baked tree lists — what the states' entry "
+                    + "reference ports (level names, item names) resolve against at run time.")
+                .Build();
+        }
+
+        /// <summary>The registry the canvas connects, or null. The baker copies it onto the
+        /// baked tree's registries list.</summary>
+        public StateTreeRegistryAsset ResolveRegistry()
+        {
+            return LibraryParameterPorts.TryReadValue(GetInputPortByName(RegistryPortName),
+                typeof(StateTreeRegistryAsset), out var value)
+                ? value as StateTreeRegistryAsset
+                : null;
         }
 
         /// <summary>The authored tree name, or an empty string when the author left it blank.</summary>

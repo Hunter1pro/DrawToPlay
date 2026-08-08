@@ -82,6 +82,8 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 return true;
             if (type == typeof(StateTreeKeyField))
                 return true;
+            if (typeof(IStateTreeEntryRef).IsAssignableFrom(type))
+                return true;
             if (typeof(UnityEngine.Object).IsAssignableFrom(type))
                 return true;
             return type == typeof(bool) || type == typeof(int) || type == typeof(long)
@@ -126,14 +128,25 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// </summary>
         public static Type PortDataType(Type fieldType)
         {
-            return fieldType == typeof(StateTreeKeyField) ? typeof(string) : fieldType;
+            if (fieldType == typeof(StateTreeKeyField))
+                return typeof(string);
+            // An entry reference ports as the entry NAME: the canvas authors the free-typed
+            // flavor (name-only, resolved by name at StartTree) — id-wiring stays an
+            // asset-editor affordance.
+            if (typeof(IStateTreeEntryRef).IsAssignableFrom(fieldType))
+                return typeof(string);
+            return fieldType;
         }
 
         /// <summary>A field value as its PORT sees it: a key wrapper flattens to its authored
         /// text, everything else passes through.</summary>
         public static object PortValue(object fieldValue)
         {
-            return fieldValue is StateTreeKeyField key ? key.text : fieldValue;
+            if (fieldValue is StateTreeKeyField key)
+                return key.text;
+            if (fieldValue is IStateTreeEntryRef entryRef)
+                return entryRef.EntryName;
+            return fieldValue;
         }
 
         /// <summary>The write half of the port⟷field seam: a string landing on a key-wrapper
@@ -149,6 +162,19 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     field.SetValue(target, key);
                 }
                 key.text = value as string ?? string.Empty;
+                return;
+            }
+
+            if (typeof(IStateTreeEntryRef).IsAssignableFrom(field.FieldType))
+            {
+                object reference = field.GetValue(target);
+                if (reference == null)
+                {
+                    reference = System.Activator.CreateInstance(field.FieldType);
+                    field.SetValue(target, reference);
+                }
+                var nameField = field.FieldType.GetField("entryName");
+                nameField?.SetValue(reference, value as string ?? string.Empty);
                 return;
             }
 
@@ -212,7 +238,42 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 }
             }
 
-            return TryInvokeTryGet(typeof(IPort), "TryGetValue", port, valueType, out value);
+            if (TryInvokeTryGet(typeof(IPort), "TryGetValue", port, valueType, out value))
+                return true;
+
+            // Enum constants ride in Unity.GraphToolkit.EnumValueReference (an INTERNAL
+            // type, hence the reflection) — unwrap when the enum-typed get refuses.
+            if (valueType.IsEnum && ResolveEnumReference()
+                && TryInvokeTryGet(typeof(IPort), "TryGetValue", port, s_EnumRefType,
+                    out object wrapped)
+                && wrapped != null && s_EnumRefValue != null)
+            {
+                value = Enum.ToObject(valueType, (int)s_EnumRefValue.GetValue(wrapped));
+                return true;
+            }
+
+            return false;
+        }
+
+        private static Type s_EnumRefType;
+        private static ConstructorInfo s_EnumRefCtor;
+        private static PropertyInfo s_EnumRefValue;
+        private static bool s_EnumRefResolved;
+
+        /// <summary>Unity.GraphToolkit.EnumValueReference is internal; the whole enum seam
+        /// goes through these cached reflection handles.</summary>
+        private static bool ResolveEnumReference()
+        {
+            if (s_EnumRefResolved)
+                return s_EnumRefType != null;
+            s_EnumRefResolved = true;
+            s_EnumRefType = typeof(Node).Assembly.GetType("Unity.GraphToolkit.EnumValueReference");
+            if (s_EnumRefType != null)
+            {
+                s_EnumRefCtor = s_EnumRefType.GetConstructor(new[] { typeof(Enum) });
+                s_EnumRefValue = s_EnumRefType.GetProperty("Value");
+            }
+            return s_EnumRefType != null;
         }
 
         /// <summary>
@@ -234,7 +295,20 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 return false;
 
             var result = method.MakeGenericMethod(valueType).Invoke(port, new[] { value });
-            return result is bool ok && ok;
+            if (result is bool ok && ok)
+                return true;
+
+            // Enum constants ride in Unity.GraphToolkit.EnumValueReference — the enum-typed
+            // set refuses, the wrapped one lands.
+            if (valueType.IsEnum && value is Enum enumValue && ResolveEnumReference()
+                && s_EnumRefCtor != null)
+            {
+                object wrapped = s_EnumRefCtor.Invoke(new object[] { enumValue });
+                result = method.MakeGenericMethod(s_EnumRefType).Invoke(port, new[] { wrapped });
+                return result is bool okWrapped && okWrapped;
+            }
+
+            return false;
         }
 
         private static bool TryInvokeTryGet(Type declaringType, string methodName, object target, Type valueType, out object value)

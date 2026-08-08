@@ -330,6 +330,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         {
             public string treeName;
             public string treeKind;
+            public StateTreeRegistryAsset registry;
             public readonly List<StateModel> states = new List<StateModel>();
             public StateModel entry;
         }
@@ -351,6 +352,14 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             var model = new TreeModel();
             model.treeName = string.IsNullOrEmpty(tree.treeName) ? tree.name : tree.treeName;
             model.treeKind = string.IsNullOrEmpty(tree.treeKind) ? StateTreeGraph.DefaultTreeKind : tree.treeKind;
+            model.registry = tree.registries != null && tree.registries.Count > 0
+                ? tree.registries[0]
+                : null;
+            if (tree.registries != null && tree.registries.Count > 1)
+            {
+                notes.Add($"The tree lists {tree.registries.Count} registries; the canvas "
+                    + "carries only the first — the graph flavor keeps one registry per tree.");
+            }
             if (string.IsNullOrEmpty(tree.treeName))
                 notes.Add($"The tree had no treeName; the graph's Entry node was named after the asset ('{model.treeName}').");
 
@@ -573,6 +582,11 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 {
                     WritePort(entry, EntryNode.TreeNamePortName, typeof(string), model.treeName, problems);
                     WritePort(entry, EntryNode.TreeKindPortName, typeof(string), model.treeKind, problems);
+                    if (model.registry != null)
+                    {
+                        WritePort(entry, EntryNode.RegistryPortName,
+                            typeof(StateTreeRegistryAsset), model.registry, problems);
+                    }
                     Connect(graph, entry, EntryNode.EntryPortName, model.entry.node,
                         StateTreeFlowPorts.InPortName, problems);
                 }
@@ -943,6 +957,14 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 divergences.Add($"treeName: expected '{model.treeName}', baked '{baked.treeName}'.");
             if (!string.Equals(model.treeKind, baked.treeKind, StringComparison.Ordinal))
                 divergences.Add($"treeKind: expected '{model.treeKind}', baked '{baked.treeKind}'.");
+            StateTreeRegistryAsset bakedRegistry = baked.registries != null
+                && baked.registries.Count > 0 ? baked.registries[0] : null;
+            if (model.registry != bakedRegistry)
+            {
+                divergences.Add($"registry: expected "
+                    + $"'{(model.registry != null ? model.registry.name : "(none)")}', baked "
+                    + $"'{(bakedRegistry != null ? bakedRegistry.name : "(none)")}'.");
+            }
 
             if (baked.root == null)
             {
@@ -1104,16 +1126,21 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     continue;
                 if (field.GetCustomAttribute<HideInInspector>() != null)
                     continue;
-
-                object a = field.GetValue(expected);
-                object b = field.GetValue(actual);
-                if (ValuesEqual(a, b, field.FieldType))
+                // A field no port can carry never travels — the executor injects it at run
+                // time (registry/service references) — so comparing it is comparing two
+                // fresh instances, and listing that on every task would bury real drift.
+                if (!LibraryParameterPorts.IsSupportedParameterType(field.FieldType))
                     continue;
 
-                string why = LibraryParameterPorts.IsSupportedParameterType(field.FieldType)
-                    ? string.Empty
-                    : $" (a {field.FieldType.Name} cannot be carried by a graph port)";
-                divergences.Add($"{label}.{field.Name}: tree has {Describe(a)}, baked graph has {Describe(b)}{why}");
+                // Wrapper fields (key fields, entry references) compare AS THEIR PORT VALUE
+                // — the flattened string is what actually traveled.
+                object a = LibraryParameterPorts.PortValue(field.GetValue(expected));
+                object b = LibraryParameterPorts.PortValue(field.GetValue(actual));
+                Type comparedType = LibraryParameterPorts.PortDataType(field.FieldType);
+                if (ValuesEqual(a, b, comparedType))
+                    continue;
+
+                divergences.Add($"{label}.{field.Name}: tree has {Describe(a)}, baked graph has {Describe(b)}");
             }
         }
 
