@@ -104,7 +104,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
         /// <summary>One node on the canvas, positioned and DEFINED — ports exist only after a
         /// definition pass, and every caller wires or fills the node in the next statement.</summary>
-        private static Node AddNode(TaskGraph graph, Type nodeType, Vector2 position, List<string> problems)
+        internal static Node AddNode(TaskGraph graph, Type nodeType, Vector2 position, List<string> problems)
         {
             Node node;
             try
@@ -138,7 +138,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             return node;
         }
 
-        private static bool Connect(TaskGraph graph, INode from, string fromPort, INode to, string toPort,
+        internal static bool Connect(TaskGraph graph, INode from, string fromPort, INode to, string toPort,
             List<string> problems)
         {
             if (from == null || to == null)
@@ -173,7 +173,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <summary>Name the node on the canvas. Cosmetic and best-effort: <c>INode.Title</c> is a live
         /// view of the node's implementation, and a graph that is fine with an unnamed node is not
         /// worth failing a scaffold over.</summary>
-        private static void SetTitle(INode node, string title)
+        internal static void SetTitle(INode node, string title)
         {
             if (node == null || string.IsNullOrEmpty(title))
                 return;
@@ -194,7 +194,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <see cref="GraphDatabase.CreateGraph{T}"/> resolves the path itself and then loads the graph
         /// from the resolved one (module IL 330710-330773), so asking the graph where it lives is the
         /// only honest answer.</summary>
-        private static TaskGraph CreateGraphAsset(string assetPath, out string realPath, out string error)
+        internal static TaskGraph CreateGraphAsset(string assetPath, out string realPath, out string error)
         {
             realPath = assetPath;
             error = null;
@@ -234,7 +234,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             return graph;
         }
 
-        private static void SaveAndImport(TaskGraph graph, string assetPath)
+        internal static void SaveAndImport(TaskGraph graph, string assetPath)
         {
             try
             {
@@ -254,7 +254,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <summary>The baked program inside a graph file. It is the file's MAIN asset (see
         /// <see cref="TaskGraphImporter"/>), but the sub-object scan is kept as a fallback so a change
         /// of importer strategy degrades to "slower" rather than to "not found".</summary>
-        private static GraphTaskAsset FindProgramAt(string assetPath)
+        internal static GraphTaskAsset FindProgramAt(string assetPath)
         {
             var main = AssetDatabase.LoadAssetAtPath<GraphTaskAsset>(assetPath);
             if (main != null)
@@ -272,7 +272,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             return null;
         }
 
-        private static string NormalizeGraphPath(string assetPath)
+        internal static string NormalizeGraphPath(string assetPath)
         {
             string suffix = "." + TaskGraph.Extension;
             if (assetPath.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))

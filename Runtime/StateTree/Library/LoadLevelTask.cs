@@ -55,13 +55,19 @@ namespace PowerOfFire.DrawToPlay
                         + "nor the dynamic name resolved a level.", this);
                     return StateTreeStatus.Failure;
                 }
-                if (service.service == null)
+                // Injected when this atom is a STATE task; looked up when it runs INSIDE a
+                // task graph — the VM's tasks never pass through the executor's injection,
+                // so a graph-hosted atom falls back to the spine at tick time.
+                LevelService levelService = service.service
+                    ?? StateTreeContextHost.FindService<LevelService>(
+                        context != null ? context.owner : null);
+                if (levelService == null)
                     return StateTreeStatus.Failure;
 
                 // Fire-and-observe: the tick model polls the flags, so the UniTask's only
                 // job here is to land them. Forget() is safe — LoadAsync owns its own
                 // cancellation (the service's destruction) and never throws past it.
-                Await(service.service.LoadAsync(target)).Forget();
+                Await(levelService.LoadAsync(target)).Forget();
             }
 
             if (!m_Done)
@@ -82,14 +88,48 @@ namespace PowerOfFire.DrawToPlay
                 && context.blackboard.TryGetValue(nameKey, out object held)
                 && held is string levelName && !string.IsNullOrEmpty(levelName))
             {
-                if (levels.TryGet(levelName, out LevelDef dynamic))
+                LevelDef dynamic = FindByName(context, levelName);
+                if (dynamic != null)
                     return dynamic;
                 Debug.LogWarning($"[LoadLevel] '{levelName}' (from key '{nameKey}') names no "
-                    + "level in the tree's registry — falling back to the authored entry.",
+                    + "level in any reachable registry — falling back to the authored entry.",
                     this);
             }
 
-            return level.entry;
+            if (level.entry != null)
+                return level.entry;
+
+            // The free-typed / graph-hosted path: a name-only reference the injection pass
+            // never saw resolves here, against the same registries.
+            var reference = (IStateTreeEntryRef)level;
+            return string.IsNullOrEmpty(reference.EntryName)
+                ? null
+                : FindByName(context, reference.EntryName);
+        }
+
+        /// <summary>The injected registry when this is a state task, else the nearest host
+        /// chain's tree registries — the tick-time mirror of the executor's resolution, for
+        /// the graph-hosted case.</summary>
+        private LevelDef FindByName(StateTreeContext context, string levelName)
+        {
+            if (levels.TryGet(levelName, out LevelDef fromInjected))
+                return fromInjected;
+
+            StateTreeContextHost host = StateTreeContextHost.ResolveNearest(
+                context != null ? context.owner : null);
+            int guard = 0;
+            while (host != null && ++guard < 32)
+            {
+                var registries = host.tree != null ? host.tree.registries : null;
+                for (int i = 0; registries != null && i < registries.Count; i++)
+                {
+                    if (registries[i] != null
+                        && registries[i].FindByName(levelName) is LevelDef found)
+                        return found;
+                }
+                host = host.ParentHost;
+            }
+            return null;
         }
     }
 }
