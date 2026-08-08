@@ -19,8 +19,17 @@ namespace PowerOfFire.DrawToPlay
     /// parameters onto the fresh Level scope, announce <see cref="CurrentKey"/>, drop the
     /// veil. Async is UniTask — the project standard — cancelled by this component's
     /// destruction, so a torn-down Root never leaves a transition running into a dead scene.
-    /// Nothing here decides WHICH level; that is the session tree's job through
-    /// <see cref="LoadLevelTask"/>.
+    ///
+    /// THE LAYERING (the re-brief, stated where it is implemented): this service owns the
+    /// session's travel POLICY as C# verbs — <see cref="RequestLevel"/>,
+    /// <see cref="EnterExpedition"/> (which remembers the way back — <see cref="returnLevel"/>
+    /// is SERVICE state, not blackboard choreography), <see cref="ReturnFromExpedition"/>.
+    /// Scene furniture and UI call the verbs; the verbs write ONE key
+    /// (<see cref="GotoKey"/>, the service's inbox); the SESSION TREE stays pure state
+    /// handling — it only decides WHEN a pending request is served (its travel state runs the
+    /// load program) and WHERE the session is afterwards. Trees and task graphs reach the same
+    /// verbs through thin atoms (<see cref="EnterExpeditionTask"/>,
+    /// <see cref="ReturnFromExpeditionTask"/>, <see cref="LoadLevelTask"/>).
     /// </summary>
     [AddComponentMenu("Draw To Play/Level Service")]
     public sealed class LevelService : StateTreeServiceBehaviour
@@ -33,11 +42,70 @@ namespace PowerOfFire.DrawToPlay
         /// wiring-facing string, as everywhere).</summary>
         public const string CurrentKey = "level:current";
 
+        /// <summary>Root-scope key holding a REQUESTED level's name — this service's inbox.
+        /// Everything that wants to travel writes it (portals and UI through the verbs
+        /// below, the dev picker directly); the session tree's travel state serves it and
+        /// consumes it. One key, one mechanism.</summary>
+        public const string GotoKey = "level:goto";
+
         public LevelDef current { get; private set; }
 
         public bool isLoading { get; private set; }
 
+        /// <summary>Where <see cref="ReturnFromExpedition"/> goes — captured by
+        /// <see cref="EnterExpedition"/>, spent by the return. Session policy lives HERE, in
+        /// the service, so the tree never shuffles it between keys.</summary>
+        public string returnLevel { get; private set; }
+
         private Scene m_LoadedScene;
+
+        // ---- the session verbs -----------------------------------------------------------
+
+        /// <summary>Ask the session to travel: writes the level's name into
+        /// <see cref="GotoKey"/>. The tree decides when it is served — a request made
+        /// mid-transition simply waits for the next in-state to notice it.</summary>
+        public void RequestLevel(string levelName)
+        {
+            if (string.IsNullOrEmpty(levelName))
+            {
+                Debug.LogWarning("[LevelService] RequestLevel with no name — ignored.", this);
+                return;
+            }
+            WriteRootKey(GotoKey, levelName);
+        }
+
+        /// <summary>Travel to an expedition level, remembering where we left from so
+        /// <see cref="ReturnFromExpedition"/> can take us back. Entering an expedition FROM
+        /// the expedition (or from nowhere) is refused — there would be nothing true to
+        /// remember.</summary>
+        public void EnterExpedition(string expeditionLevel)
+        {
+            string from = current != null ? current.name : null;
+            if (string.IsNullOrEmpty(from)
+                || string.Equals(from, expeditionLevel, StringComparison.Ordinal))
+            {
+                Debug.LogWarning("[LevelService] EnterExpedition refused: no current level to "
+                    + "return to (or already there).", this);
+                return;
+            }
+            returnLevel = from;
+            RequestLevel(expeditionLevel);
+        }
+
+        /// <summary>Travel back to wherever <see cref="EnterExpedition"/> left from, spending
+        /// the memory. False when there is nothing to return to.</summary>
+        public bool ReturnFromExpedition()
+        {
+            if (string.IsNullOrEmpty(returnLevel))
+            {
+                Debug.LogWarning("[LevelService] ReturnFromExpedition with nothing to return "
+                    + "to — ignored.", this);
+                return false;
+            }
+            RequestLevel(returnLevel);
+            returnLevel = null;
+            return true;
+        }
 
         /// <summary>
         /// Run one transition; true when the level landed. One at a time: a second call
