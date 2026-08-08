@@ -28,6 +28,12 @@ namespace PowerOfFire.DrawToPlay
 
         public string blackboardKey = "ui:openInventory";
 
+        /// <summary>Empty = the press raises a presence EVENT (1f). Non-empty = the press
+        /// writes this STRING — a trigger that carries a payload, which is what an in-scene
+        /// portal is: "P" writes the destination's name into level:goto and the session tree's
+        /// generic travel machinery does the rest.</summary>
+        public string stringValue = "";
+
         private void Update()
         {
             if (!PressedThisFrame())
@@ -35,8 +41,12 @@ namespace PowerOfFire.DrawToPlay
 
             StateTreeContextHost host =
                 StateTreeContextHost.Resolve(gameObject, scope, contextId);
-            if (host != null)
+            if (host == null)
+                return;
+            if (string.IsNullOrEmpty(stringValue))
                 host.Context.blackboard[blackboardKey] = 1f;
+            else
+                host.Context.blackboard[blackboardKey] = stringValue;
         }
 
         private bool PressedThisFrame()
