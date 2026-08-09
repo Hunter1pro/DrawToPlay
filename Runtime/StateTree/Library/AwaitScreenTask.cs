@@ -25,13 +25,17 @@ namespace PowerOfFire.DrawToPlay
 
         public string scopeId = "";
 
-        /// <summary>The Screen-kind key the views watch ("which screen is up").</summary>
-        [StateTreeKey(StateTreeKeyKind.Screen)]
+        /// <summary>The key the views watch ("which screen is up") — a String-valued slot
+        /// whose VALUE is a screen address.</summary>
+        [StateTreeKey(StateTreeKeyKind.String, any: true)]
         public StateTreeKeyField screenKey = new StateTreeKeyField();
 
-        /// <summary>The screen to raise — the VALUE written into the key, matched by one
-        /// view's own id.</summary>
-        public string screenId = "";
+        /// <summary>The screen to raise — a Screen-kind ADDRESS (declare the ids on the
+        /// tree, the ShowScreenTask precedent), written into the key and matched by one
+        /// view's own id. Wireable, parameter-bindable on a canvas — never a shallow
+        /// string.</summary>
+        [StateTreeKey(StateTreeKeyKind.Screen)]
+        public StateTreeKeyField screenId = new StateTreeKeyField();
 
         /// <summary>Where the screen answers: a button press writes its id here.</summary>
         [StateTreeKey(StateTreeKeyKind.String, any: true)]
@@ -50,7 +54,7 @@ namespace PowerOfFire.DrawToPlay
             if (host == null)
                 return;
             host.Context.blackboard.Remove((string)answerKey);
-            host.Context.blackboard[(string)screenKey] = screenId ?? "";
+            host.Context.blackboard[(string)screenKey] = (string)screenId;
         }
 
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
@@ -76,7 +80,7 @@ namespace PowerOfFire.DrawToPlay
             // Lower only OUR screen: another state may already have raised the next one.
             if (host.Context.blackboard.TryGetValue((string)screenKey, out object held)
                 && held is string current
-                && string.Equals(current, screenId ?? "", System.StringComparison.Ordinal))
+                && string.Equals(current, (string)screenId, System.StringComparison.Ordinal))
                 host.Context.blackboard.Remove((string)screenKey);
         }
 
