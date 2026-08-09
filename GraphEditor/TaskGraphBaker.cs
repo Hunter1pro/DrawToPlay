@@ -336,6 +336,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             program.nodes = context.program;
             program.parameters = context.parameters;
             program.keyBindings = context.keyBindings;
+            program.inputBindings = context.inputBindings;
             // Filled by the pin pass above (every Set Output declares itself as it resolves its name),
             // so this assignment has to follow the Resolve loop, not precede it.
             program.declaredOutputs = context.declaredOutputs;
@@ -499,6 +500,12 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             /// state's override CAN retarget a key. See
             /// <see cref="GraphTaskAsset.keyBindings"/>.</summary>
             public readonly List<GraphTaskKeyBinding> keyBindings = new List<GraphTaskKeyBinding>();
+
+            /// <summary>Value pins wired into embedded calls' plain fields, pulled at every
+            /// ENTER of the call — the input mirror of the task-output pins. See
+            /// <see cref="GraphTaskInputBinding"/>.</summary>
+            public readonly List<GraphTaskInputBinding> inputBindings =
+                new List<GraphTaskInputBinding>();
 
             /// <summary>Nodes whose value the BAKE itself consumed (a variable wired into a
             /// library call's parameter port, whether it froze there or became a key binding).
@@ -1755,11 +1762,42 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     INode producer = port.FirstConnectedPort?.GetNode();
                     if (producer is ITaskGraphNode)
                     {
-                        context.Error($"'{field.Name}' on '{Describe(source)}' is wired to "
-                            + $"'{Describe(producer)}', but a library call's parameters are baked as "
-                            + "values, not pulled each tick — the wire would be silently ignored. Type "
-                            + "the value in, or put it on the blackboard and turn on the task's "
-                            + "blackboard option where it has one.", source);
+                        // A value pin wired into a TASK's plain field becomes an INPUT BINDING:
+                        // lowered like any flow-node pin, pulled and written onto the call's
+                        // copy at every enter — `damage` flows from a stats read into a damage
+                        // dealer with no blackboard in between. Only plain value fields bind;
+                        // key fields and objects keep the refusal.
+                        Type portType = LibraryParameterPorts.PortDataType(field.FieldType);
+                        bool bindable = target is StateTreeTaskAsset
+                            && (portType == typeof(float) || portType == typeof(int)
+                                || portType == typeof(bool) || portType == typeof(string));
+                        if (!bindable)
+                        {
+                            context.Error($"'{field.Name}' on '{Describe(source)}' is wired to "
+                                + $"'{Describe(producer)}', but only a task's float/int/bool/string "
+                                + "fields accept a value wire — this one is baked as a value. Type "
+                                + "the value in, or put it on the blackboard and turn on the task's "
+                                + "blackboard option where it has one.", source);
+                            continue;
+                        }
+
+                        GraphTaskNode instruction = context.program[nodeIndex];
+                        int producerIndex = ResolveData(context, source, field.Name, portType,
+                            LiteralSlot.None, ref instruction);
+                        if (producerIndex >= 0)
+                        {
+                            int[] pins = instruction.data ?? Array.Empty<int>();
+                            int pin = pins.Length;
+                            Array.Resize(ref pins, pin + 1);
+                            pins[pin] = producerIndex;
+                            instruction.data = pins;
+                            context.inputBindings.Add(new GraphTaskInputBinding
+                            {
+                                node = nodeIndex,
+                                field = field.Name,
+                                pin = pin
+                            });
+                        }
                         continue;
                     }
                     if (producer is IVariableNode variableNode)

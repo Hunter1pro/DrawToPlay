@@ -365,6 +365,28 @@ namespace PowerOfFire.DrawToPlay
     }
 
     /// <summary>
+    /// One INPUT wire of an embedded call: a value pin on another node feeds a field of the
+    /// call's task, pulled and written every time the call ENTERS — the input mirror of the
+    /// task-output pins, so `damage` can flow from a stats read into a damage dealer with no
+    /// blackboard in between. Recorded by the baker where it used to refuse the wire.
+    /// </summary>
+    [Serializable]
+    public sealed class GraphTaskInputBinding
+    {
+        /// <summary>Index into <see cref="GraphTaskAsset.nodes"/> of the call whose embedded
+        /// task carries the field.</summary>
+        public int node;
+
+        /// <summary>The field's name on the embedded task instance (float, int, bool or
+        /// string).</summary>
+        public string field;
+
+        /// <summary>Slot in the instruction's <c>data</c> array holding the source node —
+        /// appended by the baker past any slots the instruction kind already owns.</summary>
+        public int pin;
+    }
+
+    /// <summary>
     /// One node of a baked logic graph. A FLAT record rather than a class hierarchy on purpose: the
     /// whole program is one <c>List&lt;GraphTaskNode&gt;</c> inside a single asset, so it survives
     /// Unity serialization with no <c>[SerializeReference]</c> polymorphism, deep-copies with the
@@ -488,6 +510,11 @@ namespace PowerOfFire.DrawToPlay
         /// Applied by <see cref="TaskCopy"/>/<see cref="ConditionCopy"/> the moment each
         /// per-activation copy is made, which is after <see cref="ApplyOverrides"/> ran.</summary>
         public List<GraphTaskKeyBinding> keyBindings = new List<GraphTaskKeyBinding>();
+
+        /// <summary>Value pins wired into embedded calls' fields, pulled at every ENTER of the
+        /// call — see <see cref="GraphTaskInputBinding"/>. Empty for programs baked before the
+        /// input-binding extension, which reads as "no wires" by design.</summary>
+        public List<GraphTaskInputBinding> inputBindings = new List<GraphTaskInputBinding>();
 
         /// <summary>The graph's variables, baked as the task's parameters with their authored
         /// defaults. Empty for every program baked before M7f, which is exactly what "no
@@ -837,6 +864,7 @@ namespace PowerOfFire.DrawToPlay
             m_DepthPushed = false;
             m_PreviousDepth = 0;
             m_Outputs.Clear();
+            m_OutputSnapshots?.Clear();
         }
 
         // ---------------------------------------------------------------- outputs (M7j)
@@ -999,6 +1027,9 @@ namespace PowerOfFire.DrawToPlay
 
                         if (LatentSlot(index) < 0)
                         {
+                            // Input pins land NOW, not at copy time: a call inside a loop re-reads
+                            // its wires on every fresh enter, exactly as its outputs re-publish.
+                            ApplyInputBindings(context, index, node, task);
                             BeginLatent(index);
                             task.OnEnter(context);
                         }
@@ -1011,6 +1042,10 @@ namespace PowerOfFire.DrawToPlay
                         }
 
                         EndLatent(index);
+                        // Returns are FIXED at the return statement: snapshot the outputs
+                        // before OnExit, which is teardown and cannot rewrite what was
+                        // already returned (the M7j ordering, applied to the in-graph pulls).
+                        CaptureOutputs(index, task);
                         task.OnExit(context, result);
                         // Cancelled is not a status a task returns from OnTick, but if one does it
                         // is emphatically not success — route it with Failure.
@@ -1178,20 +1213,151 @@ namespace PowerOfFire.DrawToPlay
         private static readonly Dictionary<(Type, string), FieldInfo> s_OutputFields =
             new Dictionary<(Type, string), FieldInfo>();
 
+        private static readonly Dictionary<(Type, string), FieldInfo> s_InputFields =
+            new Dictionary<(Type, string), FieldInfo>();
+
+        [NonSerialized] private bool m_BadInputBindingLogged;
+
+        /// <summary>Land every input binding of one call onto its copy before OnEnter: pull the
+        /// wired pin, write the field. An unwired or dead pin keeps the field's current value —
+        /// the baked default on the first enter, the last pull after that.</summary>
+        private void ApplyInputBindings(StateTreeContext context, int index, GraphTaskNode node,
+            StateTreeTaskAsset task)
+        {
+            if (inputBindings == null || task == null)
+                return;
+
+            for (int i = 0; i < inputBindings.Count; i++)
+            {
+                GraphTaskInputBinding binding = inputBindings[i];
+                if (binding == null || binding.node != index
+                    || string.IsNullOrEmpty(binding.field))
+                    continue;
+
+                var key = (task.GetType(), binding.field);
+                if (!s_InputFields.TryGetValue(key, out FieldInfo field))
+                {
+                    field = task.GetType().GetField(binding.field,
+                        BindingFlags.Public | BindingFlags.Instance);
+                    s_InputFields[key] = field;
+                }
+                if (field == null)
+                {
+                    if (!m_BadInputBindingLogged)
+                    {
+                        m_BadInputBindingLogged = true;
+                        Debug.LogError($"GraphTaskAsset '{name}': input binding "
+                            + $"'{binding.field}' no longer matches the program (field gone or "
+                            + "renamed). The embedded copy keeps its baked value.", this);
+                    }
+                    continue;
+                }
+
+                if (field.FieldType == typeof(float))
+                    field.SetValue(task, PullFloat(context, node, binding.pin,
+                        field.GetValue(task) is float f ? f : 0f, 0));
+                else if (field.FieldType == typeof(int))
+                    field.SetValue(task, (int)PullFloat(context, node, binding.pin,
+                        field.GetValue(task) is int n ? n : 0, 0));
+                else if (field.FieldType == typeof(bool))
+                    field.SetValue(task, PullBoolOr(context, node, binding.pin,
+                        field.GetValue(task) is bool flag && flag));
+                else if (field.FieldType == typeof(string))
+                    field.SetValue(task, PullString(context, node, binding.pin,
+                        field.GetValue(task) as string ?? string.Empty, 0));
+            }
+        }
+
         [NonSerialized] private readonly List<TaskOutputValue> m_OutputScratch =
             new List<TaskOutputValue>();
 
+        [NonSerialized] private Dictionary<int, List<TaskOutputValue>> m_OutputSnapshots;
+
+        private static readonly Dictionary<Type, FieldInfo[]> s_TypeOutputFields =
+            new Dictionary<Type, FieldInfo[]>();
+
+        /// <summary>Fix one completed call's return values: every [TaskOutput] field (or, for
+        /// a nested program, its buffered outputs) as it stood WHEN THE CALL RETURNED. Taken
+        /// before OnExit; a torn-down mid-flight call never returns, so it never snapshots —
+        /// a cancelled task holds values it never returned, and no one may read them.</summary>
+        private void CaptureOutputs(int index, StateTreeTaskAsset task)
+        {
+            var snapshot = new List<TaskOutputValue>();
+            if (task is IStateTreeOutputSource source)
+            {
+                source.TryCollectOutputs(snapshot);
+            }
+            else
+            {
+                Type type = task.GetType();
+                if (!s_TypeOutputFields.TryGetValue(type, out FieldInfo[] fields))
+                {
+                    var found = new List<FieldInfo>();
+                    foreach (FieldInfo candidate in type.GetFields(
+                        BindingFlags.Public | BindingFlags.Instance))
+                    {
+                        if (Attribute.IsDefined(candidate, typeof(TaskOutputAttribute)))
+                            found.Add(candidate);
+                    }
+                    fields = found.ToArray();
+                    s_TypeOutputFields[type] = fields;
+                }
+                for (int i = 0; i < fields.Length; i++)
+                    snapshot.Add(OutputOf(fields[i], task));
+            }
+
+            if (m_OutputSnapshots == null)
+                m_OutputSnapshots = new Dictionary<int, List<TaskOutputValue>>();
+            m_OutputSnapshots[index] = snapshot;
+        }
+
+        private static TaskOutputValue OutputOf(FieldInfo field, StateTreeTaskAsset task)
+        {
+            object value = field.GetValue(task);
+            if (field.FieldType == typeof(string))
+                return new TaskOutputValue
+                {
+                    name = field.Name,
+                    kind = GraphTaskParameterKind.String,
+                    stringValue = value as string ?? string.Empty
+                };
+            if (field.FieldType == typeof(bool))
+                return new TaskOutputValue
+                {
+                    name = field.Name,
+                    kind = GraphTaskParameterKind.Bool,
+                    floatValue = value is bool flag && flag ? 1f : 0f
+                };
+            return new TaskOutputValue
+            {
+                name = field.Name,
+                kind = GraphTaskParameterKind.Float,
+                floatValue = value is float number ? number : value is int whole ? whole : 0f
+            };
+        }
+
         /// <summary>The INSIDE flavor of a task's return: read the named output straight off
         /// the producing call's per-activation copy — no blackboard in between, exactly
-        /// `var result = await task()`. A call that has not run on this path (its copy was
-        /// never created) reads the type default; the copy lives until the program's OnExit,
-        /// so downstream nodes on any later tick still see the value.</summary>
+        /// `var result = await task()`. A COMPLETED call answers from its return snapshot
+        /// (fixed before its OnExit); a still-running or never-run call reads the live copy,
+        /// or the type default when there is none.</summary>
         private TaskOutputValue ReadTaskOutput(StateTreeContext context, GraphTaskNode node)
         {
             int producerIndex = node.data != null && node.data.Length > 0 ? node.data[0] : -1;
             GraphTaskNode producer = NodeAt(producerIndex);
             if (producer == null || string.IsNullOrEmpty(node.stringValue))
                 return default;
+
+            if (m_OutputSnapshots != null
+                && m_OutputSnapshots.TryGetValue(producerIndex, out List<TaskOutputValue> returned))
+            {
+                for (int i = 0; i < returned.Count; i++)
+                {
+                    if (string.Equals(returned[i].name, node.stringValue, StringComparison.Ordinal))
+                        return returned[i];
+                }
+                return default; // completed: the snapshot IS the return, and this name is not in it
+            }
 
             StateTreeTaskAsset copy = TaskCopy(producerIndex, producer, false, context);
             if (copy == null)
