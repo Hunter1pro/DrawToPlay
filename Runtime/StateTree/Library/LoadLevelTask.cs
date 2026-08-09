@@ -14,8 +14,8 @@ namespace PowerOfFire.DrawToPlay
     /// <see cref="levelNameKey"/> optionally makes the destination DYNAMIC — it names a
     /// blackboard key holding a level's name at entry time (the dev picker's route, a
     /// portal-with-a-destination-parameter's route), resolved through
-    /// <see cref="levels"/>; and <see cref="service"/> is the capability, injected from the
-    /// spine. A dynamic name that resolves nothing falls back to the authored entry, stated
+    /// <see cref="levels"/>; and the LevelService capability is [InjectService]-filled by the framework
+    /// in both worlds (executor pass, or the VM's per-activation copy). A dynamic name that resolves nothing falls back to the authored entry, stated
     /// once.
     /// </summary>
     [CreateAssetMenu(menuName = "Draw To Play/Tasks/Load Level", fileName = "LoadLevel")]
@@ -29,7 +29,7 @@ namespace PowerOfFire.DrawToPlay
 
         public StateTreeRegistryRef<LevelDef> levels = new StateTreeRegistryRef<LevelDef>();
 
-        public StateTreeServiceRef<LevelService> service = new StateTreeServiceRef<LevelService>();
+        [InjectService] private LevelService m_Service;
 
         [NonSerialized] private bool m_Started;
         [NonSerialized] private bool m_Done;
@@ -55,19 +55,10 @@ namespace PowerOfFire.DrawToPlay
                         + "nor the dynamic name resolved a level.", this);
                     return StateTreeStatus.Failure;
                 }
-                // Injected when this atom is a STATE task; looked up when it runs INSIDE a
-                // task graph — the VM's tasks never pass through the executor's injection,
-                // so a graph-hosted atom falls back to the spine at tick time.
-                LevelService levelService = service.service
-                    ?? StateTreeContextHost.FindService<LevelService>(
-                        context != null ? context.owner : null);
-                if (levelService == null)
-                    return StateTreeStatus.Failure;
-
                 // Fire-and-observe: the tick model polls the flags, so the UniTask's only
                 // job here is to land them. Forget() is safe — LoadAsync owns its own
                 // cancellation (the service's destruction) and never throws past it.
-                Await(levelService.LoadAsync(target)).Forget();
+                Await(m_Service.LoadAsync(target)).Forget();
             }
 
             if (!m_Done)

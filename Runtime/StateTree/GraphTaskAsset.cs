@@ -784,7 +784,7 @@ namespace PowerOfFire.DrawToPlay
                 GraphTaskNode node = NodeAt(index);
                 if (node == null || node.kind != GraphTaskNodeKind.DoTask)
                     continue;
-                StateTreeTaskAsset running = TaskCopy(index, node, false);
+                StateTreeTaskAsset running = TaskCopy(index, node, false, context);
                 if (running != null)
                     running.OnExit(context, status);
             }
@@ -974,7 +974,7 @@ namespace PowerOfFire.DrawToPlay
                             break;
                         }
 
-                        StateTreeTaskAsset task = TaskCopy(index, node, true);
+                        StateTreeTaskAsset task = TaskCopy(index, node, true, context);
                         if (task == null)
                         {
                             // An unconfigured DoTask is a wiring hole, not a failure: continue on
@@ -1218,7 +1218,7 @@ namespace PowerOfFire.DrawToPlay
                         && context.blackboard.ContainsKey(node.stringValue);
                 case GraphTaskNodeKind.EvaluateCondition:
                 {
-                    StateTreeConditionAsset condition = ConditionCopy(index, node);
+                    StateTreeConditionAsset condition = ConditionCopy(index, node, context);
                     return condition == null || condition.Evaluate(context);
                 }
                 case GraphTaskNodeKind.CompareFloat:
@@ -1335,7 +1335,8 @@ namespace PowerOfFire.DrawToPlay
         /// reach) keeps a graph with ten branches from instantiating ten tasks to run one, and
         /// <see cref="OnExit"/> releases them, so an entry/exit cycle leaves nothing behind.
         /// </summary>
-        private StateTreeTaskAsset TaskCopy(int index, GraphTaskNode node, bool create)
+        private StateTreeTaskAsset TaskCopy(int index, GraphTaskNode node, bool create,
+            StateTreeContext context)
         {
             if (node == null || node.task == null)
                 return null;
@@ -1354,6 +1355,10 @@ namespace PowerOfFire.DrawToPlay
                 copy = Instantiate(node.task);
                 copy.name = node.task.name;
                 ApplyKeyBindings(index, copy);
+                // The VM's tasks never pass through the executor's injection — the copy is
+                // where their [InjectService] fields are filled instead.
+                StateTreeServiceInjector.Inject(copy,
+                    context != null ? context.owner : null);
                 m_TaskCopies[index] = copy;
             }
             return copy;
@@ -1362,7 +1367,8 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Same isolation for conditions. They are stateless by convention (Evaluate has no
         /// lifecycle), but the tree-wide deep copy duplicates them too, and matching it costs one
         /// array.</summary>
-        private StateTreeConditionAsset ConditionCopy(int index, GraphTaskNode node)
+        private StateTreeConditionAsset ConditionCopy(int index, GraphTaskNode node,
+            StateTreeContext context)
         {
             if (node.condition == null)
                 return null;
@@ -1377,6 +1383,8 @@ namespace PowerOfFire.DrawToPlay
                 copy = Instantiate(node.condition);
                 copy.name = node.condition.name;
                 ApplyKeyBindings(index, copy);
+                StateTreeServiceInjector.Inject(copy,
+                    context != null ? context.owner : null);
                 m_ConditionCopies[index] = copy;
             }
             return copy;

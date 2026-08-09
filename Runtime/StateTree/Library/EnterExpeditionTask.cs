@@ -18,16 +18,10 @@ namespace PowerOfFire.DrawToPlay
         /// reference when authored on a canvas).</summary>
         public StateTreeEntryRef<LevelDef> expedition = new StateTreeEntryRef<LevelDef>();
 
-        public StateTreeServiceRef<LevelService> service = new StateTreeServiceRef<LevelService>();
+        [InjectService] private LevelService m_Service;
 
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
         {
-            LevelService levelService = service.service
-                ?? StateTreeContextHost.FindService<LevelService>(
-                    context != null ? context.owner : null);
-            if (levelService == null)
-                return StateTreeStatus.Failure;
-
             string levelName = expedition.entry != null
                 ? expedition.entry.name
                 : ((IStateTreeEntryRef)expedition).EntryName;
@@ -37,7 +31,7 @@ namespace PowerOfFire.DrawToPlay
                 return StateTreeStatus.Failure;
             }
 
-            levelService.EnterExpedition(levelName);
+            m_Service.EnterExpedition(levelName);
             return StateTreeStatus.Success;
         }
     }

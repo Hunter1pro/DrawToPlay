@@ -1,5 +1,3 @@
-using UnityEngine;
-
 namespace PowerOfFire.DrawToPlay
 {
     /// <summary>
@@ -8,22 +6,16 @@ namespace PowerOfFire.DrawToPlay
     /// Fails when there is nothing to return to, so a tree can branch on "not on an
     /// expedition". Instant — the transition itself is the travel state's job.
     /// </summary>
-    [CreateAssetMenu(menuName = "Draw To Play/Tasks/Return From Expedition",
+    [UnityEngine.CreateAssetMenu(menuName = "Draw To Play/Tasks/Return From Expedition",
         fileName = "ReturnFromExpedition")]
     [StateTreeCategory("Tasks/Levels", "Travel back to where the expedition was entered from")]
     public sealed class ReturnFromExpeditionTask : StateTreeTaskAsset
     {
-        public StateTreeServiceRef<LevelService> service = new StateTreeServiceRef<LevelService>();
+        [InjectService] private LevelService m_Service;
 
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
         {
-            LevelService levelService = service.service
-                ?? StateTreeContextHost.FindService<LevelService>(
-                    context != null ? context.owner : null);
-            if (levelService == null)
-                return StateTreeStatus.Failure;
-
-            return levelService.ReturnFromExpedition()
+            return m_Service.ReturnFromExpedition()
                 ? StateTreeStatus.Success
                 : StateTreeStatus.Failure;
         }

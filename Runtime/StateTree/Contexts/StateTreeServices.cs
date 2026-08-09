@@ -1,7 +1,98 @@
 using System;
+using System.Collections.Generic;
+using System.Reflection;
+using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
 {
+    /// <summary>
+    /// FIELD-LEVEL service injection — the lean flavor of the M15 capability wire, for atoms
+    /// whose only need is "give me the service":
+    ///
+    /// <code>[InjectService] private ArcadeProgressService progress;</code>
+    ///
+    /// The FRAMEWORK fills it before the task runs — the executor's StartTree pass for state
+    /// tasks, the graph VM at per-activation copy creation for graph-hosted atoms — resolved
+    /// through the owner's view of the spine (nearest host, else the unique Root; behaviours
+    /// and Provide&lt;T&gt; recipes alike). The atom body just USES the field: no Resolve
+    /// helper, no per-atom null guard — a spine that cannot provide the capability is ONE
+    /// clear error at injection time, and the NullReference that follows names the real
+    /// problem (wiring), not the atom.
+    ///
+    /// Private fields welcome (they never serialize, which is exactly right for a live
+    /// reference). Use <see cref="StateTreeServiceRef{T}"/> instead when a task wants to
+    /// EXPRESS the dependency on its authoring surface.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Field)]
+    public sealed class InjectServiceAttribute : Attribute
+    {
+    }
+
+    /// <summary>The one injector both worlds call. Fields are discovered once per type
+    /// (whole hierarchy, private included) and cached for the domain.</summary>
+    public static class StateTreeServiceInjector
+    {
+        private static readonly Dictionary<Type, FieldInfo[]> s_Fields =
+            new Dictionary<Type, FieldInfo[]>();
+
+        private static readonly HashSet<string> s_Reported = new HashSet<string>();
+
+        /// <summary>Fill every [InjectService] field of <paramref name="target"/> from
+        /// <paramref name="owner"/>'s spine. A field already holding a value (hand-set, or a
+        /// previous pass) is left alone.</summary>
+        public static void Inject(object target, GameObject owner)
+        {
+            if (target == null)
+                return;
+
+            FieldInfo[] fields = InjectedFields(target.GetType());
+            for (int i = 0; i < fields.Length; i++)
+            {
+                FieldInfo field = fields[i];
+                if (field.GetValue(target) != null)
+                    continue;
+
+                object service = StateTreeContextHost.FindService(field.FieldType, owner);
+                if (service == null)
+                {
+                    string report = target.GetType().Name + "." + field.Name;
+                    if (s_Reported.Add(report))
+                    {
+                        Debug.LogError($"[InjectService] no {field.FieldType.Name} reachable "
+                            + $"from '{(owner != null ? owner.name : "(no owner)")}' for "
+                            + $"{report} — the atom will throw where it uses it. Put the "
+                            + "service on a context host in the spine.");
+                    }
+                    continue;
+                }
+                field.SetValue(target, service);
+            }
+        }
+
+        private static FieldInfo[] InjectedFields(Type type)
+        {
+            if (s_Fields.TryGetValue(type, out FieldInfo[] cached))
+                return cached;
+
+            var collected = new List<FieldInfo>();
+            for (Type walk = type; walk != null && walk != typeof(object); walk = walk.BaseType)
+            {
+                FieldInfo[] declared = walk.GetFields(BindingFlags.Public
+                    | BindingFlags.NonPublic | BindingFlags.Instance
+                    | BindingFlags.DeclaredOnly);
+                for (int i = 0; i < declared.Length; i++)
+                {
+                    if (Attribute.IsDefined(declared[i], typeof(InjectServiceAttribute)))
+                        collected.Add(declared[i]);
+                }
+            }
+
+            cached = collected.ToArray();
+            s_Fields[type] = cached;
+            return cached;
+        }
+    }
+
     /// <summary>The executor's view of a typed service reference — what the StartTree
     /// injection pass talks to without knowing the generic argument, exactly like the
     /// registry-reference seam.</summary>

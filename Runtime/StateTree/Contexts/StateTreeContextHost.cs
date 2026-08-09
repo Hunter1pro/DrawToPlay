@@ -532,5 +532,15 @@ namespace PowerOfFire.DrawToPlay
                 host = Resolve(from, StateTreeContextKind.Root);
             return host != null ? host.GetService<T>() : null;
         }
+
+        /// <summary>The non-generic twin, for reflection-driven callers (the field
+        /// injector).</summary>
+        public static object FindService(Type type, GameObject from)
+        {
+            StateTreeContextHost host = ResolveNearest(from);
+            if (host == null)
+                host = Resolve(from, StateTreeContextKind.Root);
+            return host != null ? host.GetService(type) : null;
+        }
     }
 }

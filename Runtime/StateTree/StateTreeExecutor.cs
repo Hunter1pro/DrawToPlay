@@ -1011,6 +1011,10 @@ namespace PowerOfFire.DrawToPlay
             if (target == null)
                 return;
 
+            // The lean capability wire: [InjectService] fields filled by the framework, no
+            // wrapper, no per-atom guard — see StateTreeServiceInjector.
+            StateTreeServiceInjector.Inject(target, owner);
+
             FieldInfo[] fields = target.GetType().GetFields(
                 BindingFlags.Public | BindingFlags.Instance);
             for (int i = 0; i < fields.Length; i++)
