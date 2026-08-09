@@ -59,6 +59,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 "Runs once the task fails. Leave it empty to fall through to the end of the chain.");
 
             LibraryParameterPorts.DefineParameterPorts(context, taskType);
+            TaskOutputPorts.DefineOutputs(context, taskType);
         }
     }
 }

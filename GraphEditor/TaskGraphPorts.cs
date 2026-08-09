@@ -116,6 +116,17 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 .Build();
         }
 
+        /// <summary>Adds a NAMED typed value OUTPUT — a return pin a downstream data pin can
+        /// read (a task call's [TaskOutput], flowing inside the program).</summary>
+        public static void AddDataOut<T>(Node.IPortDefinitionContext context, string portName,
+            string displayName, string tooltip)
+        {
+            context.AddOutputPort<T>(portName)
+                .WithDisplayName(displayName ?? string.Empty)
+                .WithTooltip(tooltip ?? string.Empty)
+                .Build();
+        }
+
         /// <summary>Whether an instruction is a DATA node: pulled on demand by whoever reads its
         /// result, never reached by an exec wire. The complement — <see cref="IsExecKind"/> — is what
         /// an exec pin is allowed to point at.</summary>
@@ -128,6 +139,9 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 case GraphTaskNodeKind.ConstFloat:
                 case GraphTaskNodeKind.ConstString:
                 case GraphTaskNodeKind.ConstBool:
+                case GraphTaskNodeKind.GetTaskOutputFloat:
+                case GraphTaskNodeKind.GetTaskOutputString:
+                case GraphTaskNodeKind.GetTaskOutputBool:
                 case GraphTaskNodeKind.GetBlackboardFloat:
                 case GraphTaskNodeKind.GetBlackboardString:
                 case GraphTaskNodeKind.HasBlackboardKey:

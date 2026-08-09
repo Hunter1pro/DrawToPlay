@@ -55,6 +55,10 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     continue;
                 if (field.GetCustomAttribute<HideInInspector>() != null)
                     continue;
+                // A [TaskOutput] field is a RETURN, not a parameter: it gets an OUTPUT pin
+                // (TaskOutputPorts), never an input port inviting a value the task overwrites.
+                if (field.GetCustomAttribute<TaskOutputAttribute>() != null)
+                    continue;
                 if (!IsSupportedParameterType(field.FieldType))
                     continue;
                 collected.Add(field);

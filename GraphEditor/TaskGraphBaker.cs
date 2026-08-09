@@ -506,6 +506,11 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             /// diagnostic must not flag them.</summary>
             public readonly HashSet<INode> consumedAtBake = new HashSet<INode>(NodeIdentity.comparer);
 
+            /// <summary>Synthesized GetTaskOutput pulls, one per consumed RETURN PIN of a
+            /// call node — keyed so two readers of the same pin share one instruction.</summary>
+            public readonly Dictionary<(INode call, string pin), int> taskOutputPulls =
+                new Dictionary<(INode, string), int>();
+
             /// <summary>Name → kind for the parameters that MADE IT INTO <see cref="parameters"/>.
             /// A variable node only bakes to a GetParam pull when its name is in here, which is what
             /// makes a dangling pull (a name the interpreter cannot resolve) unrepresentable rather
@@ -820,6 +825,9 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 case GraphTaskNodeKind.SetOutputBool:
                 case GraphTaskNodeKind.Wait:
                 case GraphTaskNodeKind.BoolNot:
+                case GraphTaskNodeKind.GetTaskOutputFloat:
+                case GraphTaskNodeKind.GetTaskOutputString:
+                case GraphTaskNodeKind.GetTaskOutputBool:
                     return 1;
                 default:
                     return 0;
@@ -1085,6 +1093,30 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 {
                     if (TaskGraphPorts.IsDataKind(instruction.nodeKind))
                         return index;
+
+                    // A CALL's RETURN PIN: lower the read into a GetTaskOutput pull bound to
+                    // the call's instruction — the return flows inside the program, no
+                    // blackboard in between. One pull per pin, shared by every reader.
+                    if (producer is TaskCallNode call)
+                    {
+                        string pinName = port.FirstConnectedPort.Name;
+                        System.Reflection.FieldInfo output =
+                            TaskOutputPorts.Find(call.taskType, pinName);
+                        if (output != null)
+                        {
+                            if (context.taskOutputPulls.TryGetValue((producer, pinName),
+                                out int shared))
+                                return shared;
+                            GraphTaskNode pull = NewInstruction(TaskOutputPorts.PullKind(output));
+                            pull.stringValue = pinName;
+                            pull.data[0] = index;
+                            int pullIndex = context.program.Count;
+                            context.program.Add(pull);
+                            context.sources.Add(producer);
+                            context.taskOutputPulls[(producer, pinName)] = pullIndex;
+                            return pullIndex;
+                        }
+                    }
 
                     context.Error($"The '{portName}' pin of '{Describe(owner)}' is wired to "
                         + $"'{Describe(producer)}', which produces no value — it is an instruction, "

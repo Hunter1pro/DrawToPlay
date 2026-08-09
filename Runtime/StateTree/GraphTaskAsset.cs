@@ -115,7 +115,21 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>stringValue = output name; data[0] = bool source, or floatValue != 0 when
         /// unwired. Then exec[0].</summary>
-        SetOutputBool
+        SetOutputBool,
+
+        // ---- appended for TASK-OUTPUT PINS (a call's return flowing INSIDE the program —
+        // `var result = await task()` as a wire). New kinds go BELOW, never between.
+
+        /// <summary>stringValue = the output's name; data[0] = the producing CALL's
+        /// instruction index. Reads that task's per-activation output; a call that never ran
+        /// on this path reads 0 — an absent return is a non-event.</summary>
+        GetTaskOutputFloat,
+
+        /// <summary>Same, reading "".</summary>
+        GetTaskOutputString,
+
+        /// <summary>Same, reading false.</summary>
+        GetTaskOutputBool
     }
 
     /// <summary>Value kinds a <see cref="GraphTaskParameter"/> can carry. Order is serialized —
@@ -1161,6 +1175,76 @@ namespace PowerOfFire.DrawToPlay
             return NodeAt(index) == null ? -1 : index;
         }
 
+        private static readonly Dictionary<(Type, string), FieldInfo> s_OutputFields =
+            new Dictionary<(Type, string), FieldInfo>();
+
+        [NonSerialized] private readonly List<TaskOutputValue> m_OutputScratch =
+            new List<TaskOutputValue>();
+
+        /// <summary>The INSIDE flavor of a task's return: read the named output straight off
+        /// the producing call's per-activation copy — no blackboard in between, exactly
+        /// `var result = await task()`. A call that has not run on this path (its copy was
+        /// never created) reads the type default; the copy lives until the program's OnExit,
+        /// so downstream nodes on any later tick still see the value.</summary>
+        private TaskOutputValue ReadTaskOutput(StateTreeContext context, GraphTaskNode node)
+        {
+            int producerIndex = node.data != null && node.data.Length > 0 ? node.data[0] : -1;
+            GraphTaskNode producer = NodeAt(producerIndex);
+            if (producer == null || string.IsNullOrEmpty(node.stringValue))
+                return default;
+
+            StateTreeTaskAsset copy = TaskCopy(producerIndex, producer, false, context);
+            if (copy == null)
+                return default;
+
+            if (copy is IStateTreeOutputSource source)
+            {
+                m_OutputScratch.Clear();
+                source.TryCollectOutputs(m_OutputScratch);
+                for (int i = 0; i < m_OutputScratch.Count; i++)
+                {
+                    if (string.Equals(m_OutputScratch[i].name, node.stringValue,
+                        StringComparison.Ordinal))
+                        return m_OutputScratch[i];
+                }
+                return default;
+            }
+
+            var key = (copy.GetType(), node.stringValue);
+            if (!s_OutputFields.TryGetValue(key, out FieldInfo field))
+            {
+                field = copy.GetType().GetField(node.stringValue,
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (field != null && !Attribute.IsDefined(field, typeof(TaskOutputAttribute)))
+                    field = null;
+                s_OutputFields[key] = field;
+            }
+            if (field == null)
+                return default;
+
+            object value = field.GetValue(copy);
+            if (field.FieldType == typeof(string))
+                return new TaskOutputValue
+                {
+                    name = node.stringValue,
+                    kind = GraphTaskParameterKind.String,
+                    stringValue = value as string ?? string.Empty
+                };
+            if (field.FieldType == typeof(bool))
+                return new TaskOutputValue
+                {
+                    name = node.stringValue,
+                    kind = GraphTaskParameterKind.Bool,
+                    floatValue = value is bool flag && flag ? 1f : 0f
+                };
+            return new TaskOutputValue
+            {
+                name = node.stringValue,
+                kind = GraphTaskParameterKind.Float,
+                floatValue = value is float number ? number : value is int whole ? whole : 0f
+            };
+        }
+
         private float EvalFloat(StateTreeContext context, int index, GraphTaskNode node, int depth)
         {
             switch (node.kind)
@@ -1173,6 +1257,10 @@ namespace PowerOfFire.DrawToPlay
                     return ParameterFloat(node.stringValue);
                 case GraphTaskNodeKind.ExitStatus:
                     return m_ExitStatusValue;
+                case GraphTaskNodeKind.GetTaskOutputFloat:
+                case GraphTaskNodeKind.GetTaskOutputBool:
+                    return ReadTaskOutput(context, node).floatValue;
+                case GraphTaskNodeKind.GetTaskOutputString:
                 case GraphTaskNodeKind.ConstString:
                 case GraphTaskNodeKind.GetBlackboardString:
                 case GraphTaskNodeKind.GetParamString:
@@ -1247,6 +1335,11 @@ namespace PowerOfFire.DrawToPlay
                     return !PullBool(context, node, 0, depth);
                 case GraphTaskNodeKind.ExitStatus:
                     return m_ExitStatusValue != 0f;
+                case GraphTaskNodeKind.GetTaskOutputFloat:
+                case GraphTaskNodeKind.GetTaskOutputBool:
+                    return ReadTaskOutput(context, node).floatValue != 0f;
+                case GraphTaskNodeKind.GetTaskOutputString:
+                    return !string.IsNullOrEmpty(ReadTaskOutput(context, node).stringValue);
                 default:
                     return false;
             }
@@ -1258,6 +1351,12 @@ namespace PowerOfFire.DrawToPlay
             {
                 case GraphTaskNodeKind.ConstString:
                     return node.stringValue ?? string.Empty;
+                case GraphTaskNodeKind.GetTaskOutputString:
+                    return ReadTaskOutput(context, node).stringValue ?? string.Empty;
+                case GraphTaskNodeKind.GetTaskOutputFloat:
+                case GraphTaskNodeKind.GetTaskOutputBool:
+                    return ReadTaskOutput(context, node).floatValue
+                        .ToString(System.Globalization.CultureInfo.InvariantCulture);
                 case GraphTaskNodeKind.GetBlackboardString:
                     return ReadBlackboardString(context, node.stringValue);
                 case GraphTaskNodeKind.GetParamString:
