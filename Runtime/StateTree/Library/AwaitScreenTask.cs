@@ -21,9 +21,10 @@ namespace PowerOfFire.DrawToPlay
         "Raise a key-watched screen and wait for its answer; the button id is the return")]
     public sealed class AwaitScreenTask : StateTreeTaskAsset
     {
-        /// <summary>The scope the screen lives on — a wire-field the framework binds per
-        /// activation (both worlds), so nothing here resolves anything.</summary>
-        public StateTreeHostRef scope = new StateTreeHostRef();
+        /// <summary>Screens live on Root by doctrine — bound by the framework per
+        /// activation; a spine without a Root broke loudly at bind time, so the body carries
+        /// no guard.</summary>
+        [InjectHost] private StateTreeContextHost m_Scope;
 
         /// <summary>The key the views watch ("which screen is up") — a String-valued slot
         /// whose VALUE is a screen address.</summary>
@@ -48,19 +49,14 @@ namespace PowerOfFire.DrawToPlay
         public override void OnEnter(StateTreeContext context)
         {
             button = "";
-            if (scope.host == null)
-                return;
-            var blackboard = scope.host.Context.blackboard;
+            var blackboard = m_Scope.Context.blackboard;
             blackboard.Remove((string)answerKey);
             blackboard[(string)screenKey] = (string)screenId;
         }
 
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
         {
-            if (scope.host == null)
-                return StateTreeStatus.Failure;
-
-            var blackboard = scope.host.Context.blackboard;
+            var blackboard = m_Scope.Context.blackboard;
             if (!blackboard.TryGetValue((string)answerKey, out object held)
                 || !(held is string answer) || string.IsNullOrEmpty(answer))
                 return StateTreeStatus.Running;
@@ -72,10 +68,8 @@ namespace PowerOfFire.DrawToPlay
 
         public override void OnExit(StateTreeContext context, StateTreeStatus status)
         {
-            if (scope.host == null)
-                return;
             // Lower only OUR screen: another state may already have raised the next one.
-            var blackboard = scope.host.Context.blackboard;
+            var blackboard = m_Scope.Context.blackboard;
             if (blackboard.TryGetValue((string)screenKey, out object held)
                 && held is string current
                 && string.Equals(current, (string)screenId, System.StringComparison.Ordinal))

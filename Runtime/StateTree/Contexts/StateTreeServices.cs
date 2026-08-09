@@ -29,32 +29,30 @@ namespace PowerOfFire.DrawToPlay
     }
 
     /// <summary>
-    /// A SCOPE as a wire-field — the host twin of <see cref="StateTreeServiceRef{T}"/>:
-    /// <c>kind</c> and <c>scopeId</c> are the authored address (Root, this Level, player
-    /// "p2"), <see cref="host"/> is the live end, bound by the same injector that fills
-    /// service fields — in both worlds, with no per-tick Resolve and no per-atom guard.
-    /// An atom just reads <c>scope.host.Context.blackboard</c>.
+    /// A SCOPE injected as a plain field — the host flavor of <see cref="InjectServiceAttribute"/>,
+    /// for atoms whose scope is fixed by their DESIGN (a screen lives on Root, a spawn beat on
+    /// its Level):
+    ///
+    /// <code>[InjectHost] private StateTreeContextHost m_Scope;              // Root
+    /// [InjectHost(StateTreeContextKind.Level)] private StateTreeContextHost m_Level;</code>
+    ///
+    /// The framework binds it per activation, both worlds. A spine without the scope is ONE
+    /// clear error at bind time and the NullReference that follows names the wiring — the
+    /// atom body carries NO null guard, exactly the [InjectService] rule.
     /// </summary>
-    [Serializable]
-    public sealed class StateTreeHostRef
+    [AttributeUsage(AttributeTargets.Field)]
+    public sealed class InjectHostAttribute : Attribute
     {
-        public StateTreeContextKind kind = StateTreeContextKind.Root;
-
-        /// <summary>Disambiguates sibling scopes ("p2"); empty = nearest/unique of the
-        /// kind — the <see cref="StateTreeContextHost.Resolve"/> rule.</summary>
-        public string scopeId = "";
-
-        [NonSerialized]
-        private StateTreeContextHost m_Host;
-
-        /// <summary>The live host, framework-bound per activation. Null only when the spine
-        /// has no such scope — reported once by the injector.</summary>
-        public StateTreeContextHost host => m_Host;
-
-        internal void Bind(StateTreeContextHost value)
+        public InjectHostAttribute(StateTreeContextKind kind = StateTreeContextKind.Root,
+            string scopeId = "")
         {
-            m_Host = value;
+            this.kind = kind;
+            this.scopeId = scopeId;
         }
+
+        public StateTreeContextKind kind { get; }
+
+        public string scopeId { get; }
     }
 
     /// <summary>The one injector both worlds call, for both wire flavors: [InjectService]
@@ -115,38 +113,38 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        /// <summary>Resolve every <see cref="StateTreeHostRef"/> field's scope from the
-        /// owner — the address is the field's own authored kind + id, so nothing but the
-        /// resolution is the framework's.</summary>
+        /// <summary>Bind every [InjectHost] field from the owner — the address lives on the
+        /// attribute, because these scopes are design constants, not per-instance data.</summary>
         private static void BindHostRefs(object target, GameObject owner, bool quiet)
         {
             FieldInfo[] fields = HostRefFields(target.GetType());
             for (int i = 0; i < fields.Length; i++)
             {
-                if (!(fields[i].GetValue(target) is StateTreeHostRef reference))
-                    continue;
-                if (reference.host != null)
+                FieldInfo field = fields[i];
+                if (field.GetValue(target) != null)
                     continue;
 
+                var address = (InjectHostAttribute)Attribute.GetCustomAttribute(field,
+                    typeof(InjectHostAttribute));
                 StateTreeContextHost host = StateTreeContextHost.Resolve(owner,
-                    reference.kind, reference.scopeId);
+                    address.kind, address.scopeId);
                 if (host == null)
                 {
                     if (quiet)
                         continue;
-                    string report = target.GetType().Name + "." + fields[i].Name;
+                    string report = target.GetType().Name + "." + field.Name;
                     if (s_Reported.Add(report))
                     {
-                        Debug.LogError($"[HostRef] no '{reference.kind}"
-                            + (string.IsNullOrEmpty(reference.scopeId)
-                                ? "" : ":" + reference.scopeId)
+                        Debug.LogError($"[InjectHost] no '{address.kind}"
+                            + (string.IsNullOrEmpty(address.scopeId)
+                                ? "" : ":" + address.scopeId)
                             + $"' context reachable from "
                             + $"'{(owner != null ? owner.name : "(no owner)")}' for {report} "
-                            + "— the atom will fail where it uses it.");
+                            + "— the atom will throw where it uses it.");
                     }
                     continue;
                 }
-                reference.Bind(host);
+                field.SetValue(target, host);
             }
         }
 
@@ -163,7 +161,8 @@ namespace PowerOfFire.DrawToPlay
                     | BindingFlags.DeclaredOnly);
                 for (int i = 0; i < declared.Length; i++)
                 {
-                    if (declared[i].FieldType == typeof(StateTreeHostRef))
+                    if (declared[i].FieldType == typeof(StateTreeContextHost)
+                        && Attribute.IsDefined(declared[i], typeof(InjectHostAttribute)))
                         collected.Add(declared[i]);
                 }
             }
