@@ -17,6 +17,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     /// nodes' pins on the next graph change (<see cref="TaskGraph.OnGraphChanged"/>); a
     /// rename orphans wires exactly as renaming any contract does.
     /// </summary>
+    [Serializable]
     public abstract class ReturnNodeBase : Node, ITaskGraphNode
     {
         /// <inheritdoc />

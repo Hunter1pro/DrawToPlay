@@ -26,7 +26,8 @@ namespace PowerOfFire.DrawToPlay
 
         public string contextId = "";
 
-        public string blackboardKey = "ui:openInventory";
+        [StateTreeKey(StateTreeKeyKind.Event, any: true)]
+        public StateTreeKeyField blackboardKey = new StateTreeKeyField("ui:openInventory");
 
         /// <summary>Empty = the press raises a presence EVENT (1f). Non-empty = the press
         /// writes this STRING — a trigger that carries a payload, which is what an in-scene
@@ -44,9 +45,9 @@ namespace PowerOfFire.DrawToPlay
             if (host == null)
                 return;
             if (string.IsNullOrEmpty(stringValue))
-                host.Context.blackboard[blackboardKey] = 1f;
+                host.Context.blackboard[(string)blackboardKey] = 1f;
             else
-                host.Context.blackboard[blackboardKey] = stringValue;
+                host.Context.blackboard[(string)blackboardKey] = stringValue;
         }
 
         private bool PressedThisFrame()

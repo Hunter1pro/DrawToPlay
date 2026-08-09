@@ -16,7 +16,8 @@ namespace PowerOfFire.DrawToPlay
 
         public string contextId = "";
 
-        public string key = "";
+        [StateTreeKey(StateTreeKeyKind.Float, any: true)]
+        public StateTreeKeyField key = new StateTreeKeyField();
 
         public string prefix = "";
 
@@ -51,7 +52,7 @@ namespace PowerOfFire.DrawToPlay
 
         private void Update()
         {
-            if (m_Label == null || string.IsNullOrEmpty(key))
+            if (m_Label == null || string.IsNullOrEmpty((string)key))
                 return;
 
             StateTreeContextHost host =

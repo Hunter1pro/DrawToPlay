@@ -21,7 +21,8 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Root-scope key the Go button writes the chosen level's NAME to. A
         /// component field is authored text (the M14 boundary: components are the seam
         /// between tree-land and the scene).</summary>
-        public string targetKey = "level:goto";
+        [StateTreeKey(StateTreeKeyKind.String)]
+        public StateTreeKeyField targetKey = new StateTreeKeyField("level:goto");
 
         private DropdownField m_Dropdown;
 
@@ -61,14 +62,14 @@ namespace PowerOfFire.DrawToPlay
 
         private void RequestLevel()
         {
-            if (string.IsNullOrEmpty(targetKey) || m_Dropdown == null
+            if (string.IsNullOrEmpty((string)targetKey) || m_Dropdown == null
                 || string.IsNullOrEmpty(m_Dropdown.value))
                 return;
 
             StateTreeContextHost root = StateTreeContextHost.Resolve(gameObject,
                 StateTreeContextKind.Root);
             if (root != null)
-                root.Context.blackboard[targetKey] = m_Dropdown.value;
+                root.Context.blackboard[(string)targetKey] = m_Dropdown.value;
         }
     }
 }
