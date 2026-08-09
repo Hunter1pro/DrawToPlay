@@ -3140,6 +3140,14 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Tree != null ? m_Tree.parameters : null, sourceId);
             var live = IsLiveLink(source, parameter.kind);
 
+            // A KEY-WIRED row (bound with the ⚿ picker) is the M14 rule applied here: the id
+            // is the wire, the text only its fallback — so the field LOCKS while the wire
+            // stands (hand-editing a bound name would silently break the bind; unbind via the
+            // ⚿ menu's free-text entry), and the shown name follows the declaration.
+            var keyWired = entry != null && !string.IsNullOrEmpty(entry.keyId);
+            if (keyWired)
+                HealWiredKeyName(surface, entry);
+
             var input = BuildParameterInput(surface, parameter);
             input.AddToClassList("unity-base-field__input");
             input.style.flexGrow = 1f;
@@ -3150,7 +3158,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             // (StateTreeExecutor.ResolveSourceValues), so the number in the field is not what runs
             // either way, and an editable field that does nothing is the lie this control exists to
             // stop being told one level down.
-            ApplyOverrideStyle(input, overridden && !linked);
+            ApplyOverrideStyle(input, overridden && !linked && !keyWired);
             row.Add(input);
 
             // The INCOME-parameter connection: a key-semantic String parameter binds to one of
@@ -4772,6 +4780,28 @@ namespace PowerOfFire.DrawToPlay.Editor
             return false;
         }
 
+        /// <summary>A wired row's TEXT follows its declaration — the display half of the
+        /// rename rule (the runtime half lives in StateTreeExecutor.ResolveSourceValues). A
+        /// wire whose declaration is gone keeps its last text as the fallback, unhealed.</summary>
+        private void HealWiredKeyName(ParameterSurface surface, GraphTaskParameterOverride entry)
+        {
+            var declarations = new List<StateTreeKeyDeclaration>();
+            StateTreeKeyResolver.CollectVisible(m_Tree, declarations);
+            for (var i = 0; i < declarations.Count; ++i)
+            {
+                var declaration = declarations[i];
+                if (declaration == null
+                    || !string.Equals(declaration.id, entry.keyId, StringComparison.Ordinal))
+                    continue;
+                if (!string.Equals(declaration.name, entry.stringValue, StringComparison.Ordinal))
+                {
+                    entry.stringValue = declaration.name;
+                    EditorUtility.SetDirty(surface.owner);
+                }
+                return;
+            }
+        }
+
         /// <summary>The declared-key menu for a key-semantic parameter row: every key visible
         /// from this tree, current value ticked; picking one overrides the parameter with the
         /// key's NAME (the runtime wire — programs read keys by name).</summary>
@@ -4782,7 +4812,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreeKeyResolver.CollectVisible(m_Tree, declarations);
 
             var entry = ActiveOverride(surface, parameter);
-            var current = entry != null ? entry.stringValue : null;
+            var currentId = entry != null ? entry.keyId : null;
+            var currentText = entry != null ? entry.stringValue : null;
+            var wired = !string.IsNullOrEmpty(currentId);
 
             var menu = new GenericMenu();
             if (declarations.Count == 0)
@@ -4796,16 +4828,32 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (declaration == null || string.IsNullOrEmpty(declaration.name))
                     continue;
                 var keyName = declaration.name;
+                var keyId = declaration.id;
                 var label = (keyName + "  (" + declaration.kind + ")")
                     .Replace('/', k_MenuSeparatorStandIn);
-                menu.AddItem(new GUIContent(label),
-                    string.Equals(keyName, current, StringComparison.Ordinal),
+                var ticked = wired
+                    ? string.Equals(keyId, currentId, StringComparison.Ordinal)
+                    : string.Equals(keyName, currentText, StringComparison.Ordinal);
+                menu.AddItem(new GUIContent(label), ticked,
                     () =>
                     {
                         SetOverride(surface, parameter, true);
-                        CommitOverride(surface, parameter, row => row.stringValue = keyName);
+                        CommitOverride(surface, parameter, row =>
+                        {
+                            row.stringValue = keyName;
+                            row.keyId = keyId;
+                        });
                         RebuildPane();
                     });
+            }
+            if (wired)
+            {
+                menu.AddSeparator(string.Empty);
+                menu.AddItem(new GUIContent("Unbind (free text)"), false, () =>
+                {
+                    CommitOverride(surface, parameter, row => row.keyId = string.Empty);
+                    RebuildPane();
+                });
             }
             menu.DropDown(anchor.worldBound);
         }

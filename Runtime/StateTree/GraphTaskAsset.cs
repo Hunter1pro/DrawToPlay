@@ -217,6 +217,18 @@ namespace PowerOfFire.DrawToPlay
         public string id;
 
         /// <summary>
+        /// KEY WIRE: id of a DECLARED KEY of the tree this row's owner state lives in, when the
+        /// row's String value was bound with the ⚿ picker rather than typed. The M14 rule,
+        /// applied to override rows: <see cref="stringValue"/> holds the key's name as the
+        /// FALLBACK, the id is the wire — <see cref="StateTreeExecutor.ResolveSourceValues"/>
+        /// rewrites the value to the declaration's CURRENT name per activation, so renaming
+        /// the key never strands the binding, and the inspector locks the field while the wire
+        /// stands (editing a bound name by hand would silently break the bind — the reason
+        /// this field exists). Empty = free-typed, still legal.
+        /// </summary>
+        public string keyId = "";
+
+        /// <summary>
         /// PASS-THROUGH (M7i): id of a parameter of the tree this row's OWNER state lives in, whose
         /// effective value this row takes instead of its own literal. Empty — the normal case — means
         /// the row IS the literal typed into it.

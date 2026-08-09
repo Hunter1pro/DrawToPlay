@@ -611,7 +611,9 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < rows.Count && !any; i++)
             {
                 GraphTaskParameterOverride row = rows[i];
-                any = row != null && row.enabled && !string.IsNullOrEmpty(row.sourceParameterId);
+                any = row != null && row.enabled
+                    && (!string.IsNullOrEmpty(row.sourceParameterId)
+                        || !string.IsNullOrEmpty(row.keyId));
             }
             if (!any)
                 return rows;
@@ -620,9 +622,39 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < rows.Count; i++)
             {
                 GraphTaskParameterOverride row = rows[i];
-                if (row == null || !row.enabled || string.IsNullOrEmpty(row.sourceParameterId))
+                if (row == null || !row.enabled
+                    || (string.IsNullOrEmpty(row.sourceParameterId)
+                        && string.IsNullOrEmpty(row.keyId)))
                 {
                     resolved.Add(row);
+                    continue;
+                }
+
+                // A KEY-WIRED row resolves to the declaration's CURRENT name — the M14 rename
+                // rule for override rows. A wire whose declaration is gone falls back to the
+                // row's text, the same grace a KeyField gives.
+                if (!string.IsNullOrEmpty(row.keyId))
+                {
+                    StateTreeKeyDeclaration declaration = StateTreeKeyResolver.Find(null,
+                        context != null ? context.owner : null, row.keyId);
+                    if (declaration == null
+                        || string.Equals(declaration.name, row.stringValue,
+                            StringComparison.Ordinal))
+                    {
+                        resolved.Add(row);
+                    }
+                    else
+                    {
+                        resolved.Add(new GraphTaskParameterOverride
+                        {
+                            name = row.name,
+                            enabled = true,
+                            id = row.id,
+                            keyId = row.keyId,
+                            floatValue = row.floatValue,
+                            stringValue = declaration.name
+                        });
+                    }
                     continue;
                 }
 
