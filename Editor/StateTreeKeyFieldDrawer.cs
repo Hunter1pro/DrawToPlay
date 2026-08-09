@@ -76,6 +76,16 @@ namespace PowerOfFire.DrawToPlay.Editor
                 + "place the name lives.";
             pick.clicked += () => ShowMenu(pick, container, property, textProperty, idProperty);
             row.Add(pick);
+
+            // The lock has to follow the WIRE, not the moment this row was built: an undo or
+            // a revert changes keyId under the row, and an editable bound field is the lie
+            // this drawer exists to stop.
+            row.TrackPropertyValue(idProperty, _ =>
+            {
+                var nowWired = !string.IsNullOrEmpty(idProperty.stringValue);
+                if (nowWired != wired)
+                    Build(container, property);
+            });
         }
 
         private void ShowMenu(VisualElement anchor, VisualElement container,
