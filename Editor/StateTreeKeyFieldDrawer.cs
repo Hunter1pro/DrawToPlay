@@ -141,18 +141,19 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             AddEntries(true);
 
-            // A TAG field's vocabulary is also the world's tag registry: any
-            // WorldTagRegistry the tree carries offers its rows as picks. A row pick writes
-            // the TEXT (tags match by exact text at runtime); it is a known-list choice, not
-            // an id wire — declarations keep the wire semantics.
+            // A TAG field's vocabulary is also the world's tag registries: the GLOBAL ones
+            // the tree carries, plus every LEVEL's own (a level can mint unique tags —
+            // LevelDef.tags — and the root still SEES them, grouped by level). A row pick
+            // writes the TEXT (tags match by exact text at runtime); it is a known-list
+            // choice, not an id wire — declarations keep the wire semantics.
             if (preferred == StateTreeKeyKind.Tag && tree != null)
             {
                 var currentText = textProperty.stringValue;
                 var anyRows = false;
-                for (int i = 0; i < tree.registries.Count; i++)
+                void AddTagRows(WorldTagRegistry tagRows, string prefix)
                 {
-                    if (!(tree.registries[i] is WorldTagRegistry tagRows))
-                        continue;
+                    if (tagRows == null)
+                        return;
                     for (int j = 0; j < tagRows.entries.Count; j++)
                     {
                         WorldTagDef row = tagRows.entries[j];
@@ -165,7 +166,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                                 menu.AddSeparator(string.Empty);
                         }
                         var tagName = row.name;
-                        menu.AddItem(new GUIContent(("Tags/" + tagName).Replace('\\', '∕')),
+                        menu.AddItem(new GUIContent((prefix + tagName).Replace('\\', '∕')),
                             string.IsNullOrEmpty(currentId)
                                 && string.Equals(tagName, currentText,
                                     System.StringComparison.Ordinal),
@@ -176,6 +177,21 @@ namespace PowerOfFire.DrawToPlay.Editor
                                 property.serializedObject.ApplyModifiedProperties();
                                 Build(container, property);
                             });
+                    }
+                }
+
+                for (int i = 0; i < tree.registries.Count; i++)
+                {
+                    if (tree.registries[i] is WorldTagRegistry global)
+                        AddTagRows(global, "Tags/");
+                    else if (tree.registries[i] is LevelRegistry levels)
+                    {
+                        for (int j = 0; j < levels.entries.Count; j++)
+                        {
+                            LevelDef level = levels.entries[j];
+                            if (level != null && level.tags != null)
+                                AddTagRows(level.tags, "Tags/" + level.name + "/");
+                        }
                     }
                 }
             }
