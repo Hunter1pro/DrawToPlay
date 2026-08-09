@@ -4380,6 +4380,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                     continue;
                 if (hiddenProperty != null && iterator.propertyPath == hiddenProperty)
                     continue;
+                // The base-class RETURN routes are the curated Returns section above — the raw
+                // list drawn here too would be the same data twice, once as plumbing.
+                if (iterator.propertyPath == "returns"
+                    && target is StateTreeTaskAsset)
+                    continue;
                 // A [TaskOutput] field is a RETURN value, written by the task at runtime —
                 // rendering it as an editable knob would invite authoring a value the task
                 // overwrites. It surfaces in the transition "Route outputs" dropdowns instead.
