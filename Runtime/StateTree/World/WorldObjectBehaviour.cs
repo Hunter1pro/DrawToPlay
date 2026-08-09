@@ -29,6 +29,16 @@ namespace PowerOfFire.DrawToPlay
         /// which mints its own on first enable.</summary>
         public string stableId = "";
 
+        /// <summary>The REGISTRY ROW this object is an instance of (a unit type, an item) —
+        /// the data connection: scene object names row, row carries the meaning. Empty for
+        /// objects that are not instances of anything.</summary>
+        public string entryName = "";
+
+        /// <summary>The typed scripted objects behind this citizen — what a tree or task gets
+        /// when it asks the world "who is this?" instead of fishing with GetComponent.
+        /// Runtime state on purpose: each facet re-exposes itself on its own enable.</summary>
+        private readonly List<Component> m_Facets = new List<Component>();
+
         private WorldService m_RegisteredWith;
 
         /// <summary>The service this object is currently registered with — null while the
@@ -110,6 +120,31 @@ namespace PowerOfFire.DrawToPlay
         internal void MarkRegistered(WorldService service)
         {
             m_RegisteredWith = service;
+        }
+
+        /// <summary>Declare the typed scripted object behind this citizen. Idempotent; when
+        /// the citizen is already registered the world RE-ANNOUNCES it, because exposure is
+        /// the moment the typed object becomes knowable — a listener that skipped the
+        /// facetless registration gets a second look.</summary>
+        public void Expose(Component facet)
+        {
+            if (facet == null || m_Facets.Contains(facet))
+                return;
+            m_Facets.Add(facet);
+            if (m_RegisteredWith != null)
+                m_RegisteredWith.Announce(this);
+        }
+
+        /// <summary>The exposed facet of the asked type (component or interface), or null —
+        /// the world's answer to "who is this?".</summary>
+        public T As<T>() where T : class
+        {
+            for (int i = 0; i < m_Facets.Count; i++)
+            {
+                if (m_Facets[i] is T match)
+                    return match;
+            }
+            return null;
         }
 
         /// <summary>Add a tag the object does not carry yet — through the documented

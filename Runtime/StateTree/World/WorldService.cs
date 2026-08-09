@@ -36,12 +36,29 @@ namespace PowerOfFire.DrawToPlay
             new Dictionary<string, List<WorldObjectBehaviour>>(StringComparer.Ordinal);
         private readonly Dictionary<string, WorldObjectBehaviour> m_ById =
             new Dictionary<string, WorldObjectBehaviour>(StringComparer.Ordinal);
+        private readonly Dictionary<GameObject, WorldObjectBehaviour> m_ByGameObject =
+            new Dictionary<GameObject, WorldObjectBehaviour>();
         private readonly List<string> m_Log = new List<string>();
 
         /// <summary>The deep log, oldest first — what the world was told and asked.</summary>
         public IReadOnlyList<string> recentLog => m_Log;
 
         public int registeredCount => m_Objects.Count;
+
+        /// <summary>Every live citizen, first-registered order — the sweep surface for a
+        /// service that adopts a KIND of object (a unit setup, a save system).</summary>
+        public IReadOnlyList<WorldObjectBehaviour> allObjects => m_Objects;
+
+        /// <summary>A citizen ARRIVED (registration, or a facet exposed on one already
+        /// registered — see <see cref="Announce"/>). This is how "drag it into the scene"
+        /// becomes setup with no manual call: the object self-registers, the interested
+        /// service listens. Listeners MUST be idempotent — the same citizen can be announced
+        /// more than once.</summary>
+        public event Action<WorldObjectBehaviour> citizenAdded;
+
+        /// <summary>A citizen LEFT (disable, destroy, level unload). The interested service
+        /// forgets it here.</summary>
+        public event Action<WorldObjectBehaviour> citizenRemoved;
 
         protected override void OnEnable()
         {
@@ -90,9 +107,20 @@ namespace PowerOfFire.DrawToPlay
                 m_ById[obj.stableId] = obj;
             }
 
+            m_ByGameObject[obj.gameObject] = obj;
             obj.MarkRegistered(this);
             Emit("register '" + obj.name + "' id=" + obj.stableId + " tags=[" + Join(obj.tags)
                 + "]", false);
+            citizenAdded?.Invoke(obj);
+        }
+
+        /// <summary>Re-announce a citizen that is already registered — called by
+        /// <see cref="WorldObjectBehaviour.Expose"/> when a facet lands after registration,
+        /// so listeners keyed on the TYPED object never miss it to enable-order.</summary>
+        internal void Announce(WorldObjectBehaviour obj)
+        {
+            if (obj != null && m_Objects.Contains(obj))
+                citizenAdded?.Invoke(obj);
         }
 
         public void Unregister(WorldObjectBehaviour obj)
@@ -110,8 +138,13 @@ namespace PowerOfFire.DrawToPlay
                 && m_ById.TryGetValue(obj.stableId, out WorldObjectBehaviour held)
                 && ReferenceEquals(held, obj))
                 m_ById.Remove(obj.stableId);
+            if (obj.gameObject != null
+                && m_ByGameObject.TryGetValue(obj.gameObject, out WorldObjectBehaviour mapped)
+                && ReferenceEquals(mapped, obj))
+                m_ByGameObject.Remove(obj.gameObject);
 
             Emit("unregister '" + obj.name + "' id=" + obj.stableId, false);
+            citizenRemoved?.Invoke(obj);
         }
 
         /// <summary>Sweep the scene for citizens that enabled before this service existed —
@@ -190,6 +223,19 @@ namespace PowerOfFire.DrawToPlay
 
             Emit("query collect '" + tag + "' -> " + count, false);
             return count;
+        }
+
+        /// <summary>The TYPED scripted object behind a GameObject the world knows — a
+        /// dictionary hit plus a facet scan, no GetComponent. This is the per-tick lookup
+        /// tasks use for "who is this owner / this target?", so like <see cref="HasTag"/> it
+        /// stays out of the log.</summary>
+        public T FacetOf<T>(GameObject go) where T : class
+        {
+            if (go == null
+                || !m_ByGameObject.TryGetValue(go, out WorldObjectBehaviour citizen)
+                || citizen == null)
+                return null;
+            return citizen.As<T>();
         }
 
         /// <summary>Existence without a log line: this is the per-tick condition's question,
