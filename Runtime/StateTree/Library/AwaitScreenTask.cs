@@ -21,9 +21,9 @@ namespace PowerOfFire.DrawToPlay
         "Raise a key-watched screen and wait for its answer; the button id is the return")]
     public sealed class AwaitScreenTask : StateTreeTaskAsset
     {
-        public StateTreeContextKind scope = StateTreeContextKind.Root;
-
-        public string scopeId = "";
+        /// <summary>The scope the screen lives on — a wire-field the framework binds per
+        /// activation (both worlds), so nothing here resolves anything.</summary>
+        public StateTreeHostRef scope = new StateTreeHostRef();
 
         /// <summary>The key the views watch ("which screen is up") — a String-valued slot
         /// whose VALUE is a screen address.</summary>
@@ -45,58 +45,41 @@ namespace PowerOfFire.DrawToPlay
         [TaskOutput("Id of the button that answered the screen")]
         public string button = "";
 
-        [System.NonSerialized] private bool m_WarnedNoHost;
-
         public override void OnEnter(StateTreeContext context)
         {
             button = "";
-            StateTreeContextHost host = ResolveHost(context);
-            if (host == null)
+            if (scope.host == null)
                 return;
-            host.Context.blackboard.Remove((string)answerKey);
-            host.Context.blackboard[(string)screenKey] = (string)screenId;
+            var blackboard = scope.host.Context.blackboard;
+            blackboard.Remove((string)answerKey);
+            blackboard[(string)screenKey] = (string)screenId;
         }
 
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
         {
-            StateTreeContextHost host = ResolveHost(context);
-            if (host == null)
+            if (scope.host == null)
                 return StateTreeStatus.Failure;
 
-            if (!host.Context.blackboard.TryGetValue((string)answerKey, out object held)
+            var blackboard = scope.host.Context.blackboard;
+            if (!blackboard.TryGetValue((string)answerKey, out object held)
                 || !(held is string answer) || string.IsNullOrEmpty(answer))
                 return StateTreeStatus.Running;
 
             button = answer;
-            host.Context.blackboard.Remove((string)answerKey);
+            blackboard.Remove((string)answerKey);
             return StateTreeStatus.Success;
         }
 
         public override void OnExit(StateTreeContext context, StateTreeStatus status)
         {
-            StateTreeContextHost host = ResolveHost(context);
-            if (host == null)
+            if (scope.host == null)
                 return;
             // Lower only OUR screen: another state may already have raised the next one.
-            if (host.Context.blackboard.TryGetValue((string)screenKey, out object held)
+            var blackboard = scope.host.Context.blackboard;
+            if (blackboard.TryGetValue((string)screenKey, out object held)
                 && held is string current
                 && string.Equals(current, (string)screenId, System.StringComparison.Ordinal))
-                host.Context.blackboard.Remove((string)screenKey);
-        }
-
-        private StateTreeContextHost ResolveHost(StateTreeContext context)
-        {
-            if (context == null || string.IsNullOrEmpty((string)screenKey))
-                return null;
-            StateTreeContextHost host = StateTreeContextHost.Resolve(context.owner, scope, scopeId);
-            if (host == null && !m_WarnedNoHost)
-            {
-                m_WarnedNoHost = true;
-                Debug.LogWarning("[AwaitScreen] no '" + scope + "' context reachable from '"
-                    + (context.owner != null ? context.owner.name : "(null)")
-                    + "' — the screen cannot be raised.", this);
-            }
-            return host;
+                blackboard.Remove((string)screenKey);
         }
     }
 }

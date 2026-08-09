@@ -28,11 +28,45 @@ namespace PowerOfFire.DrawToPlay
     {
     }
 
-    /// <summary>The one injector both worlds call. Fields are discovered once per type
+    /// <summary>
+    /// A SCOPE as a wire-field — the host twin of <see cref="StateTreeServiceRef{T}"/>:
+    /// <c>kind</c> and <c>scopeId</c> are the authored address (Root, this Level, player
+    /// "p2"), <see cref="host"/> is the live end, bound by the same injector that fills
+    /// service fields — in both worlds, with no per-tick Resolve and no per-atom guard.
+    /// An atom just reads <c>scope.host.Context.blackboard</c>.
+    /// </summary>
+    [Serializable]
+    public sealed class StateTreeHostRef
+    {
+        public StateTreeContextKind kind = StateTreeContextKind.Root;
+
+        /// <summary>Disambiguates sibling scopes ("p2"); empty = nearest/unique of the
+        /// kind — the <see cref="StateTreeContextHost.Resolve"/> rule.</summary>
+        public string scopeId = "";
+
+        [NonSerialized]
+        private StateTreeContextHost m_Host;
+
+        /// <summary>The live host, framework-bound per activation. Null only when the spine
+        /// has no such scope — reported once by the injector.</summary>
+        public StateTreeContextHost host => m_Host;
+
+        internal void Bind(StateTreeContextHost value)
+        {
+            m_Host = value;
+        }
+    }
+
+    /// <summary>The one injector both worlds call, for both wire flavors: [InjectService]
+    /// fields (resolved by TYPE through the spine) and <see cref="StateTreeHostRef"/> fields
+    /// (resolved by KIND + id — the scope itself). Fields are discovered once per type
     /// (whole hierarchy, private included) and cached for the domain.</summary>
     public static class StateTreeServiceInjector
     {
         private static readonly Dictionary<Type, FieldInfo[]> s_Fields =
+            new Dictionary<Type, FieldInfo[]>();
+
+        private static readonly Dictionary<Type, FieldInfo[]> s_HostFields =
             new Dictionary<Type, FieldInfo[]>();
 
         private static readonly HashSet<string> s_Reported = new HashSet<string>();
@@ -52,6 +86,8 @@ namespace PowerOfFire.DrawToPlay
         {
             if (target == null)
                 return;
+
+            BindHostRefs(target, owner, quiet);
 
             FieldInfo[] fields = InjectedFields(target.GetType());
             for (int i = 0; i < fields.Length; i++)
@@ -77,6 +113,64 @@ namespace PowerOfFire.DrawToPlay
                 }
                 field.SetValue(target, service);
             }
+        }
+
+        /// <summary>Resolve every <see cref="StateTreeHostRef"/> field's scope from the
+        /// owner — the address is the field's own authored kind + id, so nothing but the
+        /// resolution is the framework's.</summary>
+        private static void BindHostRefs(object target, GameObject owner, bool quiet)
+        {
+            FieldInfo[] fields = HostRefFields(target.GetType());
+            for (int i = 0; i < fields.Length; i++)
+            {
+                if (!(fields[i].GetValue(target) is StateTreeHostRef reference))
+                    continue;
+                if (reference.host != null)
+                    continue;
+
+                StateTreeContextHost host = StateTreeContextHost.Resolve(owner,
+                    reference.kind, reference.scopeId);
+                if (host == null)
+                {
+                    if (quiet)
+                        continue;
+                    string report = target.GetType().Name + "." + fields[i].Name;
+                    if (s_Reported.Add(report))
+                    {
+                        Debug.LogError($"[HostRef] no '{reference.kind}"
+                            + (string.IsNullOrEmpty(reference.scopeId)
+                                ? "" : ":" + reference.scopeId)
+                            + $"' context reachable from "
+                            + $"'{(owner != null ? owner.name : "(no owner)")}' for {report} "
+                            + "— the atom will fail where it uses it.");
+                    }
+                    continue;
+                }
+                reference.Bind(host);
+            }
+        }
+
+        private static FieldInfo[] HostRefFields(Type type)
+        {
+            if (s_HostFields.TryGetValue(type, out FieldInfo[] cached))
+                return cached;
+
+            var collected = new List<FieldInfo>();
+            for (Type walk = type; walk != null && walk != typeof(object); walk = walk.BaseType)
+            {
+                FieldInfo[] declared = walk.GetFields(BindingFlags.Public
+                    | BindingFlags.NonPublic | BindingFlags.Instance
+                    | BindingFlags.DeclaredOnly);
+                for (int i = 0; i < declared.Length; i++)
+                {
+                    if (declared[i].FieldType == typeof(StateTreeHostRef))
+                        collected.Add(declared[i]);
+                }
+            }
+
+            cached = collected.ToArray();
+            s_HostFields[type] = cached;
+            return cached;
         }
 
         private static FieldInfo[] InjectedFields(Type type)
