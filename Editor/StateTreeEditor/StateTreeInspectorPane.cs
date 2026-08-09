@@ -4821,17 +4821,44 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (var i = 0; outputs != null && i < outputs.Count; ++i)
                 if (!string.IsNullOrEmpty(outputs[i].name))
                     count++;
-            if (count == 0)
+
+            // A program can DECLARE a new return from here (it edits the graph — the callee
+            // owns its signature, this is just the gesture offered where you are). A plain C#
+            // task declares them in code ([TaskOutput]), so with none there is nothing to draw.
+            var program = task as RunGraphTask;
+            var graphPath = program != null && program.graph != null
+                ? AssetDatabase.GetAssetPath(program.graph)
+                : null;
+            if (count == 0 && string.IsNullOrEmpty(graphPath))
                 return container;
 
+            var header = new VisualElement();
+            header.style.flexDirection = FlexDirection.Row;
+            header.style.alignItems = Align.Center;
+            header.style.marginTop = 6f;
             var title = new Label($"Returns ({count})");
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
-            title.style.marginTop = 6f;
-            container.Add(title);
+            title.style.flexGrow = 1f;
+            header.Add(title);
+            if (!string.IsNullOrEmpty(graphPath))
+            {
+                var add = new Button { text = "+" };
+                add.style.width = 26f;
+                add.style.minHeight = k_ControlMinHeight;
+                add.tooltip = "Declare a new return on the graph (an Output variable): the "
+                    + "Return nodes gain its pin, and every state running this graph sees it.";
+                var path = graphPath;
+                add.clicked += () => ReturnParameterPrompt.Show(path, RebuildPane);
+                header.Add(add);
+            }
+            container.Add(header);
 
-            var hint = Hint("What this task returns when it finishes. ⚿ publishes a return "
-                + "to one of this tree's declared keys, however the state then leaves; a "
-                + "transition's route rows can still carry it per exit wire.");
+            var hint = Hint(count == 0
+                ? "This program declares no returns yet. + declares one — an Output variable "
+                    + "on the graph's panel, a pin on its Return nodes."
+                : "What this task returns when it finishes. ⚿ publishes a return to one of "
+                    + "this tree's declared keys, however the state then leaves; a "
+                    + "transition's route rows can still carry it per exit wire.");
             hint.style.marginBottom = 2f;
             container.Add(hint);
 
