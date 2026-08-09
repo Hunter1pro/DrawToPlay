@@ -40,11 +40,6 @@ namespace PowerOfFire.DrawToPlay
         /// the interpreter ignores them with one warning.</summary>
         public List<GraphTaskParameterOverride> overrides = new List<GraphTaskParameterOverride>();
 
-        /// <summary>The RETURN connections: declared outputs published to blackboard keys when
-        /// the activation ends — the outcome half of the program's signature, bound here at the
-        /// call site the way <see cref="overrides"/> bind the income half.</summary>
-        public List<GraphTaskReturnRoute> returns = new List<GraphTaskReturnRoute>();
-
         [System.NonSerialized] private GraphTaskAsset m_Instance;
         [System.NonSerialized] private bool m_WarnedNull;
 
@@ -103,45 +98,8 @@ namespace PowerOfFire.DrawToPlay
         {
             if (m_Instance == null)
                 return;
-            // BEFORE the instance's own OnExit tears the activation down: the output buffer
-            // is still alive here, and a return route is "publish however this ended".
-            PublishReturns(context);
             m_Instance.OnExit(context, status);
             DestroyInstance();
-        }
-
-        /// <summary>Write each routed RETURN onto the running tree's blackboard — String
-        /// outputs as text, Float and Bool as the float the whole key surface speaks. An
-        /// output the program never set this activation is simply not published: an absent
-        /// return is a non-event, same as everywhere.</summary>
-        private void PublishReturns(StateTreeContext context)
-        {
-            if (context == null || returns == null || returns.Count == 0)
-                return;
-
-            var collected = new List<TaskOutputValue>();
-            if (!m_Instance.TryCollectOutputs(collected))
-                return;
-
-            for (int i = 0; i < returns.Count; i++)
-            {
-                GraphTaskReturnRoute route = returns[i];
-                string key = route != null ? (string)route.key : null;
-                if (route == null || string.IsNullOrEmpty(route.output)
-                    || string.IsNullOrEmpty(key))
-                    continue;
-
-                for (int c = 0; c < collected.Count; c++)
-                {
-                    if (!string.Equals(collected[c].name, route.output,
-                        System.StringComparison.Ordinal))
-                        continue;
-                    context.blackboard[key] = collected[c].kind == GraphTaskParameterKind.String
-                        ? (object)(collected[c].stringValue ?? string.Empty)
-                        : collected[c].floatValue;
-                    break;
-                }
-            }
         }
 
         /// <summary>

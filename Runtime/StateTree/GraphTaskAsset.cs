@@ -339,28 +339,6 @@ namespace PowerOfFire.DrawToPlay
     }
 
     /// <summary>
-    /// One RETURN connection at a call site: when the program finishes, the declared output
-    /// named here is written to a blackboard key — the outcome half of the signature, bound
-    /// where the program is MOUNTED (the state tree), exactly as the income half binds
-    /// parameters to declared keys. Carried by <see cref="RunGraphTask.returns"/> and applied
-    /// the moment the activation ends, while the instance's output buffer is still alive.
-    ///
-    /// Transitions can ALSO route outputs (per exit wire, M7k); this is the unconditional
-    /// flavor — "whatever way this state ends, publish the return here".
-    /// </summary>
-    [Serializable]
-    public sealed class GraphTaskReturnRoute
-    {
-        /// <summary>The declared output's name (the program's contract).</summary>
-        public string output = "";
-
-        /// <summary>Where it lands on the running tree's blackboard — ⚑-wireable to a
-        /// declared key, free-typed text otherwise.</summary>
-        [StateTreeKey(StateTreeKeyKind.Float, any: true)]
-        public StateTreeKeyField key = new StateTreeKeyField();
-    }
-
-    /// <summary>
     /// One node of a baked logic graph. A FLAT record rather than a class hierarchy on purpose: the
     /// whole program is one <c>List&lt;GraphTaskNode&gt;</c> inside a single asset, so it survives
     /// Unity serialization with no <c>[SerializeReference]</c> polymorphism, deep-copies with the

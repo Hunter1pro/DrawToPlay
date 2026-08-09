@@ -274,7 +274,7 @@ namespace PowerOfFire.DrawToPlay
                     // task that reached back into its own executor from OnTick could have emptied
                     // both, and a capture is not worth an IndexOutOfRange over. -1 captures nothing.
                     CaptureOutputs(i < m_RunningTaskIndices.Count ? m_RunningTaskIndices[i] : -1,
-                        task);
+                        task, context);
                     task.OnExit(context, status);
                     m_Finished.Add(task);
                 }
@@ -675,7 +675,8 @@ namespace PowerOfFire.DrawToPlay
         /// abandoned, and reading a half-finished value out of it would give a route something that
         /// looks exactly like a real result.
         /// </summary>
-        private void CaptureOutputs(int taskIndex, StateTreeTaskAsset task)
+        private void CaptureOutputs(int taskIndex, StateTreeTaskAsset task,
+            StateTreeContext context)
         {
             if (task == null || taskIndex < 0)
                 return;
@@ -693,6 +694,34 @@ namespace PowerOfFire.DrawToPlay
             if (m_CaptureScratch.Count == 0)
                 return;
             m_TaskOutputs[taskIndex] = new List<TaskOutputValue>(m_CaptureScratch);
+            PublishTaskReturns(task, context);
+        }
+
+        /// <summary>The task-level RETURN routes (<see cref="StateTreeTaskAsset.returns"/>),
+        /// applied at the same capture moment: the unconditional twin of the transition's
+        /// per-wire routes, for every output producer alike. An output the task did not set
+        /// this activation publishes nothing — absence is a non-event.</summary>
+        private void PublishTaskReturns(StateTreeTaskAsset task, StateTreeContext context)
+        {
+            var routes = task.returns;
+            if (routes == null || context == null)
+                return;
+
+            for (int i = 0; i < routes.Count; i++)
+            {
+                TaskReturnRoute route = routes[i];
+                string key = route != null ? (string)route.key : null;
+                if (route == null || string.IsNullOrEmpty(route.output)
+                    || string.IsNullOrEmpty(key))
+                    continue;
+
+                int found = IndexOfOutput(m_CaptureScratch, route.output);
+                if (found < 0)
+                    continue;
+                TaskOutputValue value = m_CaptureScratch[found];
+                context.blackboard[key] =
+                    BoxedValue(value.kind, value.floatValue, value.stringValue);
+            }
         }
 
         /// <summary>Reads every <c>[TaskOutput]</c> field of a task into

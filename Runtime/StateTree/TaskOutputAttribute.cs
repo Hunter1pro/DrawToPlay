@@ -80,6 +80,28 @@ namespace PowerOfFire.DrawToPlay
     }
 
     /// <summary>
+    /// ONE unconditional return connection, carried by the TASK (every task —
+    /// <see cref="StateTreeTaskAsset.returns"/>): when the task finishes, the output named
+    /// here is published to a blackboard key, whatever way the state then leaves. This is the
+    /// "out parameter" flavor of returning; the "assignment" flavor stays on the TRANSITION
+    /// (<see cref="TransitionOutputRoute"/>), which can route the same output differently per
+    /// exit wire. One concept, two binding sites — a C# task's <c>[TaskOutput]</c> fields and
+    /// a program's outputs route identically through both.
+    /// </summary>
+    [Serializable]
+    public sealed class TaskReturnRoute
+    {
+        /// <summary>The output's contract name (a <c>[TaskOutput]</c> field's name, or a
+        /// program's declared output).</summary>
+        public string output = "";
+
+        /// <summary>Where it lands on the running tree's blackboard — ⚑-wireable to a
+        /// declared key, free-typed text otherwise.</summary>
+        [StateTreeKey(StateTreeKeyKind.Float, any: true)]
+        public StateTreeKeyField key = new StateTreeKeyField();
+    }
+
+    /// <summary>
     /// Implemented by a task that produces its outputs from somewhere OTHER than its own
     /// <c>[TaskOutput]</c> fields — today <see cref="GraphTaskAsset"/> (which buffers what its
     /// <c>Set Output</c> instructions wrote) and <see cref="RunGraphTask"/> (which forwards the

@@ -19,15 +19,9 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     [Serializable]
     [UseWithGraph(typeof(TaskGraph))]
     [Node("Flow", null, "Return Success")]
-    public class ReturnSuccessNode : Node, ITaskGraphNode
+    public class ReturnSuccessNode : ReturnNodeBase
     {
         /// <inheritdoc />
-        public GraphTaskNodeKind nodeKind => GraphTaskNodeKind.ReturnSuccess;
-
-        /// <inheritdoc />
-        protected override void OnDefinePorts(IPortDefinitionContext context)
-        {
-            TaskGraphPorts.AddExecIn(context);
-        }
+        public override GraphTaskNodeKind nodeKind => GraphTaskNodeKind.ReturnSuccess;
     }
 }

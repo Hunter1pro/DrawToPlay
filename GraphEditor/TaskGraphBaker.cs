@@ -900,6 +900,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 case GraphTaskNodeKind.ReturnSuccess:
                 case GraphTaskNodeKind.ReturnFailure:
                 case GraphTaskNodeKind.ReturnRunning:
+                    LowerReturnPins(context, source, node);
                     break;
 
                 case GraphTaskNodeKind.FireCue:
@@ -1374,6 +1375,93 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             catch (Exception)
             {
                 return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// The Return node's WIRED output pins, lowered into Set Output instructions ahead of
+        /// the return — the Unreal Return node without a new instruction kind. The return
+        /// instruction itself is REPURPOSED in place as the first Set Output (so every exec
+        /// pin already targeting it flows through the returns), the rest are appended and
+        /// chained, and a fresh return of the original kind is appended as the tail. Unwired
+        /// pins lower to nothing: not returned on this path.
+        /// </summary>
+        private static void LowerReturnPins(BakeContext context, INode source, GraphTaskNode node)
+        {
+            GraphTaskNodeKind returnKind = node.kind;
+            GraphTaskNode current = null;
+
+            foreach (IPort port in source.GetInputPorts())
+            {
+                if (port == null || !port.IsConnected
+                    || string.Equals(port.Name, TaskGraphPorts.ExecInPortName,
+                        StringComparison.Ordinal))
+                    continue;
+
+                Type dataType = port.DataType;
+                GraphTaskNodeKind setKind;
+                GraphTaskParameterKind outputKind;
+                LiteralSlot literalSlot;
+                Type valueType;
+                if (dataType == typeof(float) || dataType == typeof(int))
+                {
+                    setKind = GraphTaskNodeKind.SetOutputFloat;
+                    outputKind = GraphTaskParameterKind.Float;
+                    literalSlot = LiteralSlot.Float;
+                    valueType = typeof(float);
+                }
+                else if (dataType == typeof(string))
+                {
+                    setKind = GraphTaskNodeKind.SetOutputString;
+                    outputKind = GraphTaskParameterKind.String;
+                    literalSlot = LiteralSlot.SecondString;
+                    valueType = typeof(string);
+                }
+                else if (dataType == typeof(bool))
+                {
+                    setKind = GraphTaskNodeKind.SetOutputBool;
+                    outputKind = GraphTaskParameterKind.Bool;
+                    literalSlot = LiteralSlot.Float;
+                    valueType = typeof(bool);
+                }
+                else
+                {
+                    continue;
+                }
+
+                GraphTaskNode setNode;
+                if (current == null)
+                {
+                    // First wired pin: the return instruction BECOMES this Set Output, with
+                    // its slots re-sized for the new kind.
+                    node.kind = setKind;
+                    node.exec = new[] { -1 };
+                    node.data = new[] { -1 };
+                    setNode = node;
+                }
+                else
+                {
+                    setNode = NewInstruction(setKind);
+                    int appendedIndex = context.program.Count;
+                    context.program.Add(setNode);
+                    context.sources.Add(source);
+                    current.exec[0] = appendedIndex;
+                }
+
+                setNode.stringValue = port.Name;
+                context.DeclareOutput(port.Name, outputKind, source);
+                setNode.data[0] = ResolveData(context, source, port.Name, valueType,
+                    literalSlot, ref setNode);
+                current = setNode;
+            }
+
+            if (current != null)
+            {
+                GraphTaskNode tail = NewInstruction(returnKind);
+                int tailIndex = context.program.Count;
+                context.program.Add(tail);
+                context.sources.Add(source);
+                current.exec[0] = tailIndex;
             }
         }
 

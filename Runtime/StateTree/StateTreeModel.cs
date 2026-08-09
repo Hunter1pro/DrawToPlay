@@ -46,6 +46,14 @@ namespace PowerOfFire.DrawToPlay
     /// per-runner state.</summary>
     public abstract class StateTreeTaskAsset : ScriptableObject
     {
+        /// <summary>The task's RETURN connections: outputs published to blackboard keys the
+        /// moment the task finishes, whatever way the state then leaves — the unconditional
+        /// half of routing, bound where the task is mounted. Works for every output producer
+        /// the executor knows: <c>[TaskOutput]</c> fields and
+        /// <see cref="IStateTreeOutputSource"/> implementors alike. The per-exit-wire half
+        /// stays on transitions (<see cref="StateTreeTransition.outputRoutes"/>).</summary>
+        public List<TaskReturnRoute> returns = new List<TaskReturnRoute>();
+
         public virtual void OnEnter(StateTreeContext context) { }
 
         public virtual StateTreeStatus OnTick(StateTreeContext context, float deltaTime)

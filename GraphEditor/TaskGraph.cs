@@ -116,6 +116,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             base.OnGraphChanged(graphLogger);
 
             var nodes = GetNodes().ToList();
+            RefreshReturnPins(nodes);
             ValidateEntries<OnEnterNode>(graphLogger, nodes, "On Enter");
             ValidateEntries<OnTickNode>(graphLogger, nodes, "On Tick");
             ValidateEntries<OnExitNode>(graphLogger, nodes, "On Exit");
@@ -127,6 +128,39 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             }
 
             TaskGraphBaker.Validate(this, graphLogger);
+        }
+
+        /// <summary>Keep every Return node's pin set in step with the panel's Output
+        /// variables: redefine only when the names actually differ, so an ordinary edit does
+        /// not churn ports (and cannot loop through this hook).</summary>
+        private void RefreshReturnPins(IReadOnlyList<INode> nodes)
+        {
+            List<string> expected = null;
+            for (var i = 0; i < nodes.Count; i++)
+            {
+                if (!(nodes[i] is ReturnNodeBase returnNode))
+                    continue;
+
+                if (expected == null)
+                {
+                    expected = new List<string>();
+                    foreach (IVariable output in ReturnNodeBase.OutputVariables(this))
+                        expected.Add(KeyVariables.NameOf(output));
+                }
+
+                var actual = new List<string>();
+                foreach (IPort port in returnNode.GetInputPorts())
+                {
+                    if (port != null && port.Name != TaskGraphPorts.ExecInPortName)
+                        actual.Add(port.Name);
+                }
+
+                var matches = actual.Count == expected.Count;
+                for (var p = 0; matches && p < actual.Count; p++)
+                    matches = string.Equals(actual[p], expected[p], StringComparison.Ordinal);
+                if (!matches)
+                    returnNode.DefineNode();
+            }
         }
 
         /// <summary>One entry node per lifecycle hook. A second one is not an error the bake can

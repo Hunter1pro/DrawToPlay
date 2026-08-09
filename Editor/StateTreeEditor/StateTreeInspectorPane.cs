@@ -2603,11 +2603,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 {
                     box.Add(BuildProgramStatus(program));
                     if (program.graph != null)
-                    {
                         box.Add(BuildParameterOverrides(SurfaceOf(program)));
-                        box.Add(BuildProgramReturns(program));
-                    }
                 }
+
+                // The RETURN half of any task's signature — a program's declared outputs or
+                // a C# task's [TaskOutput] fields, one connectable row each.
+                box.Add(BuildTaskReturns(task));
 
                 // The override list is drawn as the Parameters section above — as checkboxes against
                 // the callee's own declaration, which is the only place the NAMES are known — so the
@@ -4808,14 +4809,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// The OUTCOME half of a program's signature: what it returns (Output variables on the
         /// graph's panel and Set Output declarations), one CONNECTABLE row per output — the
         /// Blueprint return pin, tree side. The ⚿ picker binds an output to one of this tree's
-        /// declared keys (a <see cref="GraphTaskReturnRoute"/> on the task): when the
+        /// declared keys (a <see cref="TaskReturnRoute"/> on the task): when the
         /// activation ends, the value is published there, however the state ended. Transitions
         /// can still route per exit wire; this is the unconditional signature connection.
         /// </summary>
-        private VisualElement BuildProgramReturns(RunGraphTask program)
+        private VisualElement BuildTaskReturns(StateTreeTaskAsset task)
         {
             var container = new VisualElement();
-            var outputs = program.graph != null ? program.graph.declaredOutputs : null;
+            var outputs = CollectDeclaredOutputs(task);
             var count = 0;
             for (var i = 0; outputs != null && i < outputs.Count; ++i)
                 if (!string.IsNullOrEmpty(outputs[i].name))
@@ -4828,9 +4829,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             title.style.marginTop = 6f;
             container.Add(title);
 
-            var hint = Hint("What the program returns when it ends. ⚿ publishes a return to "
-                + "one of this tree's declared keys, however the state ends; a transition's "
-                + "route rows can still carry it per exit wire.");
+            var hint = Hint("What this task returns when it finishes. ⚿ publishes a return "
+                + "to one of this tree's declared keys, however the state then leaves; a "
+                + "transition's route rows can still carry it per exit wire.");
             hint.style.marginBottom = 2f;
             container.Add(hint);
 
@@ -4839,13 +4840,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                 var output = outputs[i];
                 if (string.IsNullOrEmpty(output.name))
                     continue;
-                container.Add(BuildReturnRow(program, output));
+                container.Add(BuildReturnRow(task, output));
             }
             return container;
         }
 
         /// <summary>One return pin: name, kind, and where it lands.</summary>
-        private VisualElement BuildReturnRow(RunGraphTask program, TaskOutputValue output)
+        private VisualElement BuildReturnRow(StateTreeTaskAsset task, TaskOutputValue output)
         {
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
@@ -4853,7 +4854,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             row.style.minHeight = k_RowMinHeight;
             row.style.marginLeft = 6f;
 
-            GraphTaskReturnRoute route = FindReturnRoute(program, output.name);
+            TaskReturnRoute route = FindReturnRoute(task, output.name);
             var bound = route != null && !string.IsNullOrEmpty((string)route.key);
 
             var label = new Label("→ " + output.name + "  (" + KindLabel(output.kind) + ")");
@@ -4879,7 +4880,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             pick.style.flexShrink = 0f;
             pick.tooltip = $"Publish '{output.name}' to one of this tree's declared keys when "
                 + "the program's activation ends.";
-            pick.clicked += () => ShowReturnKeyMenu(pick, program, output.name);
+            pick.clicked += () => ShowReturnKeyMenu(pick, task, output.name);
             row.Add(pick);
 
             if (bound)
@@ -4891,10 +4892,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 unbind.tooltip = "Stop publishing this return.";
                 unbind.clicked += () =>
                 {
-                    Undo.RecordObject(program, k_ReturnRouteUndo);
-                    program.returns.RemoveAll(entry => entry != null
+                    Undo.RecordObject(task, k_ReturnRouteUndo);
+                    task.returns.RemoveAll(entry => entry != null
                         && string.Equals(entry.output, output.name, StringComparison.Ordinal));
-                    EditorUtility.SetDirty(program);
+                    EditorUtility.SetDirty(task);
                     m_Edited?.Invoke();
                     RebuildPane();
                 };
@@ -4906,9 +4907,42 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private const string k_ReturnRouteUndo = "Route Program Return";
 
-        private static GraphTaskReturnRoute FindReturnRoute(RunGraphTask program, string output)
+        /// <summary>What a task RETURNS, whichever way it declares it: a program's baked
+        /// declaredOutputs, or a plain C# task's [TaskOutput] fields (the four blackboard
+        /// kinds; anything else is not routable and not listed).</summary>
+        private static List<TaskOutputValue> CollectDeclaredOutputs(StateTreeTaskAsset task)
         {
-            var routes = program.returns;
+            var outputs = new List<TaskOutputValue>();
+            if (task is RunGraphTask program)
+            {
+                var declared = program.graph != null ? program.graph.declaredOutputs : null;
+                for (var i = 0; declared != null && i < declared.Count; ++i)
+                    if (!string.IsNullOrEmpty(declared[i].name))
+                        outputs.Add(declared[i]);
+                return outputs;
+            }
+
+            var fields = task.GetType().GetFields(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            for (var i = 0; i < fields.Length; ++i)
+            {
+                var field = fields[i];
+                if (!Attribute.IsDefined(field, typeof(TaskOutputAttribute)))
+                    continue;
+                var type = field.FieldType;
+                if (type == typeof(float) || type == typeof(int))
+                    outputs.Add(new TaskOutputValue { name = field.Name, kind = GraphTaskParameterKind.Float });
+                else if (type == typeof(bool))
+                    outputs.Add(new TaskOutputValue { name = field.Name, kind = GraphTaskParameterKind.Bool });
+                else if (type == typeof(string))
+                    outputs.Add(new TaskOutputValue { name = field.Name, kind = GraphTaskParameterKind.String });
+            }
+            return outputs;
+        }
+
+        private static TaskReturnRoute FindReturnRoute(StateTreeTaskAsset task, string output)
+        {
+            var routes = task.returns;
             for (var i = 0; routes != null && i < routes.Count; ++i)
             {
                 if (routes[i] != null
@@ -4920,12 +4954,12 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>The declared-key menu for a return pin — the outcome twin of
         /// <see cref="ShowDeclaredKeyMenu"/>.</summary>
-        private void ShowReturnKeyMenu(VisualElement anchor, RunGraphTask program, string output)
+        private void ShowReturnKeyMenu(VisualElement anchor, StateTreeTaskAsset task, string output)
         {
             var declarations = new List<StateTreeKeyDeclaration>();
             StateTreeKeyResolver.CollectVisible(m_Tree, declarations);
 
-            GraphTaskReturnRoute existing = FindReturnRoute(program, output);
+            TaskReturnRoute existing = FindReturnRoute(task, output);
             var current = existing != null ? (string)existing.key : null;
 
             var menu = new GenericMenu();
@@ -4947,16 +4981,16 @@ namespace PowerOfFire.DrawToPlay.Editor
                     string.Equals(keyName, current, StringComparison.Ordinal),
                     () =>
                     {
-                        Undo.RecordObject(program, k_ReturnRouteUndo);
-                        var route = FindReturnRoute(program, output);
+                        Undo.RecordObject(task, k_ReturnRouteUndo);
+                        var route = FindReturnRoute(task, output);
                         if (route == null)
                         {
-                            route = new GraphTaskReturnRoute { output = output };
-                            (program.returns ??= new List<GraphTaskReturnRoute>()).Add(route);
+                            route = new TaskReturnRoute { output = output };
+                            (task.returns ??= new List<TaskReturnRoute>()).Add(route);
                         }
                         route.key.text = keyName;
                         route.key.keyId = keyId;
-                        EditorUtility.SetDirty(program);
+                        EditorUtility.SetDirty(task);
                         m_Edited?.Invoke();
                         RebuildPane();
                     });
