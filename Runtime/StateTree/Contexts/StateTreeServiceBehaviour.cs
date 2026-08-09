@@ -42,10 +42,25 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>The order-free retry — the adoption principle applied to the service
-        /// itself.</summary>
+        /// itself. Also where this service's own [InjectService] fields are filled — in TWO
+        /// passes, because sibling registration order is nobody's to rely on (the quiet
+        /// OnEnable connect misses during the scene-load queue, so a sibling may only
+        /// register in ITS Start, and Start order is arbitrary — observed live, not
+        /// theorized). The quiet pass here fills what already resolves; the loud pass one
+        /// frame later fills the rest or names the wiring error. Injected fields are
+        /// therefore valid from the first Update on — a service must not use them inside
+        /// Start itself.</summary>
         protected virtual void Start()
         {
             TryConnect(true);
+            StateTreeServiceInjector.Inject(this, gameObject, true);
+            StartCoroutine(CompleteInjection());
+        }
+
+        private System.Collections.IEnumerator CompleteInjection()
+        {
+            yield return null;
+            StateTreeServiceInjector.Inject(this, gameObject);
         }
 
         protected virtual void OnDisable()

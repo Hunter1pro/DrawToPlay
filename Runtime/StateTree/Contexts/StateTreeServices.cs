@@ -42,6 +42,14 @@ namespace PowerOfFire.DrawToPlay
         /// previous pass) is left alone.</summary>
         public static void Inject(object target, GameObject owner)
         {
+            Inject(target, owner, false);
+        }
+
+        /// <summary>The two-pass flavor: <paramref name="quiet"/> = a settle attempt during
+        /// scene load (services register in an order nobody owns), where an unresolved field
+        /// is not yet a wiring error — the loud pass follows once the scene has settled.</summary>
+        public static void Inject(object target, GameObject owner, bool quiet)
+        {
             if (target == null)
                 return;
 
@@ -55,6 +63,8 @@ namespace PowerOfFire.DrawToPlay
                 object service = StateTreeContextHost.FindService(field.FieldType, owner);
                 if (service == null)
                 {
+                    if (quiet)
+                        continue;
                     string report = target.GetType().Name + "." + field.Name;
                     if (s_Reported.Add(report))
                     {

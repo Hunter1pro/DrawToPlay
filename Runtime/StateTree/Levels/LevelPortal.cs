@@ -45,35 +45,30 @@ namespace PowerOfFire.DrawToPlay
         /// <see cref="PortalKind.Expedition"/>; unused for Return.</summary>
         public string levelName = "";
 
-        private bool m_WarnedNoService;
+        [InjectService] private LevelService m_Service;
+
+        private void Start()
+        {
+            // Plain components opt into injection with one line; the injector reports a
+            // missing service loudly, once.
+            StateTreeServiceInjector.Inject(this, gameObject);
+        }
 
         private void Update()
         {
-            if (!PressedThisFrame())
+            if (!PressedThisFrame() || m_Service == null)
                 return;
-
-            LevelService service = StateTreeContextHost.FindService<LevelService>(gameObject);
-            if (service == null)
-            {
-                if (!m_WarnedNoService)
-                {
-                    m_WarnedNoService = true;
-                    Debug.LogWarning("[LevelPortal] no LevelService reachable from '"
-                        + name + "' — the portal goes nowhere.", this);
-                }
-                return;
-            }
 
             switch (kind)
             {
                 case PortalKind.Expedition:
-                    service.EnterExpedition(levelName);
+                    m_Service.EnterExpedition(levelName);
                     break;
                 case PortalKind.Return:
-                    service.ReturnFromExpedition();
+                    m_Service.ReturnFromExpedition();
                     break;
                 default:
-                    service.RequestLevel(levelName);
+                    m_Service.RequestLevel(levelName);
                     break;
             }
         }
