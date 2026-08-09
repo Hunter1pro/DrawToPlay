@@ -29,6 +29,13 @@ namespace PowerOfFire.DrawToPlay
         /// parameter surface uses.</summary>
         public List<GraphTaskParameter> parameters = new List<GraphTaskParameter>();
 
+        /// <summary>The level's WORLD MANIFEST: which tag rows (see
+        /// <see cref="WorldTagRegistry"/>) its objects carry — id-wired references, not
+        /// strings. Descriptive today (a reader can ask "what lives in this level?" without
+        /// loading it); the seam a future async-load-objects-by-position reads.</summary>
+        public List<StateTreeEntryRef<WorldTagDef>> usedTags =
+            new List<StateTreeEntryRef<WorldTagDef>>();
+
         public string Label => string.IsNullOrEmpty(displayName) ? name : displayName;
     }
 

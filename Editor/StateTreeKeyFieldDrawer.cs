@@ -140,6 +140,46 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             AddEntries(true);
+
+            // A TAG field's vocabulary is also the world's tag registry: any
+            // WorldTagRegistry the tree carries offers its rows as picks. A row pick writes
+            // the TEXT (tags match by exact text at runtime); it is a known-list choice, not
+            // an id wire — declarations keep the wire semantics.
+            if (preferred == StateTreeKeyKind.Tag && tree != null)
+            {
+                var currentText = textProperty.stringValue;
+                var anyRows = false;
+                for (int i = 0; i < tree.registries.Count; i++)
+                {
+                    if (!(tree.registries[i] is WorldTagRegistry tagRows))
+                        continue;
+                    for (int j = 0; j < tagRows.entries.Count; j++)
+                    {
+                        WorldTagDef row = tagRows.entries[j];
+                        if (row == null || string.IsNullOrEmpty(row.name))
+                            continue;
+                        if (!anyRows)
+                        {
+                            anyRows = true;
+                            if (declarations.Count > 0)
+                                menu.AddSeparator(string.Empty);
+                        }
+                        var tagName = row.name;
+                        menu.AddItem(new GUIContent(("Tags/" + tagName).Replace('\\', '∕')),
+                            string.IsNullOrEmpty(currentId)
+                                && string.Equals(tagName, currentText,
+                                    System.StringComparison.Ordinal),
+                            () =>
+                            {
+                                textProperty.stringValue = tagName;
+                                idProperty.stringValue = string.Empty;
+                                property.serializedObject.ApplyModifiedProperties();
+                                Build(container, property);
+                            });
+                    }
+                }
+            }
+
             if (preferred != null)
             {
                 var hasOthers = false;
