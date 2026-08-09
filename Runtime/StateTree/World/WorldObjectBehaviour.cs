@@ -20,7 +20,14 @@ namespace PowerOfFire.DrawToPlay
     /// The tag set is fixed while registered (v1): to change tags at runtime, unregister,
     /// edit, re-register — an explicit gesture, so the by-tag index never drifts.
     /// </summary>
-    public sealed class WorldObjectBehaviour : MonoBehaviour
+    /// <remarks>
+    /// OPEN for one reason: a typed level object (a unit, a pickup) SUBCLASSES this and IS
+    /// its own citizen — one component, no tracker beside it. A subclass describes itself
+    /// (tags, <see cref="entryName"/>) in its OnEnable override BEFORE calling base, so the
+    /// world's add event always sees a finished citizen. <see cref="EnsureCitizen"/> +
+    /// <see cref="Expose"/> remain the composition path for objects that cannot inherit.
+    /// </remarks>
+    public class WorldObjectBehaviour : MonoBehaviour
     {
         public List<string> tags = new List<string>();
 
@@ -62,7 +69,7 @@ namespace PowerOfFire.DrawToPlay
             EnsureStableId();
         }
 
-        private void OnEnable()
+        protected virtual void OnEnable()
         {
             EnsureStableId();
             RegisterToWorld();
@@ -70,7 +77,7 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Scene-load enable order is nobody's problem: the OnEnable attempt can run
         /// before the world service is reachable, so Start — after every OnEnable — retries.</summary>
-        private void Start()
+        protected virtual void Start()
         {
             RegisterToWorld();
         }
@@ -84,7 +91,7 @@ namespace PowerOfFire.DrawToPlay
                 stableId = MintId();
         }
 
-        private void OnDisable()
+        protected virtual void OnDisable()
         {
             UnregisterFromWorld();
         }
@@ -135,10 +142,13 @@ namespace PowerOfFire.DrawToPlay
                 m_RegisteredWith.Announce(this);
         }
 
-        /// <summary>The exposed facet of the asked type (component or interface), or null —
-        /// the world's answer to "who is this?".</summary>
+        /// <summary>The typed object behind this citizen, or null — the world's answer to
+        /// "who is this?". A SUBCLASS answers with itself; the exposed facets answer for the
+        /// composition path.</summary>
         public T As<T>() where T : class
         {
+            if (this is T self)
+                return self;
             for (int i = 0; i < m_Facets.Count; i++)
             {
                 if (m_Facets[i] is T match)
