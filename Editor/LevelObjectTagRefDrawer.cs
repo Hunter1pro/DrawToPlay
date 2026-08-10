@@ -7,16 +7,11 @@ using UnityEngine.UIElements;
 namespace PowerOfFire.DrawToPlay.Editor
 {
     /// <summary>
-    /// A placement tag as a DROPDOWN of the project's tag vocabulary — every
-    /// <see cref="WorldTagRegistry"/> there is, so a tag is always a declared word and never
-    /// a free-typed one that matches nothing.
-    ///
-    /// Deliberately NOT scoped per level. Tags are mostly global, a level owning its own
-    /// vocabulary is the exception, and the wiring that scoping would need (a
-    /// <see cref="LevelContent"/> pointing at both this registry and its own tags) is
-    /// usually absent while authoring — a picker that silently offers less because an asset
-    /// reference has not been set yet is worse than one that offers a word from the wrong
-    /// level. What matters is that every choice comes from data.
+    /// A placement tag as a DROPDOWN of the vocabulary its level actually speaks: the GLOBAL
+    /// registries the owning tree declares, plus the level's OWN — followed through the
+    /// wiring that exists (see <see cref="LevelVocabulary"/>), not guessed by scanning the
+    /// project. The field's tooltip names where the list came from, so an author can see at
+    /// a glance whether the chain is wired or being fallen back on.
     /// </summary>
     [CustomPropertyDrawer(typeof(LevelObjectTagRef))]
     internal sealed class LevelObjectTagRefDrawer : PropertyDrawer
@@ -30,7 +25,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return new PropertyField(property);
 
             var choices = new List<string> { k_Unset };
-            CollectDeclaredTags(choices);
+            LevelVocabulary.CollectTags(property.serializedObject.targetObject, choices,
+                out string source);
 
             string current = string.IsNullOrEmpty(tagProperty.stringValue)
                 ? k_Unset
@@ -38,7 +34,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (!choices.Contains(current))
                 choices.Add(current); // a tag whose row is gone stays visible as the break
 
-            var field = new DropdownField(choices, Mathf.Max(0, choices.IndexOf(current)));
+            var field = new DropdownField(choices, Mathf.Max(0, choices.IndexOf(current)))
+            {
+                tooltip = source
+            };
             field.RegisterValueChangedCallback(changed =>
             {
                 tagProperty.stringValue = changed.newValue == k_Unset ? "" : changed.newValue;
@@ -47,25 +46,5 @@ namespace PowerOfFire.DrawToPlay.Editor
             return field;
         }
 
-        /// <summary>Every tag the project declares, from every tag registry — no level
-        /// wiring consulted, so this answers the same whether or not the level has been
-        /// hooked up yet.</summary>
-        private static void CollectDeclaredTags(List<string> into)
-        {
-            string[] guids = AssetDatabase.FindAssets("t:" + nameof(WorldTagRegistry));
-            for (int i = 0; i < guids.Length; i++)
-            {
-                var registry = AssetDatabase.LoadAssetAtPath<WorldTagRegistry>(
-                    AssetDatabase.GUIDToAssetPath(guids[i]));
-                if (registry == null)
-                    continue;
-                for (int j = 0; j < registry.entries.Count; j++)
-                {
-                    WorldTagDef row = registry.entries[j];
-                    if (row != null && !string.IsNullOrEmpty(row.name) && !into.Contains(row.name))
-                        into.Add(row.name);
-                }
-            }
-        }
     }
 }
