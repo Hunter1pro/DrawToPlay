@@ -54,12 +54,39 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Root.RegisterCallback<DetachFromPanelEvent>(_ =>
                 Undo.undoRedoPerformed -= Rebuild);
 
+            m_Root.Add(BuildAssetFields());
             m_Root.Add(BuildToolbar());
             m_ListRoot = new VisualElement();
             m_Root.Add(m_ListRoot);
 
             Rebuild();
             return m_Root;
+        }
+
+        /// <summary>The registry's OWN fields — everything it declares beside its rows: the
+        /// level catalog's kinds, a manifest's tag vocabularies. Drawn by reflection like the
+        /// rows are, so a registry kind that carries configuration still needs no editor
+        /// work. Without this the fields exist, serialize, and drive pickers while being
+        /// invisible in the one place an author looks — which is how a list nobody can see
+        /// ends up "how does it even know?".</summary>
+        private VisualElement BuildAssetFields()
+        {
+            var box = new VisualElement();
+            SerializedProperty property = serializedObject.GetIterator();
+            var enter = true;
+            while (property.NextVisible(enter))
+            {
+                enter = false;
+                if (property.name == "m_Script" || property.name == "entries")
+                    continue;
+                box.Add(new PropertyField(property.Copy()));
+            }
+            if (box.childCount > 0)
+            {
+                box.style.marginBottom = 6f;
+                box.Bind(serializedObject);
+            }
+            return box;
         }
 
         /// <summary>Search + group filter. Both MANUAL fields (the bound-field-with-rebuild
