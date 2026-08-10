@@ -53,9 +53,9 @@ namespace PowerOfFire.DrawToPlay
     /// entry): the base carries its id, its own name — the placement's handle, which is what
     /// the spawned view is called — and its group. Then what it is (<see cref="kind"/> — a row
     /// of the project's <see cref="LevelObjectKindRegistry"/>, picked not typed), which
-    /// definition row it is an instance of, where it stands, which placement tags it carries
-    /// and its per-placement config. The definition stays in the object's own registry; this
-    /// row is the PLACEMENT.</summary>
+    /// definition row it is an instance of, where it stands and which placement tags it
+    /// carries. Everything a placement IS lives in its definition row — every kind has a
+    /// table, so nothing needs a per-placement bag of loose settings.</summary>
     [Serializable]
     public sealed class LevelObjectDef : StateTreeRegistryEntry
     {
@@ -82,22 +82,6 @@ namespace PowerOfFire.DrawToPlay
         /// that vocabulary, never typed: see <see cref="LevelObjectTagRef"/>.</summary>
         public List<LevelObjectTagRef> tags = new List<LevelObjectTagRef>();
 
-        /// <summary>Per-placement config (a door's key and target) — the standard parameter
-        /// rows every other config surface uses.</summary>
-        public List<GraphTaskParameter> config = new List<GraphTaskParameter>();
-
-        /// <summary>The named String config row's value, or empty — the spawner's one
-        /// question.</summary>
-        public string ConfigValue(string configName)
-        {
-            for (int i = 0; i < config.Count; i++)
-            {
-                GraphTaskParameter row = config[i];
-                if (row != null && string.Equals(row.name, configName, StringComparison.Ordinal))
-                    return row.stringValue ?? "";
-            }
-            return "";
-        }
     }
 
     /// <summary>The catalog of levels — a registry kind like any other: list it in a tree's
