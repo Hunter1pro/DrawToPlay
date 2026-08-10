@@ -43,7 +43,58 @@ namespace PowerOfFire.DrawToPlay
         public List<StateTreeEntryRef<WorldTagDef>> usedTags =
             new List<StateTreeEntryRef<WorldTagDef>>();
 
+        /// <summary>The level's OBJECTS, as data: every placed thing is a row here — its
+        /// kind, its definition row, its position, its placement tags and config. The scene
+        /// itself holds only the arena; a game-side spawner turns these rows into VIEWS on
+        /// <see cref="LevelService.levelLoaded"/> — which is why a view can be swapped, and
+        /// why loading them async by position later is a spawner change, not a data
+        /// change.</summary>
+        public List<LevelObjectDef> objects = new List<LevelObjectDef>();
+
         public string Label => string.IsNullOrEmpty(displayName) ? name : displayName;
+    }
+
+    /// <summary>One placed object of a level, as DATA: what it is (<see cref="kind"/> — the
+    /// tag-vocabulary word a spawner maps to a view), which definition row it is an instance
+    /// of, where it stands, which placement tags it carries and its per-placement config.
+    /// The definition stays in the object's own registry; this row is the PLACEMENT.</summary>
+    [Serializable]
+    public sealed class LevelObjectDef
+    {
+        public string id = "";
+
+        /// <summary>What to spawn — a tag-vocabulary word ("unit", "pickup", "door") the
+        /// game's spawner maps to a view.</summary>
+        public string kind = "";
+
+        /// <summary>The definition row this object is an instance OF (unit row, item row) —
+        /// id-wired; which registry it lives in is implied by <see cref="kind"/>.</summary>
+        public string entryId = "";
+
+        public string entryName = "";
+
+        public Vector2 position;
+
+        /// <summary>Placement-only tags this instance carries — where a level's own
+        /// vocabulary (see <see cref="LevelDef.tags"/>) lands on an object.</summary>
+        public List<string> tags = new List<string>();
+
+        /// <summary>Per-placement config (a door's key and target) — the standard parameter
+        /// rows every other config surface uses.</summary>
+        public List<GraphTaskParameter> config = new List<GraphTaskParameter>();
+
+        /// <summary>The named String config row's value, or empty — the spawner's one
+        /// question.</summary>
+        public string ConfigValue(string configName)
+        {
+            for (int i = 0; i < config.Count; i++)
+            {
+                GraphTaskParameter row = config[i];
+                if (row != null && string.Equals(row.name, configName, StringComparison.Ordinal))
+                    return row.stringValue ?? "";
+            }
+            return "";
+        }
     }
 
     /// <summary>The catalog of levels — a registry kind like any other: list it in a tree's

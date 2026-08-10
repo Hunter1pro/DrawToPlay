@@ -52,6 +52,12 @@ namespace PowerOfFire.DrawToPlay
 
         public bool isLoading { get; private set; }
 
+        /// <summary>Fired once a level's scene is up and its parameters are seeded — BEFORE
+        /// <see cref="CurrentKey"/> announces the arrival to the tree, so everything a
+        /// spawner builds from <see cref="LevelDef.objects"/> exists by the time states
+        /// react. The seam manifest spawners (and future async streamers) hang from.</summary>
+        public event Action<LevelDef, Scene> levelLoaded;
+
         /// <summary>Where <see cref="ReturnFromExpedition"/> goes — captured by
         /// <see cref="EnterExpedition"/>, spent by the return. Session policy lives HERE, in
         /// the service, so the tree never shuffles it between keys.</summary>
@@ -157,6 +163,7 @@ namespace PowerOfFire.DrawToPlay
                     SceneManager.SetActiveScene(m_LoadedScene);
 
                 SeedLevelParameters(level);
+                levelLoaded?.Invoke(level, m_LoadedScene);
 
                 current = level;
                 WriteRootKey(CurrentKey, level.name);
