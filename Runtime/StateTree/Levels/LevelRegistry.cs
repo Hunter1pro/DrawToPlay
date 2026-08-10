@@ -65,10 +65,13 @@ namespace PowerOfFire.DrawToPlay
             new StateTreeEntryRef<LevelObjectKindDef>();
 
         /// <summary>The definition row this object is an instance OF (unit row, item row) —
-        /// id-wired; which registry it lives in is implied by <see cref="kind"/>.</summary>
-        public string entryId = "";
+        /// id-wired, and picked from the registry the <see cref="kind"/>'s row names in
+        /// <see cref="LevelObjectKindDef.definitions"/>.</summary>
+        public LevelObjectEntryRef entry = new LevelObjectEntryRef();
 
-        public string entryName = "";
+        /// <summary>The definition row's name — the spawner's question, unchanged by the
+        /// reference moving into <see cref="entry"/>.</summary>
+        public string entryName => entry != null ? entry.entryName : "";
 
         public Vector2 position;
 

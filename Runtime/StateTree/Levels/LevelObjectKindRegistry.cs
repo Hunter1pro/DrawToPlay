@@ -11,6 +11,13 @@ namespace PowerOfFire.DrawToPlay
     {
         [TextArea]
         public string description = "";
+
+        /// <summary>The registry instances of this kind name a row OF — units come from the
+        /// unit table, pickups from the item table. The one place that link is stated, which
+        /// is what lets a placement's entry be a DROPDOWN of the right rows instead of a
+        /// typed name. Empty means the kind has no definition table (a door is only its
+        /// config), and its placements name nothing.</summary>
+        public StateTreeRegistryAsset definitions;
     }
 
     /// <summary>
