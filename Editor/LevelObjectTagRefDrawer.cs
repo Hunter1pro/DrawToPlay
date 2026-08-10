@@ -7,13 +7,16 @@ using UnityEngine.UIElements;
 namespace PowerOfFire.DrawToPlay.Editor
 {
     /// <summary>
-    /// A placement tag as a DROPDOWN of the vocabulary that level can actually see: the
-    /// project's GLOBAL tag registries plus the level's OWN — never another level's private
-    /// words, and never a free-typed one that matches nothing.
+    /// A placement tag as a DROPDOWN of the project's tag vocabulary — every
+    /// <see cref="WorldTagRegistry"/> there is, so a tag is always a declared word and never
+    /// a free-typed one that matches nothing.
     ///
-    /// "Global" is derived, not declared: a <see cref="WorldTagRegistry"/> is private to a
-    /// level when some <see cref="LevelContent.tags"/> points at it, and global otherwise. So
-    /// adding a level's own vocabulary needs no bookkeeping anywhere else.
+    /// Deliberately NOT scoped per level. Tags are mostly global, a level owning its own
+    /// vocabulary is the exception, and the wiring that scoping would need (a
+    /// <see cref="LevelContent"/> pointing at both this registry and its own tags) is
+    /// usually absent while authoring — a picker that silently offers less because an asset
+    /// reference has not been set yet is worse than one that offers a word from the wrong
+    /// level. What matters is that every choice comes from data.
     /// </summary>
     [CustomPropertyDrawer(typeof(LevelObjectTagRef))]
     internal sealed class LevelObjectTagRefDrawer : PropertyDrawer
@@ -27,7 +30,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return new PropertyField(property);
 
             var choices = new List<string> { k_Unset };
-            CollectVisibleTags(property.serializedObject.targetObject, choices);
+            CollectDeclaredTags(choices);
 
             string current = string.IsNullOrEmpty(tagProperty.stringValue)
                 ? k_Unset
@@ -44,35 +47,18 @@ namespace PowerOfFire.DrawToPlay.Editor
             return field;
         }
 
-        /// <summary>Every tag name this object's level may carry: the global registries, plus
-        /// the one the owning level keeps to itself.</summary>
-        private static void CollectVisibleTags(Object owner, List<string> into)
+        /// <summary>Every tag the project declares, from every tag registry — no level
+        /// wiring consulted, so this answers the same whether or not the level has been
+        /// hooked up yet.</summary>
+        private static void CollectDeclaredTags(List<string> into)
         {
-            WorldTagRegistry ownTags = null;
-            var levelPrivate = new HashSet<WorldTagRegistry>();
-
-            string[] levelGuids = AssetDatabase.FindAssets("t:" + nameof(LevelContent));
-            for (int i = 0; i < levelGuids.Length; i++)
-            {
-                var level = AssetDatabase.LoadAssetAtPath<LevelContent>(
-                    AssetDatabase.GUIDToAssetPath(levelGuids[i]));
-                if (level == null || level.tags == null)
-                    continue;
-                levelPrivate.Add(level.tags);
-                // The level being edited: the registry these placements live in is its own.
-                if (owner != null && level.objects == owner)
-                    ownTags = level.tags;
-            }
-
-            string[] tagGuids = AssetDatabase.FindAssets("t:" + nameof(WorldTagRegistry));
-            for (int i = 0; i < tagGuids.Length; i++)
+            string[] guids = AssetDatabase.FindAssets("t:" + nameof(WorldTagRegistry));
+            for (int i = 0; i < guids.Length; i++)
             {
                 var registry = AssetDatabase.LoadAssetAtPath<WorldTagRegistry>(
-                    AssetDatabase.GUIDToAssetPath(tagGuids[i]));
+                    AssetDatabase.GUIDToAssetPath(guids[i]));
                 if (registry == null)
                     continue;
-                if (levelPrivate.Contains(registry) && registry != ownTags)
-                    continue; // another level's private vocabulary
                 for (int j = 0; j < registry.entries.Count; j++)
                 {
                     WorldTagDef row = registry.entries[j];
