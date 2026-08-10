@@ -1,0 +1,28 @@
+using System;
+using UnityEngine;
+
+namespace PowerOfFire.DrawToPlay
+{
+    /// <summary>One spawnable KIND as a row: the name is the word a level's object rows point
+    /// at and the game's spawner maps to a view; the description is what the spawner makes of
+    /// it.</summary>
+    [Serializable]
+    public sealed class LevelObjectKindDef : StateTreeRegistryEntry
+    {
+        [TextArea]
+        public string description = "";
+    }
+
+    /// <summary>
+    /// The PROJECT's spawnable kinds — the known list a level object row picks from, instead
+    /// of a free-typed word. Hangs off <see cref="LevelRegistry.kinds"/>, because which kinds
+    /// exist is a project-wide definition, not a per-level one: every level's manifest speaks
+    /// the same vocabulary, and a kind the spawner does not implement is visible as a row
+    /// nobody builds rather than a typo nobody notices.
+    /// </summary>
+    [CreateAssetMenu(menuName = "Draw To Play/Levels/Object Kind Registry",
+        fileName = "LevelObjectKindRegistry")]
+    public sealed class LevelObjectKindRegistry : StateTreeRegistry<LevelObjectKindDef>
+    {
+    }
+}

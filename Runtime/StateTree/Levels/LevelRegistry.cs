@@ -5,87 +5,63 @@ using UnityEngine;
 namespace PowerOfFire.DrawToPlay
 {
     /// <summary>
-    /// One LEVEL as data (M16) — what a level IS, knowable before anything loads: the scene
-    /// that stores it (scenes stay the storage; replacing them would cost more tooling than
-    /// it buys), and the ENTRY PARAMS seeded onto the Level scope's blackboard the moment
-    /// the scene is up — so one scene can be many levels (hard mode, test setups, expedition
-    /// variants) by rows that differ only in parameters. The base carries identity: typed
-    /// references (a portal's target, the session tree's level states) wire by id and follow
-    /// renames like everything else.
+    /// One level's place in the PROJECT CATALOG (M16): identity — the id typed references
+    /// wire to (a portal's target, the session tree's level states, a save file) — and ONE
+    /// field, the <see cref="LevelContent"/> asset that IS the level. Everything a level
+    /// consists of (scene, entry params, tag vocabulary, object manifest) lives in that file,
+    /// so the catalog stays a list of names no matter how big the levels get.
+    ///
+    /// The properties below read through to the content: callers say <c>level.scenePath</c>
+    /// and never care which asset stores it.
     /// </summary>
     [Serializable]
     public sealed class LevelDef : StateTreeRegistryEntry
     {
-        /// <summary>Shown on the loading overlay and HUDs; empty falls back to
-        /// <c>name</c>.</summary>
-        public string displayName = "";
+        /// <summary>THE level — see <see cref="LevelContent"/>. A row without one is an
+        /// unfinished catalog entry: it names a level that has no content yet, and the load
+        /// that tries it says so.</summary>
+        public LevelContent content;
 
-        /// <summary>Project path of the scene ("Assets/.../LevelA.unity"). The scene must be
-        /// in Build Settings for additive loading to find it in play mode and players.</summary>
-        public string scenePath = "";
+        public string scenePath => content != null ? content.scenePath : "";
 
-        /// <summary>Seeded onto the LEVEL host's context blackboard right after the scene
-        /// loads, before anything ticks — the same row type and boxing rules every other
-        /// parameter surface uses.</summary>
-        public List<GraphTaskParameter> parameters = new List<GraphTaskParameter>();
+        public List<GraphTaskParameter> parameters =>
+            content != null ? content.parameters : null;
 
-        /// <summary>The level's OWN tag rows — tags UNIQUE to this level, in a registry the
-        /// level owns. Root surfaces aggregate them: the tag picker under the root tree
-        /// shows the union of the global registry and every level's, grouped by level, so a
-        /// level can mint vocabulary without touching the shared list and the root still
-        /// SEES all of it. Optional — most levels only use global tags.</summary>
-        public WorldTagRegistry tags;
+        public List<LevelObjectDef> objects => content != null ? content.objects : null;
 
-        /// <summary>The level's OBJECTS, as data — and its WORLD MANIFEST: every placed
-        /// thing is a row here, with its kind, its definition row, its position, its
-        /// placement tags and config. The scene itself holds only the arena; a game-side
-        /// spawner turns these rows into VIEWS on <see cref="LevelService.levelLoaded"/> —
-        /// which is why a view can be swapped, and why loading them async by position later
-        /// is a spawner change, not a data change.</summary>
-        public List<LevelObjectDef> objects = new List<LevelObjectDef>();
+        /// <summary>The level's own tag vocabulary, or null — see
+        /// <see cref="LevelContent.tags"/>.</summary>
+        public WorldTagRegistry tags => content != null ? content.tags : null;
 
-        public string Label => string.IsNullOrEmpty(displayName) ? name : displayName;
+        public string Label => content != null && !string.IsNullOrEmpty(content.displayName)
+            ? content.displayName
+            : name;
 
-        /// <summary>Which tags this level's objects carry — DERIVED from
-        /// <see cref="objects"/> (each row's kind plus its placement tags), never stored:
-        /// a hand-kept summary of the manifest is a copy that drifts. This is the "what
-        /// lives in this level?" answer a reader (or a future streamer) asks for without
-        /// loading the scene.</summary>
+        /// <summary>What lives in this level, derived from its manifest — see
+        /// <see cref="LevelContent.CollectTags"/>.</summary>
         public void CollectTags(List<string> into)
         {
-            if (into == null)
-                return;
-            for (int i = 0; i < objects.Count; i++)
-            {
-                LevelObjectDef row = objects[i];
-                if (row == null)
-                    continue;
-                AddOnce(into, row.kind);
-                for (int j = 0; j < row.tags.Count; j++)
-                    AddOnce(into, row.tags[j]);
-            }
-        }
-
-        private static void AddOnce(List<string> into, string tag)
-        {
-            if (string.IsNullOrEmpty(tag) || into.Contains(tag))
-                return;
-            into.Add(tag);
+            if (content != null)
+                content.CollectTags(into);
         }
     }
 
-    /// <summary>One placed object of a level, as DATA: what it is (<see cref="kind"/> — the
-    /// tag-vocabulary word a spawner maps to a view), which definition row it is an instance
-    /// of, where it stands, which placement tags it carries and its per-placement config.
-    /// The definition stays in the object's own registry; this row is the PLACEMENT.</summary>
+    /// <summary>One placed object of a level, as DATA: what it is (<see cref="kind"/> — a row
+    /// of the project's <see cref="LevelObjectKindRegistry"/>, picked not typed), which
+    /// definition row it is an instance of, where it stands, which placement tags it carries
+    /// and its per-placement config. The definition stays in the object's own registry; this
+    /// row is the PLACEMENT.</summary>
     [Serializable]
     public sealed class LevelObjectDef
     {
         public string id = "";
 
-        /// <summary>What to spawn — a tag-vocabulary word ("unit", "pickup", "door") the
-        /// game's spawner maps to a view.</summary>
-        public string kind = "";
+        /// <summary>What to spawn — a kind row of the project's
+        /// <see cref="LevelObjectKindRegistry"/> (see <see cref="LevelRegistry.kinds"/>),
+        /// id-wired like every other typed reference. The game's spawner maps the kind to a
+        /// view.</summary>
+        public StateTreeEntryRef<LevelObjectKindDef> kind =
+            new StateTreeEntryRef<LevelObjectKindDef>();
 
         /// <summary>The definition row this object is an instance OF (unit row, item row) —
         /// id-wired; which registry it lives in is implied by <see cref="kind"/>.</summary>
@@ -96,7 +72,7 @@ namespace PowerOfFire.DrawToPlay
         public Vector2 position;
 
         /// <summary>Placement-only tags this instance carries — where a level's own
-        /// vocabulary (see <see cref="LevelDef.tags"/>) lands on an object.</summary>
+        /// vocabulary (see <see cref="LevelContent.tags"/>) lands on an object.</summary>
         public List<string> tags = new List<string>();
 
         /// <summary>Per-placement config (a door's key and target) — the standard parameter
@@ -119,9 +95,14 @@ namespace PowerOfFire.DrawToPlay
 
     /// <summary>The catalog of levels — a registry kind like any other: list it in a tree's
     /// Data section and level states pick their level with ⛃; the dev picker overlay lists
-    /// it; the dashboard edits it.</summary>
+    /// it; the dashboard edits it. It also carries the project's spawnable
+    /// <see cref="kinds"/>, so every level's manifest picks from one known list.</summary>
     [CreateAssetMenu(menuName = "Draw To Play/Levels/Level Registry", fileName = "LevelRegistry")]
     public sealed class LevelRegistry : StateTreeRegistry<LevelDef>
     {
+        /// <summary>The known list of object kinds a level manifest may use — project-wide,
+        /// because a kind is a project definition (what the spawner can build), not a
+        /// per-level one.</summary>
+        public LevelObjectKindRegistry kinds;
     }
 }

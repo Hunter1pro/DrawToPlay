@@ -122,8 +122,11 @@ namespace PowerOfFire.DrawToPlay
         {
             if (level == null || string.IsNullOrEmpty(level.scenePath))
             {
-                Debug.LogError("[LevelService] LoadAsync called with no level / empty "
-                    + "scenePath.", this);
+                Debug.LogError(level != null && level.content == null
+                    ? $"[LevelService] catalog row '{level.name}' has no Level asset — the "
+                        + "row names a level whose content file was never set."
+                    : "[LevelService] LoadAsync called with no level / empty scenePath.",
+                    this);
                 return false;
             }
             if (isLoading)
