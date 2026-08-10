@@ -36,22 +36,42 @@ namespace PowerOfFire.DrawToPlay
         /// SEES all of it. Optional — most levels only use global tags.</summary>
         public WorldTagRegistry tags;
 
-        /// <summary>The level's WORLD MANIFEST: which tag rows (global or from
-        /// <see cref="tags"/>) its objects carry — id-wired references, not strings.
-        /// Descriptive today (a reader can ask "what lives in this level?" without loading
-        /// it); the seam a future async-load-objects-by-position reads.</summary>
-        public List<StateTreeEntryRef<WorldTagDef>> usedTags =
-            new List<StateTreeEntryRef<WorldTagDef>>();
-
-        /// <summary>The level's OBJECTS, as data: every placed thing is a row here — its
-        /// kind, its definition row, its position, its placement tags and config. The scene
-        /// itself holds only the arena; a game-side spawner turns these rows into VIEWS on
-        /// <see cref="LevelService.levelLoaded"/> — which is why a view can be swapped, and
-        /// why loading them async by position later is a spawner change, not a data
-        /// change.</summary>
+        /// <summary>The level's OBJECTS, as data — and its WORLD MANIFEST: every placed
+        /// thing is a row here, with its kind, its definition row, its position, its
+        /// placement tags and config. The scene itself holds only the arena; a game-side
+        /// spawner turns these rows into VIEWS on <see cref="LevelService.levelLoaded"/> —
+        /// which is why a view can be swapped, and why loading them async by position later
+        /// is a spawner change, not a data change.</summary>
         public List<LevelObjectDef> objects = new List<LevelObjectDef>();
 
         public string Label => string.IsNullOrEmpty(displayName) ? name : displayName;
+
+        /// <summary>Which tags this level's objects carry — DERIVED from
+        /// <see cref="objects"/> (each row's kind plus its placement tags), never stored:
+        /// a hand-kept summary of the manifest is a copy that drifts. This is the "what
+        /// lives in this level?" answer a reader (or a future streamer) asks for without
+        /// loading the scene.</summary>
+        public void CollectTags(List<string> into)
+        {
+            if (into == null)
+                return;
+            for (int i = 0; i < objects.Count; i++)
+            {
+                LevelObjectDef row = objects[i];
+                if (row == null)
+                    continue;
+                AddOnce(into, row.kind);
+                for (int j = 0; j < row.tags.Count; j++)
+                    AddOnce(into, row.tags[j]);
+            }
+        }
+
+        private static void AddOnce(List<string> into, string tag)
+        {
+            if (string.IsNullOrEmpty(tag) || into.Contains(tag))
+                return;
+            into.Add(tag);
+        }
     }
 
     /// <summary>One placed object of a level, as DATA: what it is (<see cref="kind"/> — the
