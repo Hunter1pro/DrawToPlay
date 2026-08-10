@@ -30,13 +30,6 @@ namespace PowerOfFire.DrawToPlay
         /// parameter surface uses.</summary>
         public List<GraphTaskParameter> parameters = new List<GraphTaskParameter>();
 
-        /// <summary>The level's OWN tag rows — tags UNIQUE to this level. Root surfaces
-        /// aggregate them: the tag picker under the root tree shows the union of the global
-        /// registry and every level's, grouped by level, so a level can mint vocabulary
-        /// without touching the shared list and the root still SEES all of it. Optional —
-        /// most levels only use global tags.</summary>
-        public WorldTagRegistry tags;
-
         /// <summary>The level's OBJECT REGISTRY — its WORLD MANIFEST in its own asset: every
         /// placed thing is a searchable, groupable row (kind, definition row, position,
         /// placement tags, config). The scene itself holds only the arena; a game-side

@@ -189,8 +189,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                         for (int j = 0; j < levels.entries.Count; j++)
                         {
                             LevelDef level = levels.entries[j];
-                            if (level != null && level.tags != null)
-                                AddTagRows(level.tags, "Tags/" + level.name + "/");
+                            if (level == null)
+                                continue;
+                            // A level's vocabularies are the ones its manifest lists — the
+                            // same single source the placement tag picker reads.
+                            IReadOnlyList<WorldTagRegistry> levelTags = level.tags;
+                            for (int k = 0; k < levelTags.Count; k++)
+                                AddTagRows(levelTags[k], "Tags/" + level.name + "/");
                         }
                     }
                 }

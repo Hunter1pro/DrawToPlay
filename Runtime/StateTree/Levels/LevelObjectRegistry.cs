@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
@@ -17,5 +18,13 @@ namespace PowerOfFire.DrawToPlay
         fileName = "LevelObjects")]
     public sealed class LevelObjectRegistry : StateTreeRegistry<LevelObjectDef>
     {
+        /// <summary>
+        /// The tag vocabularies these placements may use — the project's global registry and
+        /// whatever else this level speaks, LISTED HERE. A placement's tag picker reads
+        /// exactly this list: no project scan, no walk from level to catalog to tree, no
+        /// guessing which registry is "global". If a vocabulary is not in this list, it is
+        /// not offered — which is what makes the list worth keeping honest.
+        /// </summary>
+        public List<WorldTagRegistry> tags = new List<WorldTagRegistry>();
     }
 }

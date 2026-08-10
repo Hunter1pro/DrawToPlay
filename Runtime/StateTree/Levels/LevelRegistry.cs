@@ -29,9 +29,11 @@ namespace PowerOfFire.DrawToPlay
 
         public LevelObjectRegistry objects => content != null ? content.objects : null;
 
-        /// <summary>The level's own tag vocabulary, or null — see
-        /// <see cref="LevelContent.tags"/>.</summary>
-        public WorldTagRegistry tags => content != null ? content.tags : null;
+        /// <summary>The tag vocabularies this level speaks — listed on its manifest, see
+        /// <see cref="LevelObjectRegistry.tags"/>. Empty when the level has no manifest.</summary>
+        public IReadOnlyList<WorldTagRegistry> tags => content != null && content.objects != null
+            ? content.objects.tags
+            : System.Array.Empty<WorldTagRegistry>();
 
         public string Label => content != null && !string.IsNullOrEmpty(content.displayName)
             ? content.displayName
