@@ -157,6 +157,21 @@ namespace PowerOfFire.DrawToPlay
             return null;
         }
 
+        /// <summary>The reflection-driven twin of <see cref="As{T}"/>.</summary>
+        public object As(Type type)
+        {
+            if (type == null)
+                return null;
+            if (type.IsInstanceOfType(this))
+                return this;
+            for (int i = 0; i < m_Facets.Count; i++)
+            {
+                if (m_Facets[i] != null && type.IsInstanceOfType(m_Facets[i]))
+                    return m_Facets[i];
+            }
+            return null;
+        }
+
         /// <summary>Add a tag the object does not carry yet — through the documented
         /// re-register gesture when it is already in a registry, so the by-tag index never
         /// drifts from the tag list. The idempotent form code uses; authors just type tags in

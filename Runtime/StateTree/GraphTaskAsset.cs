@@ -1017,6 +1017,11 @@ namespace PowerOfFire.DrawToPlay
                         }
 
                         StateTreeTaskAsset task = TaskCopy(index, node, true, context);
+                        // A copy whose [InjectOwner] refused aborts the program THIS tick —
+                        // running on would NRE inside the atom, which is exactly the flow
+                        // that does not exist.
+                        if (m_Aborted)
+                            return StateTreeStatus.Failure;
                         if (task == null)
                         {
                             // An unconfigured DoTask is a wiring hole, not a failure: continue on
@@ -1621,9 +1626,20 @@ namespace PowerOfFire.DrawToPlay
                 copy.name = node.task.name;
                 ApplyKeyBindings(index, copy);
                 // The VM's tasks never pass through the executor's injection — the copy is
-                // where their [InjectService] fields are filled instead.
-                StateTreeServiceInjector.Inject(copy,
-                    context != null ? context.owner : null);
+                // where their [InjectService]/[InjectOwner] fields are filled instead. An
+                // owner requirement the mount cannot satisfy refuses the WHOLE program:
+                // there is no missing-owner flow, by design.
+                if (!StateTreeServiceInjector.Inject(copy,
+                    context != null ? context.owner : null))
+                {
+                    if (!m_Aborted)
+                    {
+                        m_Aborted = true;
+                        Debug.LogError($"GraphTaskAsset '{name}': '{copy.name}' requires an "
+                            + "owner object this mount does not have — refusing to run the "
+                            + "program (see the [InjectOwner] error above).", this);
+                    }
+                }
                 m_TaskCopies[index] = copy;
             }
             return copy;

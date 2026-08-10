@@ -55,10 +55,27 @@ namespace PowerOfFire.DrawToPlay
         public string scopeId { get; }
     }
 
-    /// <summary>The one injector both worlds call, for both wire flavors: [InjectService]
-    /// fields (resolved by TYPE through the spine) and <see cref="StateTreeHostRef"/> fields
-    /// (resolved by KIND + id — the scope itself). Fields are discovered once per type
-    /// (whole hierarchy, private included) and cached for the domain.</summary>
+    /// <summary>
+    /// The OWNER's typed world object as a plain field — the third wire flavor: an atom that
+    /// acts ON its owner declares it once,
+    ///
+    /// <code>[InjectOwner] private RaiderUnit m_Unit;</code>
+    ///
+    /// bound at per-activation copy creation from the world registry
+    /// (<see cref="WorldService.FacetOf{T}"/>). This is a DESIGN requirement, not runtime
+    /// state: a graph of unit atoms mounted on something that is not a unit is a wiring
+    /// error — ONE clear message and the WHOLE program refuses to run. There is no
+    /// missing-owner flow, on purpose; atom bodies carry no guard.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Field)]
+    public sealed class InjectOwnerAttribute : Attribute
+    {
+    }
+
+    /// <summary>The one injector both worlds call, for the wire flavors: [InjectService]
+    /// fields (resolved by TYPE through the spine), [InjectHost] scopes, and [InjectOwner]
+    /// owner objects (resolved through the world registry). Fields are discovered once per
+    /// type (whole hierarchy, private included) and cached for the domain.</summary>
     public static class StateTreeServiceInjector
     {
         private static readonly Dictionary<Type, FieldInfo[]> s_Fields =
@@ -67,23 +84,27 @@ namespace PowerOfFire.DrawToPlay
         private static readonly Dictionary<Type, FieldInfo[]> s_HostFields =
             new Dictionary<Type, FieldInfo[]>();
 
+        private static readonly Dictionary<Type, FieldInfo[]> s_OwnerFields =
+            new Dictionary<Type, FieldInfo[]>();
+
         private static readonly HashSet<string> s_Reported = new HashSet<string>();
 
         /// <summary>Fill every [InjectService] field of <paramref name="target"/> from
         /// <paramref name="owner"/>'s spine. A field already holding a value (hand-set, or a
-        /// previous pass) is left alone.</summary>
-        public static void Inject(object target, GameObject owner)
+        /// previous pass) is left alone. Returns false when an [InjectOwner] requirement
+        /// could not be met — the caller's cue to refuse the whole program.</summary>
+        public static bool Inject(object target, GameObject owner)
         {
-            Inject(target, owner, false);
+            return Inject(target, owner, false);
         }
 
         /// <summary>The two-pass flavor: <paramref name="quiet"/> = a settle attempt during
         /// scene load (services register in an order nobody owns), where an unresolved field
         /// is not yet a wiring error — the loud pass follows once the scene has settled.</summary>
-        public static void Inject(object target, GameObject owner, bool quiet)
+        public static bool Inject(object target, GameObject owner, bool quiet)
         {
             if (target == null)
-                return;
+                return true;
 
             BindHostRefs(target, owner, quiet);
 
@@ -111,6 +132,66 @@ namespace PowerOfFire.DrawToPlay
                 }
                 field.SetValue(target, service);
             }
+
+            return BindOwnerFields(target, owner, quiet);
+        }
+
+        /// <summary>Bind every [InjectOwner] field to the owner's typed world object. False
+        /// when any stays unbound (loud pass): by design there is no missing-owner flow, so
+        /// the caller refuses the whole program.</summary>
+        private static bool BindOwnerFields(object target, GameObject owner, bool quiet)
+        {
+            FieldInfo[] fields = OwnerFields(target.GetType());
+            var allBound = true;
+            for (int i = 0; i < fields.Length; i++)
+            {
+                FieldInfo field = fields[i];
+                if (field.GetValue(target) != null)
+                    continue;
+
+                WorldService world = StateTreeContextHost.FindService<WorldService>(owner);
+                object facet = world != null ? world.FacetOf(field.FieldType, owner) : null;
+                if (facet == null)
+                {
+                    if (quiet)
+                        continue;
+                    allBound = false;
+                    string report = target.GetType().Name + "." + field.Name;
+                    if (s_Reported.Add(report))
+                    {
+                        Debug.LogError($"[InjectOwner] "
+                            + $"'{(owner != null ? owner.name : "(no owner)")}' is not a "
+                            + $"{field.FieldType.Name} the world knows — {report} is a design "
+                            + "requirement, so the program it lives in will not run.");
+                    }
+                    continue;
+                }
+                field.SetValue(target, facet);
+            }
+            return allBound;
+        }
+
+        private static FieldInfo[] OwnerFields(Type type)
+        {
+            if (s_OwnerFields.TryGetValue(type, out FieldInfo[] cached))
+                return cached;
+
+            var collected = new List<FieldInfo>();
+            for (Type walk = type; walk != null && walk != typeof(object); walk = walk.BaseType)
+            {
+                FieldInfo[] declared = walk.GetFields(BindingFlags.Public
+                    | BindingFlags.NonPublic | BindingFlags.Instance
+                    | BindingFlags.DeclaredOnly);
+                for (int i = 0; i < declared.Length; i++)
+                {
+                    if (Attribute.IsDefined(declared[i], typeof(InjectOwnerAttribute)))
+                        collected.Add(declared[i]);
+                }
+            }
+
+            cached = collected.ToArray();
+            s_OwnerFields[type] = cached;
+            return cached;
         }
 
         /// <summary>Bind every [InjectHost] field from the owner — the address lives on the

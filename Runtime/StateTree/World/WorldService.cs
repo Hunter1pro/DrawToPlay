@@ -238,6 +238,16 @@ namespace PowerOfFire.DrawToPlay
             return citizen.As<T>();
         }
 
+        /// <summary>The reflection-driven twin, for the [InjectOwner] field injector.</summary>
+        public object FacetOf(Type type, GameObject go)
+        {
+            if (type == null || go == null
+                || !m_ByGameObject.TryGetValue(go, out WorldObjectBehaviour citizen)
+                || citizen == null)
+                return null;
+            return citizen.As(type);
+        }
+
         /// <summary>Existence without a log line: this is the per-tick condition's question,
         /// and a condition polling every frame would flood the ring with the least
         /// interesting entry it can hold.</summary>
