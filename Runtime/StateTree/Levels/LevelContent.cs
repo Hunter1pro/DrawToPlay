@@ -37,13 +37,13 @@ namespace PowerOfFire.DrawToPlay
         /// most levels only use global tags.</summary>
         public WorldTagRegistry tags;
 
-        /// <summary>The level's OBJECTS, as data — and its WORLD MANIFEST: every placed
-        /// thing is a row here, with its kind, its definition row, its position, its
-        /// placement tags and config. The scene itself holds only the arena; a game-side
+        /// <summary>The level's OBJECT REGISTRY — its WORLD MANIFEST in its own asset: every
+        /// placed thing is a searchable, groupable row (kind, definition row, position,
+        /// placement tags, config). The scene itself holds only the arena; a game-side
         /// spawner turns these rows into VIEWS on <see cref="LevelService.levelLoaded"/> —
         /// which is why a view can be swapped, and why loading them async by position later
         /// is a spawner change, not a data change.</summary>
-        public List<LevelObjectDef> objects = new List<LevelObjectDef>();
+        public LevelObjectRegistry objects;
 
         /// <summary>Which tags this level's objects carry — DERIVED from
         /// <see cref="objects"/> (each row's kind plus its placement tags), never stored: a
@@ -52,11 +52,11 @@ namespace PowerOfFire.DrawToPlay
         /// scene.</summary>
         public void CollectTags(List<string> into)
         {
-            if (into == null)
+            if (into == null || objects == null)
                 return;
-            for (int i = 0; i < objects.Count; i++)
+            for (int i = 0; i < objects.entries.Count; i++)
             {
-                LevelObjectDef row = objects[i];
+                LevelObjectDef row = objects.entries[i];
                 if (row == null)
                     continue;
                 AddOnce(into, row.kind.entryName);

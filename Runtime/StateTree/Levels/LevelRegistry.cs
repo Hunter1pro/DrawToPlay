@@ -27,7 +27,7 @@ namespace PowerOfFire.DrawToPlay
         public List<GraphTaskParameter> parameters =>
             content != null ? content.parameters : null;
 
-        public List<LevelObjectDef> objects => content != null ? content.objects : null;
+        public LevelObjectRegistry objects => content != null ? content.objects : null;
 
         /// <summary>The level's own tag vocabulary, or null — see
         /// <see cref="LevelContent.tags"/>.</summary>
@@ -46,16 +46,17 @@ namespace PowerOfFire.DrawToPlay
         }
     }
 
-    /// <summary>One placed object of a level, as DATA: what it is (<see cref="kind"/> — a row
+    /// <summary>One placed object of a level, as a REGISTRY ROW (it lives in the level's
+    /// <see cref="LevelObjectRegistry"/>, so it is searchable and groupable like every other
+    /// entry): the base carries its id, its own name — the placement's handle, which is what
+    /// the spawned view is called — and its group. Then what it is (<see cref="kind"/> — a row
     /// of the project's <see cref="LevelObjectKindRegistry"/>, picked not typed), which
     /// definition row it is an instance of, where it stands, which placement tags it carries
     /// and its per-placement config. The definition stays in the object's own registry; this
     /// row is the PLACEMENT.</summary>
     [Serializable]
-    public sealed class LevelObjectDef
+    public sealed class LevelObjectDef : StateTreeRegistryEntry
     {
-        public string id = "";
-
         /// <summary>What to spawn — a kind row of the project's
         /// <see cref="LevelObjectKindRegistry"/> (see <see cref="LevelRegistry.kinds"/>),
         /// id-wired like every other typed reference. The game's spawner maps the kind to a
