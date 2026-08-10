@@ -76,8 +76,9 @@ namespace PowerOfFire.DrawToPlay
         public Vector2 position;
 
         /// <summary>Placement-only tags this instance carries — where a level's own
-        /// vocabulary (see <see cref="LevelContent.tags"/>) lands on an object.</summary>
-        public List<string> tags = new List<string>();
+        /// vocabulary (see <see cref="LevelContent.tags"/>) lands on an object. Picked from
+        /// that vocabulary, never typed: see <see cref="LevelObjectTagRef"/>.</summary>
+        public List<LevelObjectTagRef> tags = new List<LevelObjectTagRef>();
 
         /// <summary>Per-placement config (a door's key and target) — the standard parameter
         /// rows every other config surface uses.</summary>

@@ -61,7 +61,7 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 AddOnce(into, row.kind.entryName);
                 for (int j = 0; j < row.tags.Count; j++)
-                    AddOnce(into, row.tags[j]);
+                    AddOnce(into, row.tags[j]?.tag);
             }
         }
 
