@@ -248,6 +248,45 @@ namespace PowerOfFire.DrawToPlay
             return citizen.As(type);
         }
 
+        /// <summary>
+        /// THE object carrying a tag — for the ones a level has exactly one of: the player,
+        /// the exit, the boss. A caller that knows the thing is unique should not be asking
+        /// "which is nearest?" and paying a sweep to be told the only answer; it asks the
+        /// registry, which already knows. Log-free, like the other per-tick questions.
+        ///
+        /// More than one carrier means the tag is not the singular thing the caller believes
+        /// it is — that is a wiring error worth ONE line, and the first is returned so
+        /// behaviour degrades to the sweep's answer rather than stopping.
+        /// </summary>
+        public WorldObjectBehaviour FindKnown(string tag)
+        {
+            if (string.IsNullOrEmpty(tag)
+                || !m_ByTag.TryGetValue(tag, out List<WorldObjectBehaviour> bucket))
+                return null;
+
+            WorldObjectBehaviour known = null;
+            for (int i = 0; i < bucket.Count; i++)
+            {
+                if (bucket[i] == null)
+                    continue;
+                if (known == null)
+                {
+                    known = bucket[i];
+                    continue;
+                }
+                if (m_AmbiguousKnown.Add(tag))
+                {
+                    Emit("known '" + tag + "' is carried by more than one object ('"
+                        + known.name + "', '" + bucket[i].name + "') — it is not a singular "
+                        + "tag; taking the first.", true);
+                }
+                break;
+            }
+            return known;
+        }
+
+        private readonly HashSet<string> m_AmbiguousKnown = new HashSet<string>(StringComparer.Ordinal);
+
         /// <summary>Existence without a log line: this is the per-tick condition's question,
         /// and a condition polling every frame would flood the ring with the least
         /// interesting entry it can hold.</summary>
