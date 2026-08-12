@@ -20,16 +20,17 @@ namespace PowerOfFire.DrawToPlay
         public StateTreeRegistryAsset definitions;
 
         /// <summary>
-        /// What a placement of this kind LOOKS LIKE, for the scene view — the manifest overlay
-        /// draws this prefab's meshes at each placement, translucent, so an author laying out a
-        /// level from data can see the level rather than a field of identical dots.
+        /// What a placement of this kind BECOMES — and therefore what the manifest overlay draws
+        /// at each placement, translucent, so an author laying out a level from data sees the
+        /// level rather than a field of identical dots.
         ///
-        /// EDITOR AFFORDANCE ONLY. The spawner builds its own view and never reads this: what a
-        /// kind BECOMES at run time is the spawner's business, and tying the preview to it would
-        /// make the two drift the moment either changed. Leave it empty and placements draw as
-        /// dots, which is what they did before.
+        /// A SPAWNER MAY BUILD IT OR NOT. One that instantiates this gets the ghost and the real
+        /// thing from a single field, which is the point: the preview cannot drift from what
+        /// appears, because they are the same asset. One that assembles its own view (M18's, which
+        /// adds components to a bare GameObject) still gets an honest ghost by naming the prefab
+        /// its result resembles. Empty draws a dot, which is what every placement did before.
         /// </summary>
-        public GameObject preview;
+        public GameObject prefab;
     }
 
     /// <summary>

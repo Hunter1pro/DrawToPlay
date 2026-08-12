@@ -278,7 +278,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// looking at them.</summary>
         /// <summary>
         /// A translucent stand-in for what a placement will spawn — the kind's
-        /// <see cref="LevelObjectKindDef.preview"/> prefab, drawn where the row stands.
+        /// <see cref="LevelObjectKindDef.prefab"/>, drawn where the row stands.
         ///
         /// WHY IT IS WORTH THE CODE. A manifest-driven level has nothing in the scene: the arena
         /// and a field of identical dots. That is enough to know a row EXISTS and nothing at all
@@ -364,7 +364,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return null;
 
             return kinds.FindByName(def.kind.entryName) is LevelObjectKindDef kind
-                ? kind.preview
+                ? kind.prefab
                 : null;
         }
 

@@ -93,6 +93,16 @@ namespace PowerOfFire.DrawToPlay
 
         public Vector2 position;
 
+        /// <summary>
+        /// Which way it faces, in degrees about the up axis.
+        ///
+        /// A 2D level does not need this and leaves it at zero. A 3D one does: an NPC placed
+        /// facing away from the path the player walks in on reads as scenery, and "turn him
+        /// round" is the most ordinary edit there is. It is one float on the row rather than a
+        /// rotation the spawner guesses, because guessing is wrong exactly when it matters.
+        /// </summary>
+        public float facing;
+
         /// <summary>Placement-only tags this instance carries — where a level's own
         /// vocabulary (see <see cref="LevelContent.tags"/>) lands on an object. Picked from
         /// that vocabulary, never typed: see <see cref="LevelObjectTagRef"/>.</summary>
