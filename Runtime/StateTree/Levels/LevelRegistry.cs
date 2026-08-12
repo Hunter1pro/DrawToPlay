@@ -75,6 +75,22 @@ namespace PowerOfFire.DrawToPlay
         /// reference moving into <see cref="entry"/>.</summary>
         public string entryName => entry != null ? entry.entryName : "";
 
+        /// <summary>
+        /// The MIND this placement gets — the tree the spawned object runs, or null to take
+        /// whatever the spawner's default for the kind is.
+        ///
+        /// WHY IT IS PER PLACEMENT. A spawner that hard-codes one tree per kind gives every
+        /// unit in the level the same behaviour, so "the keeper who has a second conversation"
+        /// and "the guard who patrols" have to become different KINDS — a project-wide concept
+        /// invented to express a per-placement difference. A tree here says it where it belongs:
+        /// this one, in this level, behaves like that.
+        ///
+        /// Null is the ordinary case and stays cheap: the spawner keeps its default, so a level
+        /// full of identical grunts names nothing.
+        /// </summary>
+        [StateTreePick]
+        public StateTreeAsset tree;
+
         public Vector2 position;
 
         /// <summary>Placement-only tags this instance carries — where a level's own

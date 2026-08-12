@@ -276,6 +276,101 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Every placement as a handle: click to select, drag to move. This is the
         /// half a list cannot do — a manifest is positions, and positions are authored by
         /// looking at them.</summary>
+        /// <summary>
+        /// A translucent stand-in for what a placement will spawn — the kind's
+        /// <see cref="LevelObjectKindDef.preview"/> prefab, drawn where the row stands.
+        ///
+        /// WHY IT IS WORTH THE CODE. A manifest-driven level has nothing in the scene: the arena
+        /// and a field of identical dots. That is enough to know a row EXISTS and nothing at all
+        /// about whether the level reads — whether the guard can see the door, whether two units
+        /// are standing in each other. A ghost of the actual mesh answers that at a glance, and it
+        /// stays a ghost so it can never be mistaken for something selectable.
+        ///
+        /// Drawn straight from the prefab's mesh filters rather than by instantiating anything: a
+        /// scene that spawns preview objects has objects in it, which is the one thing a
+        /// manifest-driven level is supposed not to have.
+        /// </summary>
+        /// <param name="def">The placement row.</param>
+        /// <param name="world">Where it stands.</param>
+        /// <param name="selected">Whether this is the selected row — drawn a little more solid,
+        /// so the selection reads without a second colour.</param>
+        private void DrawHologram(LevelObjectDef def, Vector3 world, bool selected)
+        {
+            GameObject prefab = PreviewOf(def);
+            if (prefab == null || Event.current.type != EventType.Repaint)
+                return;
+
+            if (s_Hologram == null)
+            {
+                Shader shader = Shader.Find("Unlit/Color");
+                if (shader == null)
+                    return;
+                s_Hologram = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
+                // Transparent, and depth-tested so a ghost behind the wall reads as behind it.
+                s_Hologram.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                s_Hologram.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                s_Hologram.SetInt("_ZWrite", 0);
+                s_Hologram.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            }
+
+            s_Hologram.color = selected
+                ? new Color(0.35f, 0.85f, 1f, 0.45f)
+                : new Color(0.55f, 0.75f, 0.9f, 0.22f);
+
+            Matrix4x4 place = Matrix4x4.TRS(world, prefab.transform.rotation, Vector3.one);
+            MeshFilter[] filters = prefab.GetComponentsInChildren<MeshFilter>(true);
+            for (int i = 0; i < filters.Length; i++)
+            {
+                Mesh mesh = filters[i].sharedMesh;
+                if (mesh == null)
+                    continue;
+                // The child's own transform, relative to the prefab root, so a multi-part prefab
+                // keeps its shape.
+                Matrix4x4 local = prefab.transform.worldToLocalMatrix
+                    * filters[i].transform.localToWorldMatrix;
+                for (int sub = 0; sub < mesh.subMeshCount; sub++)
+                    Graphics.DrawMeshNow(mesh, place * local, sub);
+            }
+
+            SkinnedMeshRenderer[] skins = prefab.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            for (int i = 0; i < skins.Length; i++)
+            {
+                Mesh mesh = skins[i].sharedMesh;
+                if (mesh == null)
+                    continue;
+                Matrix4x4 local = prefab.transform.worldToLocalMatrix
+                    * skins[i].transform.localToWorldMatrix;
+                for (int sub = 0; sub < mesh.subMeshCount; sub++)
+                    Graphics.DrawMeshNow(mesh, place * local, sub);
+            }
+        }
+
+        /// <summary>The prefab a row's KIND says it looks like, or null.</summary>
+        private GameObject PreviewOf(LevelObjectDef def)
+        {
+            if (m_Level == null || m_Level.objects == null)
+                return null;
+
+            LevelObjectKindRegistry kinds = null;
+            string[] guids = AssetDatabase.FindAssets("t:" + nameof(LevelRegistry));
+            for (int i = 0; i < guids.Length && kinds == null; i++)
+            {
+                var levels = AssetDatabase.LoadAssetAtPath<LevelRegistry>(
+                    AssetDatabase.GUIDToAssetPath(guids[i]));
+                if (levels != null && levels.kinds != null)
+                    kinds = levels.kinds;
+            }
+            if (kinds == null)
+                return null;
+
+            return kinds.FindByName(def.kind.entryName) is LevelObjectKindDef kind
+                ? kind.preview
+                : null;
+        }
+
+        /// <summary>The ghost material, made once and shared by every placement.</summary>
+        private static Material s_Hologram;
+
         private void OnSceneGui(SceneView view)
         {
             if (m_Level == null || m_Level.objects == null)
@@ -291,6 +386,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 var world = new Vector3(def.position.x, def.position.y, 0f);
                 float size = HandleUtility.GetHandleSize(world) * 0.12f;
                 bool selected = i == m_Selected;
+
+                DrawHologram(def, world, selected);
 
                 using (new Handles.DrawingScope(selected
                     ? new Color(1f, 0.85f, 0.3f)
