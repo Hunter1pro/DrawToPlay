@@ -58,7 +58,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             TaskGraphPorts.AddExecOut(context, TaskGraphPorts.FailureExecPortName, "Failure",
                 "Runs once the task fails. Leave it empty to fall through to the end of the chain.");
 
-            LibraryParameterPorts.DefineParameterPorts(context, taskType);
+            LibraryParameterPorts.DefineParameterPorts(context, taskType, this);
             TaskOutputPorts.DefineOutputs(context, taskType);
         }
     }

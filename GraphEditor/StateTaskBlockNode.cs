@@ -28,7 +28,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <inheritdoc />
         protected override void OnDefinePorts(IPortDefinitionContext context)
         {
-            LibraryParameterPorts.DefineParameterPorts(context, taskType);
+            LibraryParameterPorts.DefineParameterPorts(context, taskType, this);
         }
     }
 }

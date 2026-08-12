@@ -2,7 +2,8 @@
     "name": "PowerOfFire.DrawToPlay.GraphEditor",
     "rootNamespace": "PowerOfFire.DrawToPlay.GraphEditor",
     "references": [
-        "PowerOfFire.DrawToPlay"
+        "PowerOfFire.DrawToPlay",
+        "PowerOfFire.DrawToPlay.Editor"
     ],
     "includePlatforms": [
         "Editor"

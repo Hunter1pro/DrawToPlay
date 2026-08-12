@@ -152,7 +152,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 {
                     IPort input = connected[i];
                     INode consumer = input?.GetNode();
-                    Type libraryType = LibraryTypeOf(consumer);
+                    Type libraryType = LibraryParameterPorts.LibraryTypeOf(consumer);
                     if (libraryType == null)
                         continue;
 
@@ -171,23 +171,6 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                         break;
                     }
                 }
-            }
-        }
-
-        /// <summary>The runtime library type a wrapper node stands for, whichever canvas it is
-        /// on — null for anything that wraps nothing (states, transitions, flow).</summary>
-        private static Type LibraryTypeOf(INode node)
-        {
-            switch (node)
-            {
-                case StateTaskBlockNode block:
-                    return block.taskType;
-                case TaskCallNode call:
-                    return call.taskType;
-                case StateTreeConditionNode condition:
-                    return condition.conditionType;
-                default:
-                    return null;
             }
         }
 

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System;
 using Unity.GraphToolkit.Editor;
 
@@ -116,6 +117,28 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 .Build();
         }
 
+        /// <summary>
+        /// A string value pin that is a DROPDOWN of <paramref name="choices"/> rather than a text
+        /// box — for the pins whose legal values are a known list (a registry row, a field of one).
+        /// </summary>
+        /// <param name="context">The port definition context of the node being defined.</param>
+        /// <param name="portName">Port name; the baker reads it by this.</param>
+        /// <param name="displayName">Label on the node.</param>
+        /// <param name="tooltip">Hover text.</param>
+        /// <param name="choices">The values to offer. Empty or null leaves a plain text field —
+        /// which is also what happens on a Graph Toolkit that will not take the attribute, so a
+        /// pin authored either way keeps working (see <see cref="PortChoices"/>).</param>
+        public static void AddChoiceData(Node.IPortDefinitionContext context, string portName,
+            string displayName, string tooltip, IReadOnlyList<string> choices)
+        {
+            var builder = context.AddInputPort<string>(portName)
+                .WithDisplayName(displayName ?? string.Empty)
+                .WithTooltip(tooltip ?? string.Empty);
+
+            PortChoices.TryOffer(builder, choices);
+            builder.Build();
+        }
+
         /// <summary>Adds a NAMED typed value OUTPUT — a return pin a downstream data pin can
         /// read (a task call's [TaskOutput], flowing inside the program).</summary>
         public static void AddDataOut<T>(Node.IPortDefinitionContext context, string portName,
@@ -151,6 +174,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 case GraphTaskNodeKind.BoolOr:
                 case GraphTaskNodeKind.BoolNot:
                 case GraphTaskNodeKind.ExitStatus:
+                case GraphTaskNodeKind.RegistryEntry:
                     return true;
                 default:
                     return false;

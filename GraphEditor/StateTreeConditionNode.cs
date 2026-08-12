@@ -40,7 +40,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 .WithTooltip("Wire into a Transition's condition slot.")
                 .Build();
 
-            LibraryParameterPorts.DefineParameterPorts(context, conditionType);
+            LibraryParameterPorts.DefineParameterPorts(context, conditionType, this);
         }
     }
 }

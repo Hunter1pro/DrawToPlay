@@ -127,7 +127,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     /// </summary>
     [Serializable]
     [Graph(Extension, GraphOptions.DisableAutoInclusionOfNodesFromGraphAssembly)]
-    public class StateTreeGraph : Graph
+    public class StateTreeGraph : Graph, IGraphDeclaredRegistries
     {
         /// <summary>File extension of a state tree graph asset. Registered with Unity's importer
         /// through <see cref="GraphAttribute"/>, so it must be unique in the project, must NOT
@@ -157,6 +157,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             base.OnGraphChanged(graphLogger);
 
             var nodes = GetNodes().ToList();
+            ChoicePortRefresh.Refresh(nodes);
             var states = nodes.OfType<StateNode>().ToList();
             var entries = nodes.OfType<EntryNode>().ToList();
             var transitions = nodes.OfType<TransitionNode>().ToList();
@@ -169,6 +170,27 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             // Library-mapping validation from the baker (block/condition with no runtime
             // type, parameter matching no field) — same messages authoring and import see.
             StateTreeGraphBaker.Validate(this, graphLogger);
+
+            // Typed references name ROWS, and a canvas port cannot offer a picker — so the
+            // "it must exist" half of the drawer's guarantee is enforced here instead.
+            EntryRefValidator.Validate(this, nodes, graphLogger);
+        }
+
+        /// <inheritdoc />
+        /// <remarks>A tree names its data on its Entry node, and the bake copies it onto
+        /// <see cref="StateTreeAsset.registries"/> — so that registry is a root of this graph's
+        /// scope without anything needing to point at the file.</remarks>
+        public void CollectDeclaredRegistries(List<StateTreeRegistryAsset> into)
+        {
+            if (into == null)
+                return;
+
+            foreach (EntryNode entry in GetNodes().OfType<EntryNode>())
+            {
+                StateTreeRegistryAsset registry = entry.ResolveRegistry();
+                if (registry != null && !into.Contains(registry))
+                    into.Add(registry);
+            }
         }
 
         private void ValidateEntry(GraphLogger graphLogger, IReadOnlyList<EntryNode> entries)

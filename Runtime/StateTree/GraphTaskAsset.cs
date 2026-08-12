@@ -129,7 +129,15 @@ namespace PowerOfFire.DrawToPlay
         GetTaskOutputString,
 
         /// <summary>Same, reading false.</summary>
-        GetTaskOutputBool
+        GetTaskOutputBool,
+
+        // ---- appended for the REGISTRY ENTRY node (a chosen row, as the name every field that
+        // takes a row expects). New kinds go BELOW, never between.
+
+        /// <summary>stringValue = the chosen row's NAME. No registry rides along: the bake
+        /// cannot resolve one (the importer runs with the AssetDatabase closed), so this is a
+        /// constant whose provenance was checked in the editor rather than a lookup.</summary>
+        RegistryEntry
     }
 
     /// <summary>Value kinds a <see cref="GraphTaskParameter"/> can carry. Order is serialized —
@@ -702,6 +710,22 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 node.stringValue = parameter.stringValue ?? string.Empty;
             }
+        }
+
+        /// <summary>
+        /// One <see cref="GraphTaskNodeKind.RegistryEntry"/> instruction: the row name the author
+        /// chose, handed on as-is.
+        ///
+        /// It carries no registry and resolves nothing, because the bake could not: the importer
+        /// runs with the AssetDatabase closed to queries. The consuming task looks the name up
+        /// through its own service, which is what it does for a name typed straight into the pin —
+        /// so this instruction is a constant with a checked provenance, not a lookup.
+        /// </summary>
+        /// <param name="node">The instruction.</param>
+        /// <returns>The chosen row's name, or "".</returns>
+        private string ReadRegistryEntry(GraphTaskNode node)
+        {
+            return node?.stringValue ?? string.Empty;
         }
 
         /// <summary>The effective set, built from the authored defaults on first use.</summary>
@@ -1435,6 +1459,7 @@ namespace PowerOfFire.DrawToPlay
                 case GraphTaskNodeKind.ConstString:
                 case GraphTaskNodeKind.GetBlackboardString:
                 case GraphTaskNodeKind.GetParamString:
+                case GraphTaskNodeKind.RegistryEntry:
                     // A string has no numeric reading here; parsing it would make a typo silently
                     // mean zero either way, so it means zero loudly and consistently.
                     return 0f;
@@ -1472,6 +1497,8 @@ namespace PowerOfFire.DrawToPlay
                     return ParameterFloat(node.stringValue) != 0f;
                 case GraphTaskNodeKind.GetParamString:
                     return !string.IsNullOrEmpty(ParameterString(node.stringValue));
+                case GraphTaskNodeKind.RegistryEntry:
+                    return !string.IsNullOrEmpty(ReadRegistryEntry(node));
                 case GraphTaskNodeKind.HasBlackboardKey:
                     return context != null && !string.IsNullOrEmpty(node.stringValue)
                         && context.blackboard.ContainsKey(node.stringValue);
@@ -1532,6 +1559,8 @@ namespace PowerOfFire.DrawToPlay
                     return ReadBlackboardString(context, node.stringValue);
                 case GraphTaskNodeKind.GetParamString:
                     return ParameterString(node.stringValue);
+                case GraphTaskNodeKind.RegistryEntry:
+                    return ReadRegistryEntry(node);
                 case GraphTaskNodeKind.ConstFloat:
                 case GraphTaskNodeKind.GetBlackboardFloat:
                 case GraphTaskNodeKind.GetParamFloat:
@@ -1696,17 +1725,48 @@ namespace PowerOfFire.DrawToPlay
                     : copy.GetType().GetField(binding.field,
                         BindingFlags.Public | BindingFlags.Instance);
 
+                // Three field shapes a String parameter can drive on an embedded call, all of
+                // them "a name the call resolves later": a key wrapper, a typed registry
+                // reference (resolved by entryName), and a plain string. Anything else was
+                // never bound by the baker, so reaching it means the graph was re-authored.
+                bool writable = field != null
+                    && (field.FieldType == typeof(StateTreeKeyField)
+                        || typeof(IStateTreeEntryRef).IsAssignableFrom(field.FieldType)
+                        || field.FieldType == typeof(string));
                 if (parameter == null || parameter.kind != GraphTaskParameterKind.String
-                    || field == null || field.FieldType != typeof(StateTreeKeyField))
+                    || !writable)
                 {
                     if (!m_BadKeyBindingLogged)
                     {
                         m_BadKeyBindingLogged = true;
-                        Debug.LogError($"GraphTaskAsset '{name}': key binding "
+                        Debug.LogError($"GraphTaskAsset '{name}': parameter binding "
                             + $"'{binding.field}' ← parameter '{binding.parameter}' no longer "
                             + "matches the program (field or parameter gone, or retyped). The "
-                            + "embedded copy keeps its baked key.", this);
+                            + "embedded copy keeps its baked value.", this);
                     }
+                    continue;
+                }
+
+                string text = parameter.stringValue ?? string.Empty;
+
+                if (field.FieldType == typeof(string))
+                {
+                    field.SetValue(copy, text);
+                    continue;
+                }
+
+                if (typeof(IStateTreeEntryRef).IsAssignableFrom(field.FieldType))
+                {
+                    // The NAME only: a graph authors the free-typed flavour of a reference, and
+                    // the task resolves it by name through its service. Writing an id here would
+                    // claim a row this parameter never picked.
+                    object reference = field.GetValue(copy);
+                    if (reference == null)
+                    {
+                        reference = Activator.CreateInstance(field.FieldType);
+                        field.SetValue(copy, reference);
+                    }
+                    field.FieldType.GetField("entryName")?.SetValue(reference, text);
                     continue;
                 }
 
@@ -1715,7 +1775,7 @@ namespace PowerOfFire.DrawToPlay
                     key = new StateTreeKeyField();
                     field.SetValue(copy, key);
                 }
-                key.text = parameter.stringValue ?? string.Empty;
+                key.text = text;
             }
         }
 

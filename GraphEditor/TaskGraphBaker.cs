@@ -314,6 +314,18 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <returns>The program, its sub-assets and the diagnostic counts.</returns>
         public static BakeResult Bake(Graph graph, StateTreeGraphBaker.IBakeLog log)
         {
+            return Bake(graph, log, null);
+        }
+
+        /// <summary>The same, told where the graph lives — what the importer calls, because a
+        /// graph loaded for import cannot answer that itself and the registry scope depends on
+        /// it.</summary>
+        /// <param name="graph">The canvas to bake.</param>
+        /// <param name="log">Where diagnostics go.</param>
+        /// <param name="assetPath">The graph's asset path, or null to ask the graph.</param>
+        /// <returns>The baked program and the diagnostic counts.</returns>
+        public static BakeResult Bake(Graph graph, StateTreeGraphBaker.IBakeLog log, string assetPath)
+        {
             var result = new BakeResult();
             if (graph == null)
             {
@@ -322,7 +334,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 return result;
             }
 
-            var context = new BakeContext(result, log);
+            var context = new BakeContext(result, log) { graph = graph, assetPath = assetPath };
             Collect(context, graph);
 
             // The pin pass may APPEND constant instructions, so the loop bound is captured first:
@@ -540,6 +552,14 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             public readonly BakeResult result;
 
             private readonly StateTreeGraphBaker.IBakeLog m_Log;
+
+            /// <summary>The canvas being baked — needed by the checks that ask what data this
+            /// graph can reach (<see cref="GraphRegistryScope"/>), not by the walk itself.</summary>
+            public Graph graph;
+
+            /// <summary>Where that canvas lives, when the caller knows — the importer does and the
+            /// graph itself does not (see <see cref="GraphRegistryScope.For(Graph, string)"/>).</summary>
+            public string assetPath;
 
             public BakeContext(BakeResult result, StateTreeGraphBaker.IBakeLog log)
             {
@@ -940,6 +960,10 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     node.floatValue = ReadConstantBool(context, source, ConstBoolNode.ValuePortName) ? 1f : 0f;
                     break;
 
+                case GraphTaskNodeKind.RegistryEntry:
+                    ConfigureRegistryEntry(context, source, ref node);
+                    break;
+
                 case GraphTaskNodeKind.GetBlackboardFloat:
                     node.stringValue = ReadKey(context, source, GetBlackboardFloatNode.KeyPortName);
                     break;
@@ -1224,6 +1248,58 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
         /// <summary>A blackboard key: a constant string, required, and never a wire (the program
         /// model has no computed-key form — see <see cref="SetBlackboardFloatNode"/>).</summary>
+        /// <summary>A registry's row names, capped, for the message that follows a mistyped one —
+        /// the list an author would otherwise have to go and read. Listed because Entry is TYPED:
+        /// there is no dropdown to fall back on, by design (see <see cref="RegistryEntryNode"/>),
+        /// so the message has to carry the list itself.</summary>
+        /// <param name="registry">The registry to describe.</param>
+        /// <returns>"medkit, keycard, ration, relic", or "(no rows)".</returns>
+        private static string RowNames(StateTreeRegistryAsset registry)
+        {
+            const int limit = 20;
+            var names = new List<string>();
+            for (int i = 0; i < registry.Count && names.Count < limit; i++)
+            {
+                StateTreeRegistryEntry row = registry.EntryAt(i);
+                if (row != null && !string.IsNullOrEmpty(row.name))
+                    names.Add(row.name);
+            }
+            if (names.Count == 0)
+                return "(no rows)";
+            return registry.Count > names.Count
+                ? string.Join(", ", names) + ", … (" + registry.Count + " total)"
+                : string.Join(", ", names);
+        }
+
+        /// <summary>
+        /// A <see cref="RegistryEntryNode"/> into its instruction: the chosen row's NAME, and
+        /// nothing else.
+        ///
+        /// NOTHING IS RESOLVED HERE, deliberately. The importer bakes with the AssetDatabase
+        /// closed to queries — measured: the graph's registry scope comes back empty even given
+        /// the right path — so a registry cannot be found, a row cannot be looked up, and any
+        /// check written here would fail on the graphs that are correct. The name is what the
+        /// consuming task resolves anyway, through its own service, exactly as it would a name
+        /// typed into the pin.
+        ///
+        /// The CHECK lives where the AssetDatabase is open: EntryRefValidator, on every graph
+        /// change, with the reachable rows listed.
+        /// </summary>
+        private static void ConfigureRegistryEntry(BakeContext context, INode source,
+            ref GraphTaskNode node)
+        {
+            node.objectValue = null;
+            node.stringValue2 = string.Empty;
+            node.stringValue = ReadConstantString(context, source,
+                RegistryEntryNode.EntryPortName);
+
+            if (string.IsNullOrEmpty(node.stringValue))
+            {
+                context.Error("Registry Entry names no row, so everything it feeds would get an "
+                    + "empty name. Choose one from its Entry list.", source);
+            }
+        }
+
         private static string ReadKey(BakeContext context, INode owner, string portName)
         {
             // A KEY PIN fed by a String PARAMETER binds LIVE: the constant baked below is the
@@ -1803,13 +1879,20 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     if (producer is IVariableNode variableNode)
                     {
                         context.consumedAtBake.Add(producer);
-                        // A KEY field fed by a String parameter is the one baked-call value that
+                        // A NAME field fed by a String parameter is the baked-call value that
                         // stays LIVE: the binding recorded here makes the interpreter re-apply the
                         // parameter's effective value to the embedded copy each activation, so a
-                        // state's override retargets the key. Every other field keeps the
+                        // caller's override retargets it. Three shapes qualify, because all three
+                        // are "a name the call resolves later" — a key wrapper, a typed registry
+                        // reference (which the call looks up by entryName), and a plain string.
+                        // That is what lets a registry row choose which item its conversation
+                        // hands over without a second graph. Every other field keeps the
                         // bake-time rule and its note.
                         string variableName = SafeVariableName(variableNode);
-                        if (field.FieldType == typeof(StateTreeKeyField)
+                        bool nameField = field.FieldType == typeof(StateTreeKeyField)
+                            || typeof(IStateTreeEntryRef).IsAssignableFrom(field.FieldType)
+                            || field.FieldType == typeof(string);
+                        if (nameField
                             && context.parameterKinds.TryGetValue(variableName,
                                 out GraphTaskParameterKind parameterKind)
                             && parameterKind == GraphTaskParameterKind.String)

@@ -68,7 +68,8 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             }
 
             TaskGraphBaker.BakeResult result =
-                TaskGraphBaker.Bake(graph, TaskGraphBaker.CreateConsoleLog(ctx.assetPath, null));
+                TaskGraphBaker.Bake(graph, TaskGraphBaker.CreateConsoleLog(ctx.assetPath, null),
+                    ctx.assetPath);
 
             if (result.program == null)
             {

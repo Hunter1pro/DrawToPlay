@@ -32,9 +32,49 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     public abstract class StateTreeRegistryAsset : ScriptableObject
     {
+        /// <summary>
+        /// The other registries the things in THIS registry are allowed to talk about — the
+        /// M22 dependency edge, and the only way a GRAPH learns which data answers for it.
+        ///
+        /// A tree names its own data (<see cref="StateTreeAsset.registries"/>), but a graph
+        /// has no such list: it is reached through the registry row that points at it (an
+        /// NPC's dialog program, a level's script), so its data has to be reachable the same
+        /// way. Declaring "the dialog registry depends on the item registry" is what lets a
+        /// dialog graph's Give Item name be checked against real rows and offered in the
+        /// Blackboard, without every graph re-listing the same assets.
+        ///
+        /// Cycles are allowed and harmless — <see cref="CollectWithDependencies"/> visits
+        /// each registry once — so two registries may name each other.
+        /// </summary>
+        [Tooltip("Registries the entries here may refer to. A graph reached from one of this "
+            + "registry's rows can name entries from these, and gets an error for a name that "
+            + "is in none of them.")]
+        public List<StateTreeRegistryAsset> dependsOn = new List<StateTreeRegistryAsset>();
+
         /// <summary>The entry class this registry's rows are — how typed references and
         /// pickers decide which registry answers for them.</summary>
         public abstract Type entryType { get; }
+
+        /// <summary>
+        /// This registry plus everything it depends on, transitively — the full set of data a
+        /// thing reached through this registry may name.
+        /// </summary>
+        /// <param name="into">Accumulator, also the visited set: a registry already in the
+        /// list is skipped, which is what makes a dependency cycle a no-op rather than a
+        /// stack overflow. Never cleared, so several roots can be collected into one list.</param>
+        public void CollectWithDependencies(List<StateTreeRegistryAsset> into)
+        {
+            if (into == null || into.Contains(this))
+                return;
+
+            into.Add(this);
+            for (int i = 0; dependsOn != null && i < dependsOn.Count; i++)
+            {
+                StateTreeRegistryAsset dependency = dependsOn[i];
+                if (dependency != null)
+                    dependency.CollectWithDependencies(into);
+            }
+        }
 
         public abstract int Count { get; }
 

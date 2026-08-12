@@ -52,7 +52,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// in search results for the same reason; UpArrow from the top row reaches them, which is what
     /// keyboard-reachable has to mean for a row that must not be selected by accident.
     /// </summary>
-    internal sealed class StateTreeNodePicker : EditorWindow
+    public sealed class StateTreeNodePicker : EditorWindow
     {
         /// <summary>Per-kind favourites, comma joined. Entries are type full names for compiled
         /// items and "guid:&lt;GUID&gt;" for authored trees — a GUID rather than a path because a
@@ -136,6 +136,14 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private Type m_BaseType;
         private Action<Type> m_OnPicked;
+
+        /// <summary>Rows supplied by the caller instead of collected from the project — see
+        /// <see cref="StateTreePickerItem"/>. Non-null puts the picker in supplied-items mode,
+        /// where nothing is discovered and only these rows are shown.</summary>
+        private IReadOnlyList<StateTreePickerItem> m_SuppliedItems;
+
+        /// <summary>Callback for supplied-items mode, given the chosen row's payload.</summary>
+        private Action<object> m_OnItemPicked;
         private Action<StateTreeAsset> m_OnTreePicked;
         private Action<GraphTaskAsset> m_OnGraphTaskPicked;
         private Action m_OnNewSubTreeTask;
@@ -206,19 +214,91 @@ namespace PowerOfFire.DrawToPlay.Editor
             return window;
         }
 
+        /// <summary>
+        /// Open the picker over ROWS THE CALLER SUPPLIES rather than over the node library — the
+        /// same window, search, categories and keyboard, for any list worth choosing from.
+        /// </summary>
+        /// <param name="activatorScreenRect">Where to place the popup — see
+        /// <see cref="ScreenRectOf"/>.</param>
+        /// <param name="items">The rows to offer. An empty list still opens, showing nothing,
+        /// which is the honest answer when a catalog has no rows.</param>
+        /// <param name="onPicked">Given the chosen row's <see cref="StateTreePickerItem.payload"/>
+        /// AFTER the popup closes, so it is free to rebuild whatever owns the activator.</param>
+        /// <param name="title">Window title.</param>
+        /// <param name="favoritesKind">Namespaces the favourites store, so one caller's starred
+        /// rows do not appear in another's list.</param>
+        /// <returns>The open window, or null when nothing could be shown.</returns>
+        /// <summary>Whether a picker is on screen — so a control that opens one can TOGGLE it
+        /// instead of replacing it, which is what a second click on a dropdown means.</summary>
+        public static bool isOpen => s_Open != null;
+
+        /// <summary>Close whatever picker is open. Safe when none is.</summary>
+        public static void CloseOpen()
+        {
+            if (s_Open != null)
+                s_Open.CloseSelf();
+        }
+
+        public static StateTreeNodePicker ShowItems(Rect activatorScreenRect,
+            IReadOnlyList<StateTreePickerItem> items, Action<object> onPicked, string title,
+            string favoritesKind)
+        {
+            if (items == null || onPicked == null)
+                return null;
+
+            if (s_Open != null)
+                s_Open.CloseSelf();
+
+            var window = CreateInstance<StateTreeNodePicker>();
+            window.m_SuppliedItems = items;
+            window.m_OnItemPicked = onPicked;
+            window.m_Title = string.IsNullOrEmpty(title) ? "Pick" : title;
+            window.m_Kind = string.IsNullOrEmpty(favoritesKind) ? "Items" : favoritesKind;
+            window.m_Favorites = LoadFavorites(window.m_Kind);
+            window.m_Host = focusedWindow;
+            window.titleContent = new GUIContent(window.m_Title);
+            window.minSize = k_MinSize;
+            window.maxSize = k_MaxSize;
+            window.position = PlaceBelow(activatorScreenRect, LoadSize());
+
+            s_Open = window;
+            window.ShowPopup();
+            window.Focus();
+            return window;
+        }
+
         /// <summary>Screen-space rect of a UI Toolkit element, for anchoring the popup to the
         /// control that opened it. Mirrors ItemLibraryWindow.GetRectStartingInWindow: panel
         /// coordinates clamped into the host window, then offset by the host's screen position.
         /// The host is the focused window, which is by definition the one whose button was just
         /// clicked (or whose button just took Enter).</summary>
-        internal static Rect ScreenRectOf(VisualElement anchor)
+        public static Rect ScreenRectOf(VisualElement anchor)
+        {
+            return ScreenRectOf(anchor, null);
+        }
+
+        /// <summary>
+        /// The same, told which window the anchor lives in.
+        ///
+        /// PASS IT WHEN THE PICKER MAY ALREADY BE OPEN. The host defaults to the focused window on
+        /// the reasoning that it is the one whose button was just clicked — true for a button, and
+        /// false for a control that reopens the picker, because by then the FOCUSED window is the
+        /// picker itself. The anchor's panel coordinates are then offset by the picker's position
+        /// instead of the graph's, and the popup walks across the screen a little further on every
+        /// click.
+        /// </summary>
+        /// <param name="anchor">The element to open under.</param>
+        /// <param name="host">The window the anchor is in, or null to guess from focus.</param>
+        /// <returns>Screen-space rect of the anchor.</returns>
+        public static Rect ScreenRectOf(VisualElement anchor, EditorWindow host)
         {
             var bounds = anchor != null ? anchor.worldBound : new Rect(0f, 0f, 1f, 1f);
             if (float.IsNaN(bounds.x) || float.IsNaN(bounds.y) || float.IsNaN(bounds.width)
                 || float.IsNaN(bounds.height))
                 bounds = new Rect(0f, 0f, 1f, 1f);
 
-            var host = focusedWindow != null ? focusedWindow : mouseOverWindow;
+            if (host == null)
+                host = focusedWindow != null ? focusedWindow : mouseOverWindow;
             if (host == null)
                 return bounds;
 
@@ -325,6 +405,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             /// </summary>
             internal Action action;
 
+            /// <summary>Set on a row the CALLER supplied: handed back untouched — see
+            /// <see cref="StateTreePickerItem"/>.</summary>
+            internal object payload;
+
             /// <summary>Which authored kind this row is — <see cref="k_SubTreeSuffix"/> or
             /// <see cref="k_LogicGraphSuffix"/>, empty for compiled types and commands.</summary>
             internal string suffix;
@@ -372,6 +456,15 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             m_Entries.Clear();
             m_Actions.Clear();
+
+            if (m_SuppliedItems != null)
+            {
+                CollectSuppliedEntries();
+                BuildSearchIndex();
+                m_Entries.Sort(CompareEntries);
+                return;
+            }
+
             if (m_BaseType == null)
                 return;
 
@@ -381,6 +474,33 @@ namespace PowerOfFire.DrawToPlay.Editor
             CollectActionEntries();
             BuildSearchIndex();
             m_Entries.Sort(CompareEntries);
+        }
+
+        /// <summary>Rows handed in by the caller — supplied-items mode. Nothing is discovered
+        /// and nothing is filtered: the caller already decided what belongs in the list, which is
+        /// the whole point of supplying it.</summary>
+        private void CollectSuppliedEntries()
+        {
+            for (int i = 0; i < m_SuppliedItems.Count; i++)
+            {
+                StateTreePickerItem item = m_SuppliedItems[i];
+                if (item == null || string.IsNullOrEmpty(item.displayName))
+                    continue;
+
+                m_Entries.Add(new Entry
+                {
+                    payload = item.payload,
+                    displayName = item.displayName,
+                    category = item.category ?? string.Empty,
+                    description = item.description ?? string.Empty,
+                    identity = item.identity ?? string.Empty,
+                    persistKey = string.IsNullOrEmpty(item.persistKey)
+                        ? item.displayName
+                        : item.persistKey,
+                    suffix = string.Empty,
+                    qualifier = string.Empty
+                });
+            }
         }
 
         /// <summary>The command rows, one per authored kind. Both are offered on the same terms as
@@ -1347,16 +1467,21 @@ namespace PowerOfFire.DrawToPlay.Editor
             var typeCallback = m_OnPicked;
             var treeCallback = m_OnTreePicked;
             var graphTaskCallback = m_OnGraphTaskPicked;
+            var itemCallback = m_OnItemPicked;
             var action = entry.action;
+            var payload = entry.payload;
             m_OnPicked = null;
             m_OnTreePicked = null;
             m_OnGraphTaskPicked = null;
+            m_OnItemPicked = null;
             m_OnNewSubTreeTask = null;
             m_OnNewTaskGraph = null;
             CloseSelf();
 
             if (action != null)
                 action.Invoke();
+            else if (itemCallback != null)
+                itemCallback.Invoke(payload);
             else if (entry.graphTask != null)
                 graphTaskCallback?.Invoke(entry.graphTask);
             else if (entry.tree != null)

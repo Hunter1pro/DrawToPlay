@@ -41,7 +41,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             TaskGraphPorts.AddResult<bool>(context, "What the condition answers, asked afresh on "
                 + "every read.");
 
-            LibraryParameterPorts.DefineParameterPorts(context, conditionType);
+            LibraryParameterPorts.DefineParameterPorts(context, conditionType, this);
         }
     }
 }

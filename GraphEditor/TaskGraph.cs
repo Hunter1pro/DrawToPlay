@@ -117,6 +117,9 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
             var nodes = GetNodes().ToList();
             RefreshReturnPins(nodes);
+            // Dropdown ports take their choices from data the node cannot see until it is part of
+            // a graph, so they are settled here rather than at definition time.
+            ChoicePortRefresh.Refresh(nodes);
             ValidateEntries<OnEnterNode>(graphLogger, nodes, "On Enter");
             ValidateEntries<OnTickNode>(graphLogger, nodes, "On Tick");
             ValidateEntries<OnExitNode>(graphLogger, nodes, "On Exit");
@@ -128,6 +131,10 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             }
 
             TaskGraphBaker.Validate(this, graphLogger);
+
+            // Typed references name ROWS, and a canvas port cannot offer a picker — so the
+            // "it must exist" half of the drawer's guarantee is enforced here instead.
+            EntryRefValidator.Validate(this, nodes, graphLogger);
         }
 
         /// <summary>Keep every Return node's pin set in step with the panel's Output

@@ -70,6 +70,50 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         }
 
         /// <summary>
+        /// The runtime library type a wrapper node stands for, whichever canvas it is on — null
+        /// for anything that wraps nothing (states, transitions, entries, flow). Stated once here
+        /// because it is the node⟷library seam, which is what this class is for; every consumer
+        /// that reasons about a node's PARAMETERS starts from it.
+        /// </summary>
+        /// <param name="node">Any node of either canvas.</param>
+        /// <returns>The <see cref="StateTreeTaskAsset"/> / <see cref="StateTreeConditionAsset"/>
+        /// subclass the node configures, or null.</returns>
+        public static Type LibraryTypeOf(INode node)
+        {
+            switch (node)
+            {
+                case StateTaskBlockNode block:
+                    return block.taskType;
+                case TaskCallNode call:
+                    return call.taskType;
+                case StateTreeConditionNode condition:
+                    return condition.conditionType;
+                case ConditionValueNode conditionValue:
+                    return conditionValue.conditionType;
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// The concrete entry class behind a typed-reference field — the generic argument of
+        /// <see cref="StateTreeEntryRef{TEntry}"/>, which is what says WHICH registry answers for
+        /// the field. Null for anything that is not a typed reference.
+        /// </summary>
+        /// <param name="fieldType">A library field's declared type.</param>
+        /// <returns>The <see cref="StateTreeRegistryEntry"/> subclass, or null.</returns>
+        public static Type EntryTypeOf(Type fieldType)
+        {
+            for (Type walk = fieldType; walk != null; walk = walk.BaseType)
+            {
+                if (walk.IsGenericType
+                    && walk.GetGenericTypeDefinition() == typeof(StateTreeEntryRef<>))
+                    return walk.GetGenericArguments()[0];
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Whether a field of this type can be carried by a port. The list is the set of types the
         /// Graph Toolkit inline editor can actually draw (CustomizableModelPropertyField
         /// .CreateDefaultFieldForType): anything else would produce a connector with no editor.
@@ -104,6 +148,31 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <param name="libraryType">The runtime type the node wraps.</param>
         public static void DefineParameterPorts(Node.IPortDefinitionContext context, Type libraryType)
         {
+            DefineParameterPorts(context, libraryType, null);
+        }
+
+        /// <summary>
+        /// The same, with the OWNING NODE — which is what lets a typed-reference parameter be a
+        /// DROPDOWN of real rows instead of a text box.
+        ///
+        /// A <see cref="StateTreeEntryRef{TEntry}"/> field ports as the entry NAME, and until now
+        /// that meant typing it: Graph Toolkit chooses a port's editor from its type, and there is
+        /// no public way to attach a picker. There IS a way to attach CHOICES
+        /// (<see cref="PortChoices"/>), and the legal ones are exactly the rows the graph can
+        /// reach — so Give Item's Item pin offers medkit/keycard/ration/relic rather than inviting
+        /// a typo that only shows up when someone plays the conversation.
+        ///
+        /// The node is optional because the choices are an affordance, not the contract: pass null
+        /// (or author a graph no registry points at) and every pin is the text field it has always
+        /// been, still baked the same way and still checked by
+        /// <see cref="EntryRefValidator"/>.
+        /// </summary>
+        /// <param name="context">The port definition context of the node being defined.</param>
+        /// <param name="libraryType">The runtime type the node wraps.</param>
+        /// <param name="owner">The node being defined, for the registry scope its graph reaches.</param>
+        public static void DefineParameterPorts(Node.IPortDefinitionContext context, Type libraryType,
+            Node owner)
+        {
             if (context == null || libraryType == null)
                 return;
 
@@ -120,8 +189,49 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 if (authoredDefault != null)
                     builder = builder.WithDefaultValue(authoredDefault);
 
+                PortChoices.TryOffer(builder, EntryChoicesFor(owner, field));
                 builder.Build();
             }
+        }
+
+        /// <summary>The row names a typed-reference field may take, from the graph's registry
+        /// scope; null for every other field, which leaves its editor alone.</summary>
+        /// <param name="owner">The node being defined, or null.</param>
+        /// <param name="field">The library field the port mirrors.</param>
+        /// <returns>The choices, or null.</returns>
+        public static List<string> EntryChoicesFor(Node owner, FieldInfo field)
+        {
+            Type entryType = EntryTypeOf(field.FieldType);
+            if (owner == null || entryType == null)
+                return null;
+
+            Graph graph;
+            try
+            {
+                graph = owner.Graph;
+            }
+            catch (Exception)
+            {
+                // Ports are defined during graph load, when the model may still be half-built.
+                return null;
+            }
+            if (graph == null)
+                return null;
+
+            var rows = new List<StateTreeRegistryEntry>();
+            GraphRegistryScope.For(graph).CollectEntries(entryType, rows);
+            if (rows.Count == 0)
+                return null;
+
+            // Empty first: a reference nobody has chosen yet is a real state, and a dropdown with
+            // no way back to it would force a value on every node the moment it is dropped.
+            var choices = new List<string> { string.Empty };
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (!choices.Contains(rows[i].name))
+                    choices.Add(rows[i].name);
+            }
+            return choices;
         }
 
         /// <summary>
