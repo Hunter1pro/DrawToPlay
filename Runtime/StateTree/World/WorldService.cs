@@ -235,7 +235,22 @@ namespace PowerOfFire.DrawToPlay
                 || !m_ByGameObject.TryGetValue(go, out WorldObjectBehaviour citizen)
                 || citizen == null)
                 return null;
-            return citizen.As<T>();
+
+            T found = citizen.As<T>();
+            if (found != null)
+                return found;
+
+            // See SiblingAs — the miss path, and only the miss path.
+            var siblings = SiblingsOf(go);
+            for (int i = 0; i < siblings.Length; i++)
+            {
+                if (ReferenceEquals(siblings[i], citizen) || siblings[i] == null)
+                    continue;
+                found = siblings[i].As<T>();
+                if (found != null)
+                    return found;
+            }
+            return null;
         }
 
         /// <summary>The reflection-driven twin, for the [InjectOwner] field injector.</summary>
@@ -245,7 +260,52 @@ namespace PowerOfFire.DrawToPlay
                 || !m_ByGameObject.TryGetValue(go, out WorldObjectBehaviour citizen)
                 || citizen == null)
                 return null;
-            return citizen.As(type);
+
+            object found = citizen.As(type);
+            if (found != null)
+                return found;
+
+            var siblings = SiblingsOf(go);
+            for (int i = 0; i < siblings.Length; i++)
+            {
+                if (ReferenceEquals(siblings[i], citizen) || siblings[i] == null)
+                    continue;
+                found = siblings[i].As(type);
+                if (found != null)
+                    return found;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// THE OTHER CITIZENS ON ONE GAME OBJECT — the answer to a question the by-GameObject
+        /// index cannot give alone.
+        ///
+        /// <see cref="Register"/> maps a GameObject to ONE citizen, last registration winning, and
+        /// for almost everything that is right: an object is a thing, and the thing answers for
+        /// itself. But a composed object is legitimately more than one citizen on one transform —
+        /// M21's NPC is an OutpostCharacter (a body that animates and moves) AND an OutpostNpc (a
+        /// person with a conversation), registered separately because each is its own concern. The
+        /// map keeps whichever enabled last, so "is this owner an OutpostCharacter?" answered NO
+        /// for an object that plainly is one, and the tree that asked refused to run — an NPC
+        /// standing still with one line in the console about a design requirement.
+        ///
+        /// So a miss consults the object's other citizens before giving up. It costs a
+        /// GetComponents ONLY when the mapped citizen cannot answer, which for a single-citizen
+        /// object — every other object in both demos — never happens. The dictionary hit is still
+        /// the whole cost of the common path, which is what the per-tick callers need.
+        ///
+        /// The alternative was to make one of the two components stop being a citizen and become a
+        /// facet of the other (<see cref="WorldObjectBehaviour.Expose"/>). That is a fine shape
+        /// when a type is designed for it, but it makes composition an ORDERING problem — who
+        /// exposes whom, and what happens when only one of them is present — and it would leave
+        /// this trap armed for the next object that is honestly two things.
+        /// </summary>
+        /// <param name="go">The object being asked about.</param>
+        /// <returns>Every citizen component on it.</returns>
+        private static WorldObjectBehaviour[] SiblingsOf(GameObject go)
+        {
+            return go.GetComponents<WorldObjectBehaviour>();
         }
 
         /// <summary>

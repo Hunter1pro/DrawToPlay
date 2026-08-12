@@ -187,6 +187,85 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.IsTrue(has.Evaluate(context), "inverted goes true when the last one is gone");
         }
 
+        // ------------------------------------------------------- 4b. composed citizens
+
+        /// <summary>
+        /// An object that is honestly TWO citizens — M21's NPC is a body that animates and a
+        /// person who talks — answers as either of them.
+        ///
+        /// The by-GameObject index keeps one citizen per object, last registration winning, so
+        /// before this the answer depended on enable order: the NPC was not an
+        /// <c>OutpostCharacter</c> the world knew, [InjectOwner] refused, and the tree that needed
+        /// a body silently would not run.
+        /// </summary>
+        [Test]
+        public void FacetOf_AnswersForEitherCitizenOnOneObject()
+        {
+            MakeWorld(out _);
+
+            var go = new GameObject("Npc");
+            m_Objects.Add(go);
+            var body = go.AddComponent<StubBodyCitizen>();
+            var mind = go.AddComponent<StubMindCitizen>();
+            body.RegisterToWorld();
+            mind.RegisterToWorld();   // last in, so it is what the index holds
+
+            Assert.AreSame(mind, WorldOf(go).FacetOf<StubMindCitizen>(go),
+                "the citizen the index holds still answers directly");
+            Assert.AreSame(body, WorldOf(go).FacetOf<StubBodyCitizen>(go),
+                "and so does the one it displaced");
+        }
+
+        /// <summary>The reflection twin the [InjectOwner] injector actually calls — same
+        /// guarantee, because that is the caller the bug was found through.</summary>
+        [Test]
+        public void FacetOfByType_AnswersForTheDisplacedCitizen()
+        {
+            MakeWorld(out _);
+
+            var go = new GameObject("Npc");
+            m_Objects.Add(go);
+            var body = go.AddComponent<StubBodyCitizen>();
+            go.AddComponent<StubMindCitizen>().RegisterToWorld();
+            body.RegisterToWorld();
+
+            Assert.AreSame(body, WorldOf(go).FacetOf(typeof(StubBodyCitizen), go));
+            Assert.IsNotNull(WorldOf(go).FacetOf(typeof(StubMindCitizen), go));
+        }
+
+        /// <summary>A type nobody on the object is stays null — the fallback must not turn
+        /// "this is not that" into a match.</summary>
+        [Test]
+        public void FacetOf_StillMissesWhenNoCitizenIsThatType()
+        {
+            MakeWorld(out _);
+
+            var go = new GameObject("Npc");
+            m_Objects.Add(go);
+            go.AddComponent<StubMindCitizen>().RegisterToWorld();
+
+            Assert.IsNull(WorldOf(go).FacetOf<StubBodyCitizen>(go));
+        }
+
+        /// <summary>An object the world has never registered is unknown, siblings or not.</summary>
+        [Test]
+        public void FacetOf_UnregisteredObjectIsUnknown()
+        {
+            WorldService world = MakeWorld(out _);
+
+            var go = new GameObject("Stranger");
+            m_Objects.Add(go);
+            go.AddComponent<StubBodyCitizen>();
+
+            Assert.IsNull(world.FacetOf<StubBodyCitizen>(go));
+        }
+
+        /// <summary>The world a citizen registered into — the same lookup the atoms use.</summary>
+        private static WorldService WorldOf(GameObject go)
+        {
+            return StateTreeContextHost.FindService<WorldService>(go);
+        }
+
         // ---------------------------------------------------------------- 5. deep log
 
         [Test]
@@ -245,5 +324,17 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Objects.Add(go);
             return go;
         }
+    }
+
+    /// <summary>One half of a composed object: the BODY, the thing that moves and animates.
+    /// Stands in for M21's OutpostCharacter, which lives in the examples assembly.</summary>
+    internal sealed class StubBodyCitizen : WorldObjectBehaviour
+    {
+    }
+
+    /// <summary>The other half: the MIND, the thing with something to say. A second citizen on
+    /// the same transform, exactly as an NPC is.</summary>
+    internal sealed class StubMindCitizen : WorldObjectBehaviour
+    {
     }
 }

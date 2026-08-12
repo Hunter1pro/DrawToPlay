@@ -66,6 +66,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private void OnSceneOpened(Scene scene, UnityEditor.SceneManagement.OpenSceneMode mode)
         {
             m_Level = null;
+            m_Kinds = null;
             m_Selected = -1;
             Rebuild();
         }
@@ -288,36 +289,62 @@ namespace PowerOfFire.DrawToPlay.Editor
         ///
         /// Drawn straight from the prefab's mesh filters rather than by instantiating anything: a
         /// scene that spawns preview objects has objects in it, which is the one thing a
-        /// manifest-driven level is supposed not to have.
+        /// manifest-driven level is supposed not to have. What cannot be drawn that way — a rigged
+        /// character above all — gets a capsule instead (<see cref="DrawStandIn"/>).
         /// </summary>
+        /// <param name="manifest">The level's manifest — read for its ground plane, so the ghost
+        /// stands the way the spawner will stand it.</param>
         /// <param name="def">The placement row.</param>
         /// <param name="world">Where it stands.</param>
         /// <param name="selected">Whether this is the selected row — drawn a little more solid,
         /// so the selection reads without a second colour.</param>
-        private void DrawHologram(LevelObjectDef def, Vector3 world, bool selected)
+        private void DrawHologram(LevelObjectRegistry manifest, LevelObjectDef def, Vector3 world,
+            bool selected)
         {
-            GameObject prefab = PreviewOf(def);
-            if (prefab == null || Event.current.type != EventType.Repaint)
+            if (Event.current.type != EventType.Repaint)
                 return;
+            GameObject prefab = PreviewOf(def);
 
             if (s_Hologram == null)
             {
-                Shader shader = Shader.Find("Unlit/Color");
+                // HIDDEN/INTERNAL-COLORED, not Unlit/Color: this is the shader Unity ships FOR
+                // immediate-mode editor drawing, and the only one here whose blend, depth and cull
+                // state are settable — Unlit/Color has no _SrcBlend, so the alpha set on it was
+                // silently ignored and every "ghost" came out solid.
+                Shader shader = Shader.Find("Hidden/Internal-Colored");
                 if (shader == null)
                     return;
                 s_Hologram = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-                // Transparent, and depth-tested so a ghost behind the wall reads as behind it.
                 s_Hologram.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
                 s_Hologram.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                // Depth-tested but not depth-writing, so a ghost behind the wall reads as behind
+                // it and two overlapping ghosts both show rather than one erasing the other.
                 s_Hologram.SetInt("_ZWrite", 0);
+                s_Hologram.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.LessEqual);
+                s_Hologram.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Back);
                 s_Hologram.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             }
 
             s_Hologram.color = selected
                 ? new Color(0.35f, 0.85f, 1f, 0.45f)
                 : new Color(0.55f, 0.75f, 0.9f, 0.22f);
+            // AFTER the colour, and before any draw: SetPass is what binds the material's CURRENT
+            // values. Without it Graphics.DrawMeshNow inherits whatever pass the scene view last
+            // bound, which is why nothing recognisable appeared.
+            s_Hologram.SetPass(0);
 
-            Matrix4x4 place = Matrix4x4.TRS(world, prefab.transform.rotation, Vector3.one);
+            // The row's own facing, through the manifest — the same call the spawner makes, so a
+            // ghost cannot be turned a different way from the thing it is a ghost OF.
+            Quaternion facing = manifest.Facing(def.facing);
+
+            if (prefab == null)
+            {
+                DrawStandIn(world, facing, manifest.Forward(def.facing));
+                return;
+            }
+
+            var drew = false;
+            Matrix4x4 place = Matrix4x4.TRS(world, facing * prefab.transform.rotation, Vector3.one);
             MeshFilter[] filters = prefab.GetComponentsInChildren<MeshFilter>(true);
             for (int i = 0; i < filters.Length; i++)
             {
@@ -330,40 +357,82 @@ namespace PowerOfFire.DrawToPlay.Editor
                     * filters[i].transform.localToWorldMatrix;
                 for (int sub = 0; sub < mesh.subMeshCount; sub++)
                     Graphics.DrawMeshNow(mesh, place * local, sub);
+                drew = true;
             }
 
+            // A RIGGED CHARACTER GETS THE CAPSULE, and this is the case that motivates having one.
+            // A skinned mesh's vertices are not where the character is: they are in bone space,
+            // and the bind poses put them into a shape. Drawn straight, M21's mannequin has mesh
+            // bounds of 2cm on a transform scaled ×100 — measured — so it rasterises as a thin
+            // vertical sliver, which is worse than nothing because it looks like a rendering fault
+            // rather than a missing feature. Posing it properly would mean instantiating the
+            // prefab and baking it, and putting objects in the scene is the one thing a
+            // manifest-driven level exists to avoid.
+            var rigged = false;
             SkinnedMeshRenderer[] skins = prefab.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-            for (int i = 0; i < skins.Length; i++)
-            {
-                Mesh mesh = skins[i].sharedMesh;
-                if (mesh == null)
-                    continue;
-                Matrix4x4 local = prefab.transform.worldToLocalMatrix
-                    * skins[i].transform.localToWorldMatrix;
-                for (int sub = 0; sub < mesh.subMeshCount; sub++)
-                    Graphics.DrawMeshNow(mesh, place * local, sub);
-            }
+            for (int i = 0; i < skins.Length && !rigged; i++)
+                rigged = skins[i].sharedMesh != null;
+
+            // A prefab whose look is all code, particles or sprites has nothing to draw either. It
+            // is still an object standing somewhere, so it gets the stand-in rather than vanishing.
+            if (rigged || !drew)
+                DrawStandIn(world, facing, manifest.Forward(def.facing));
         }
+
+        /// <summary>
+        /// The shape a placement gets when there is no mesh to show: a person-sized CAPSULE.
+        ///
+        /// Not a dot and not a box. A dot has no size, so it says nothing about whether two
+        /// placements are standing in each other or whether one blocks a doorway — which is most
+        /// of what an author is looking at a level FOR. A box reads as a crate or a wall. A capsule
+        /// reads as somebody standing there, is what a character controller actually is, and is
+        /// obviously a placeholder, so nobody mistakes it for the finished thing.
+        /// </summary>
+        /// <param name="world">Where the placement stands; the capsule sits ON that point rather
+        /// than centred through it, because a placement is a spot on the floor.</param>
+        /// <param name="facing">The row's facing. A capsule is symmetric, so this changes nothing
+        /// about the shape — it is here so the stand-in is oriented like the mesh it stands in
+        /// for, and it is the tick below that actually shows the direction.</param>
+        /// <param name="forward">Which way that facing looks, in the level's own plane.</param>
+        private void DrawStandIn(Vector3 world, Quaternion facing, Vector3 forward)
+        {
+            if (s_StandIn == null)
+            {
+                // Borrowed from a throwaway primitive rather than built by hand: it is Unity's own
+                // capsule, so the stand-in is exactly the shape everyone already recognises as a
+                // placeholder character.
+                GameObject temp = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                MeshFilter filter = temp.GetComponent<MeshFilter>();
+                s_StandIn = filter != null ? filter.sharedMesh : null;
+                UnityEngine.Object.DestroyImmediate(temp);
+                if (s_StandIn == null)
+                    return;
+            }
+
+            // Unity's capsule is 2 units tall about its centre, so lifting it by one puts its feet
+            // on the placement.
+            Graphics.DrawMeshNow(s_StandIn,
+                Matrix4x4.TRS(world + new Vector3(0f, 1f, 0f), facing,
+                    new Vector3(k_StandInWidth, 1f, k_StandInWidth)), 0);
+
+            // Which way it looks. Drawn as a line from the chest rather than as a second mesh: it
+            // has to read at any zoom, and it must not be mistakable for another placement.
+            Vector3 chest = world + new Vector3(0f, 1.1f, 0f);
+            Handles.DrawLine(chest, chest + forward * (k_StandInWidth * 1.6f));
+        }
+
+        /// <summary>How wide the stand-in is relative to Unity's capsule — narrowed to person
+        /// proportions rather than the barrel the primitive ships as.</summary>
+        private const float k_StandInWidth = 0.7f;
+
+        /// <summary>The primitive capsule's mesh, borrowed once and shared.</summary>
+        private static Mesh s_StandIn;
 
         /// <summary>The prefab a row's KIND says it looks like, or null.</summary>
         private GameObject PreviewOf(LevelObjectDef def)
         {
-            if (m_Level == null || m_Level.objects == null)
-                return null;
-
-            LevelObjectKindRegistry kinds = null;
-            string[] guids = AssetDatabase.FindAssets("t:" + nameof(LevelRegistry));
-            for (int i = 0; i < guids.Length && kinds == null; i++)
-            {
-                var levels = AssetDatabase.LoadAssetAtPath<LevelRegistry>(
-                    AssetDatabase.GUIDToAssetPath(guids[i]));
-                if (levels != null && levels.kinds != null)
-                    kinds = levels.kinds;
-            }
-            if (kinds == null)
-                return null;
-
-            return kinds.FindByName(def.kind.entryName) is LevelObjectKindDef kind
+            LevelObjectKindRegistry kinds = Kinds();
+            return kinds != null && kinds.FindByName(def.kind.entryName) is LevelObjectKindDef kind
                 ? kind.prefab
                 : null;
         }
@@ -376,18 +445,22 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (m_Level == null || m_Level.objects == null)
                 return;
 
-            List<LevelObjectDef> rows = m_Level.objects.entries;
+            LevelObjectRegistry manifest = m_Level.objects;
+            List<LevelObjectDef> rows = manifest.entries;
             for (int i = 0; i < rows.Count; i++)
             {
                 LevelObjectDef def = rows[i];
                 if (def == null)
                     continue;
 
-                var world = new Vector3(def.position.x, def.position.y, 0f);
+                // THROUGH THE MANIFEST'S PLANE, never assumed: the same call the spawner makes,
+                // so the handle is where the object will be rather than where a 2D level's would
+                // have been. See LevelGroundPlane.
+                Vector3 world = manifest.ToWorld(def.position);
                 float size = HandleUtility.GetHandleSize(world) * 0.12f;
                 bool selected = i == m_Selected;
 
-                DrawHologram(def, world, selected);
+                DrawHologram(manifest, def, world, selected);
 
                 using (new Handles.DrawingScope(selected
                     ? new Color(1f, 0.85f, 0.3f)
@@ -408,9 +481,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 Vector3 moved = Handles.PositionHandle(world, Quaternion.identity);
                 if (EditorGUI.EndChangeCheck())
                 {
-                    Undo.RecordObject(m_Level.objects, "Move Level Object");
-                    def.position = new Vector2(moved.x, moved.y);
-                    EditorUtility.SetDirty(m_Level.objects);
+                    Undo.RecordObject(manifest, "Move Level Object");
+                    def.position = manifest.ToPlan(moved);
+                    EditorUtility.SetDirty(manifest);
                     Rebuild();
                 }
             }
@@ -441,36 +514,66 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
         }
 
-        private static void CollectKindNames(List<string> into)
+        /// <summary>
+        /// THIS LEVEL'S kind catalog — the <see cref="LevelRegistry.kinds"/> of the registry that
+        /// CATALOGS this level, not the first one found in the project.
+        ///
+        /// WHY THAT DISTINCTION IS THE WHOLE FUNCTION. A project has more than one level catalog
+        /// (the raider areas and the M21 demo are two), and each names its own kinds. Taking the
+        /// first meant the M21 yard was asked about the raider catalog: its 'npc' rows matched
+        /// nothing, every preview came back null, and the ghosts silently did not draw — a wrong
+        /// answer that looked exactly like an unimplemented feature. Kinds also drive the Add
+        /// button's list, where the same slip offered 'door' and 'unit' in a level whose spawner
+        /// has never heard of them.
+        ///
+        /// The level is found by the row that POINTS AT IT, which is the only link that exists —
+        /// a <see cref="LevelContent"/> does not name its catalog, on purpose (M16: the content is
+        /// the level, the catalog is a list of names).
+        /// </summary>
+        /// <returns>The catalog, or null when nothing catalogs this level yet — in which case the
+        /// overlay offers no kinds rather than the wrong ones.</returns>
+        private LevelObjectKindRegistry Kinds()
         {
-            string[] guids = AssetDatabase.FindAssets("t:" + nameof(LevelObjectKindRegistry));
+            if (m_Kinds != null || m_Level == null)
+                return m_Kinds;
+
+            string[] guids = AssetDatabase.FindAssets("t:" + nameof(LevelRegistry));
             for (int i = 0; i < guids.Length; i++)
             {
-                var registry = AssetDatabase.LoadAssetAtPath<LevelObjectKindRegistry>(
+                var levels = AssetDatabase.LoadAssetAtPath<LevelRegistry>(
                     AssetDatabase.GUIDToAssetPath(guids[i]));
-                if (registry == null)
+                if (levels == null || levels.kinds == null)
                     continue;
-                for (int j = 0; j < registry.entries.Count; j++)
+                for (int j = 0; j < levels.entries.Count; j++)
                 {
-                    LevelObjectKindDef row = registry.entries[j];
-                    if (row != null && !string.IsNullOrEmpty(row.name) && !into.Contains(row.name))
-                        into.Add(row.name);
+                    if (levels.entries[j] != null && levels.entries[j].content == m_Level)
+                        return m_Kinds = levels.kinds;
                 }
+            }
+            return null;
+        }
+
+        /// <summary>Resolved once per level — see <see cref="Kinds"/>. Cleared with
+        /// <see cref="m_Level"/>, and worth caching because the hologram asks on every repaint.</summary>
+        private LevelObjectKindRegistry m_Kinds;
+
+        private void CollectKindNames(List<string> into)
+        {
+            LevelObjectKindRegistry registry = Kinds();
+            if (registry == null)
+                return;
+            for (int j = 0; j < registry.entries.Count; j++)
+            {
+                LevelObjectKindDef row = registry.entries[j];
+                if (row != null && !string.IsNullOrEmpty(row.name) && !into.Contains(row.name))
+                    into.Add(row.name);
             }
         }
 
-        private static LevelObjectKindDef FindKind(string name)
+        private LevelObjectKindDef FindKind(string name)
         {
-            string[] guids = AssetDatabase.FindAssets("t:" + nameof(LevelObjectKindRegistry));
-            for (int i = 0; i < guids.Length; i++)
-            {
-                var registry = AssetDatabase.LoadAssetAtPath<LevelObjectKindRegistry>(
-                    AssetDatabase.GUIDToAssetPath(guids[i]));
-                var row = registry != null ? registry.FindByName(name) as LevelObjectKindDef : null;
-                if (row != null)
-                    return row;
-            }
-            return null;
+            LevelObjectKindRegistry registry = Kinds();
+            return registry != null ? registry.FindByName(name) as LevelObjectKindDef : null;
         }
 
         private static Vector2 ViewCentre()
