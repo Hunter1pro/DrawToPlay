@@ -137,6 +137,26 @@ namespace PowerOfFire.DrawToPlay
                 return false;
             }
 
+            // ALREADY OPEN? ADOPT IT. Asking for the level you are standing in is a real request
+            // with an obvious right answer, and unloading it to load it again would throw away
+            // everything that has happened in it — including, when an author presses play on a
+            // level scene directly, the very scene they were working on.
+            //
+            // Adopting means doing everything the load does EXCEPT the loading: take ownership of
+            // the scene, seed the entry parameters, announce it, and become current. Anything
+            // waiting on levelLoaded then behaves identically whichever way the level arrived.
+            Scene open = SceneManager.GetSceneByPath(level.scenePath);
+            if (open.IsValid() && open.isLoaded && !ReferenceEquals(current, level))
+            {
+                m_LoadedScene = open;
+                SceneManager.SetActiveScene(open);
+                SeedLevelParameters(level);
+                levelLoaded?.Invoke(level, open);
+                current = level;
+                WriteRootKey(CurrentKey, level.name);
+                return true;
+            }
+
             CancellationToken token = destroyCancellationToken;
             isLoading = true;
             WriteRootKey(LoadingKey, level.Label);
