@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using NUnit.Framework;
+using UnityEngine;
 using PowerOfFire.DrawToPlay.Examples;
 
 namespace PowerOfFire.DrawToPlay.Tests
@@ -136,6 +137,73 @@ namespace PowerOfFire.DrawToPlay.Tests
             progress.MarkGained(Drop("drop.1", "yard", "keycard"));
 
             Assert.AreEqual(0, progress.gained.Count);
+        }
+
+        // -------------------------------------------------- placements that MOVED
+
+        /// <summary>An escort walked somewhere and is expected to be found there.</summary>
+        [Test]
+        public void Moved_IsRememberedAndReadBack()
+        {
+            var progress = new OutpostProgressService();
+            Assert.IsFalse(progress.TryMoved("place.warden", out _),
+                "a placement that never moved is at its row's position, and says so by not "
+                    + "answering");
+
+            progress.MarkMoved("place.warden", new Vector2(-7.4f, 5.8f));
+
+            Assert.IsTrue(progress.TryMoved("place.warden", out Vector2 where));
+            Assert.AreEqual(-7.4f, where.x, 0.001f);
+            Assert.AreEqual(5.8f, where.y, 0.001f);
+        }
+
+        /// <summary>A companion standing still still drifts, and a save rewritten for every
+        /// centimetre is a save rewritten constantly.</summary>
+        [Test]
+        public void Moved_IgnoresATwitch()
+        {
+            var progress = new OutpostProgressService();
+            progress.MarkMoved("place.warden", new Vector2(0f, 0f));
+
+            var changes = 0;
+            progress.changed += () => changes++;
+
+            progress.MarkMoved("place.warden", new Vector2(0.05f, 0.05f));
+            Assert.AreEqual(0, changes, "a few centimetres is not news");
+
+            progress.MarkMoved("place.warden", new Vector2(2f, 0f));
+            Assert.AreEqual(1, changes, "a metre is");
+            Assert.IsTrue(progress.TryMoved("place.warden", out Vector2 where));
+            Assert.AreEqual(2f, where.x, 0.001f);
+        }
+
+        /// <summary>One entry per placement, however many times it is written down.</summary>
+        [Test]
+        public void Moved_KeepsOneEntryPerPlacement()
+        {
+            var progress = new OutpostProgressService();
+            progress.MarkMoved("place.warden", new Vector2(1f, 1f));
+            progress.MarkMoved("place.warden", new Vector2(5f, 5f));
+            progress.MarkMoved("place.scout", new Vector2(2f, 2f));
+
+            Assert.AreEqual(2, progress.moved.Count);
+        }
+
+        /// <summary>What a save file puts back.</summary>
+        [Test]
+        public void RestoreMoved_ReplacesEverything()
+        {
+            var progress = new OutpostProgressService();
+            progress.MarkMoved("place.old", new Vector2(9f, 9f));
+
+            progress.RestoreMoved(new List<OutpostMovedObject>
+            {
+                new OutpostMovedObject { id = "place.warden", x = 3f, y = 4f }
+            });
+
+            Assert.IsFalse(progress.TryMoved("place.old", out _));
+            Assert.IsTrue(progress.TryMoved("place.warden", out Vector2 where));
+            Assert.AreEqual(3f, where.x, 0.001f);
         }
 
         private static OutpostGainedObject Drop(string id, string level, string entry)
