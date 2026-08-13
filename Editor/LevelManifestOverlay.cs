@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.Overlays;
@@ -107,11 +108,60 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             m_Objects = new SerializedObject(m_Level.objects);
+            m_Root.Add(BuildStyleRow());
             m_Root.Add(BuildAddRow());
             m_Root.Add(BuildList());
             m_Root.Add(BuildSelected());
             SceneView.RepaintAll();
         }
+
+        /// <summary>
+        /// How the ghosts are drawn — see <see cref="LevelGhostStyle"/>.
+        ///
+        /// A per-USER setting, in EditorPrefs rather than on the level: it changes nothing about
+        /// the level and two people looking at the same one are allowed to want different pictures.
+        /// It is remembered because it is a working preference, and re-picking it every time the
+        /// scene opened would make it not worth having.
+        /// </summary>
+        private VisualElement BuildStyleRow()
+        {
+            var field = new EnumField("Ghosts", style);
+            field.tooltip = "Mesh — the prefab's real geometry at 1:1, rigged characters posed.\n"
+                + "Capsule — one shape per placement, coloured by kind, readable at any zoom.";
+            field.RegisterValueChangedCallback(changed =>
+            {
+                style = (LevelGhostStyle)changed.newValue;
+                SceneView.RepaintAll();
+            });
+
+            // A prefab edited while the overlay is open keeps showing its old shape, because the
+            // posed meshes are cached. This is the way back, and it is next to the toggle because
+            // that is where someone looking at a wrong-shaped ghost will look.
+            var refresh = new Button(() =>
+            {
+                LevelGhostMeshes.Clear();
+                SceneView.RepaintAll();
+            })
+            { text = "↻" };
+            refresh.tooltip = "Rebuild the ghost meshes — after editing one of the prefabs.";
+            refresh.style.flexShrink = 0f;
+            refresh.style.width = 24f;
+
+            var row = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+            field.style.flexGrow = 1f;
+            row.Add(field);
+            row.Add(refresh);
+            return row;
+        }
+
+        /// <summary>The chosen ghost shape, remembered per user across sessions.</summary>
+        private static LevelGhostStyle style
+        {
+            get => (LevelGhostStyle)EditorPrefs.GetInt(k_StyleKey, (int)LevelGhostStyle.Mesh);
+            set => EditorPrefs.SetInt(k_StyleKey, (int)value);
+        }
+
+        private const string k_StyleKey = "PowerOfFire.DrawToPlay.LevelManifest.GhostStyle";
 
         private VisualElement BuildAddRow()
         {
@@ -287,10 +337,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// are standing in each other. A ghost of the actual mesh answers that at a glance, and it
         /// stays a ghost so it can never be mistaken for something selectable.
         ///
-        /// Drawn straight from the prefab's mesh filters rather than by instantiating anything: a
-        /// scene that spawns preview objects has objects in it, which is the one thing a
-        /// manifest-driven level is supposed not to have. What cannot be drawn that way — a rigged
-        /// character above all — gets a capsule instead (<see cref="DrawStandIn"/>).
+        /// TWO SHAPES, THE AUTHOR'S CHOICE (<see cref="LevelGhostStyle"/>): the prefab's real
+        /// geometry at 1:1, or a capsule coloured by kind. Nothing is instantiated into the open
+        /// scene either way — a scene that spawns preview objects has objects in it, which is the
+        /// one thing a manifest-driven level is supposed not to have (rigged characters are posed
+        /// in a preview scene instead, see <see cref="LevelGhostMeshes"/>).
         /// </summary>
         /// <param name="manifest">The level's manifest — read for its ground plane, so the ghost
         /// stands the way the spawner will stand it.</param>
@@ -325,9 +376,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 s_Hologram.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             }
 
-            s_Hologram.color = selected
-                ? new Color(0.35f, 0.85f, 1f, 0.45f)
-                : new Color(0.55f, 0.75f, 0.9f, 0.22f);
+            // KIND DECIDES THE COLOUR, selection decides how solid — two channels rather than one,
+            // so "which of these is an NPC" and "which one am I editing" are both readable at once.
+            Color tint = ColourOfKind(def.kind.entryName);
+            s_Hologram.color = new Color(tint.r, tint.g, tint.b, selected ? 0.55f : 0.28f);
             // AFTER the colour, and before any draw: SetPass is what binds the material's CURRENT
             // values. Without it Graphics.DrawMeshNow inherits whatever pass the scene view last
             // bound, which is why nothing recognisable appeared.
@@ -337,47 +389,77 @@ namespace PowerOfFire.DrawToPlay.Editor
             // ghost cannot be turned a different way from the thing it is a ghost OF.
             Quaternion facing = manifest.Facing(def.facing);
 
-            if (prefab == null)
+            IReadOnlyList<LevelGhostMeshes.Part> parts = style == LevelGhostStyle.Mesh
+                ? LevelGhostMeshes.Of(prefab)
+                : null;
+
+            // Capsule mode, and mesh mode for a prefab with no geometry at all (a look that is all
+            // particles, sprites or code) — an object standing somewhere still has to show.
+            if (parts == null || parts.Count == 0)
             {
                 DrawStandIn(world, facing, manifest.Forward(def.facing));
                 return;
             }
 
-            var drew = false;
             Matrix4x4 place = Matrix4x4.TRS(world, facing * prefab.transform.rotation, Vector3.one);
-            MeshFilter[] filters = prefab.GetComponentsInChildren<MeshFilter>(true);
-            for (int i = 0; i < filters.Length; i++)
+            for (int i = 0; i < parts.Count; i++)
             {
-                Mesh mesh = filters[i].sharedMesh;
+                Mesh mesh = parts[i].mesh;
                 if (mesh == null)
                     continue;
-                // The child's own transform, relative to the prefab root, so a multi-part prefab
-                // keeps its shape.
-                Matrix4x4 local = prefab.transform.worldToLocalMatrix
-                    * filters[i].transform.localToWorldMatrix;
                 for (int sub = 0; sub < mesh.subMeshCount; sub++)
-                    Graphics.DrawMeshNow(mesh, place * local, sub);
-                drew = true;
+                    Graphics.DrawMeshNow(mesh, place * parts[i].local, sub);
+            }
+        }
+
+        /// <summary>
+        /// The colour a KIND is drawn in — derived, not authored, so a project that adds a kind
+        /// gets a distinct colour for free and the same kind looks the same in every level.
+        /// Authoring it would be one more field to fill in and one more thing left at white.
+        ///
+        /// FROM THE KIND'S POSITION IN THE REGISTRY, spaced by the golden ratio. Hashing the name
+        /// was the obvious idea and it does not work: hashes are uniform, not SEPARATED, and this
+        /// project's own two kinds landed 0.036 of the wheel apart — 'npc' and 'pickup' both drew
+        /// green, which is precisely the distinction the colour exists to make. The registry is an
+        /// ordered list, and stepping by 0.618 of the wheel per index is the standard way to keep
+        /// consecutive entries maximally far apart, so the first several kinds are unmistakable.
+        ///
+        /// A kind the registry does not list — a row left behind by a renamed kind — still has to
+        /// draw, and falls back to a hash. <c>string.GetHashCode</c> is deliberately not used: it
+        /// is randomised per process, so the level would change colour on every editor restart.
+        /// </summary>
+        /// <param name="kind">The kind row's name; empty is legal and gets the neutral tint.</param>
+        /// <returns>A saturated, bright colour — alpha is the caller's business.</returns>
+        private Color ColourOfKind(string kind)
+        {
+            if (string.IsNullOrEmpty(kind))
+                return k_NoKindTint;
+
+            LevelObjectKindRegistry registry = Kinds();
+            if (registry != null)
+            {
+                for (int i = 0; i < registry.entries.Count; i++)
+                {
+                    if (registry.entries[i] != null
+                        && string.Equals(registry.entries[i].name, kind, StringComparison.Ordinal))
+                        return Hue(i * 0.618034f % 1f);
+                }
             }
 
-            // A RIGGED CHARACTER GETS THE CAPSULE, and this is the case that motivates having one.
-            // A skinned mesh's vertices are not where the character is: they are in bone space,
-            // and the bind poses put them into a shape. Drawn straight, M21's mannequin has mesh
-            // bounds of 2cm on a transform scaled ×100 — measured — so it rasterises as a thin
-            // vertical sliver, which is worse than nothing because it looks like a rendering fault
-            // rather than a missing feature. Posing it properly would mean instantiating the
-            // prefab and baking it, and putting objects in the scene is the one thing a
-            // manifest-driven level exists to avoid.
-            var rigged = false;
-            SkinnedMeshRenderer[] skins = prefab.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-            for (int i = 0; i < skins.Length && !rigged; i++)
-                rigged = skins[i].sharedMesh != null;
-
-            // A prefab whose look is all code, particles or sprites has nothing to draw either. It
-            // is still an object standing somewhere, so it gets the stand-in rather than vanishing.
-            if (rigged || !drew)
-                DrawStandIn(world, facing, manifest.Forward(def.facing));
+            uint hash = 2166136261u;
+            for (int i = 0; i < kind.Length; i++)
+                hash = (hash ^ kind[i]) * 16777619u;
+            return Hue(hash % 3600u / 3600f);
         }
+
+        private static Color Hue(float hue)
+        {
+            return Color.HSVToRGB(hue, 0.7f, 1f);
+        }
+
+        /// <summary>What a placement with no kind is drawn in — a neutral that is not on the wheel,
+        /// so "unset" never looks like one of the kinds.</summary>
+        private static readonly Color k_NoKindTint = new Color(0.7f, 0.7f, 0.72f);
 
         /// <summary>
         /// The shape a placement gets when there is no mesh to show: a person-sized CAPSULE.
