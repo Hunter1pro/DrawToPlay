@@ -112,7 +112,133 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Root.Add(BuildAddRow());
             m_Root.Add(BuildList());
             m_Root.Add(BuildSelected());
+            m_Root.Add(BuildSaveRow());
             SceneView.RepaintAll();
+        }
+
+        /// <summary>
+        /// CLEARING SAVED PROGRESS, from where the level is being edited.
+        ///
+        /// WHY IT BELONGS HERE. A manifest is what a level was authored as; a save is what has
+        /// happened to it since, and while you are building a level the two disagree constantly —
+        /// you kill the raider once to see the drop, and now the raider is not there to test
+        /// anything else with. Hunting down a JSON file in a platform-specific folder is the
+        /// alternative, and it is the reason people end up deleting the wrong folder.
+        ///
+        /// THREE BUTTONS, because there are three different things you want. THIS LEVEL is the
+        /// common one: put the fight back without losing the items and conversations that got you
+        /// there. SHARED is the opposite test — walk into a finished level with empty pockets.
+        /// ALL is starting over.
+        ///
+        /// The overlay knows nothing about saves. It finds implementations of
+        /// <see cref="ILevelProgressStore"/> by type and asks them; a project with no save has no
+        /// row here, and a project with two gets two.
+        /// </summary>
+        private VisualElement BuildSaveRow()
+        {
+            var container = new VisualElement { style = { marginTop = 8f } };
+            IReadOnlyList<ILevelProgressStore> stores = Stores();
+            if (stores.Count == 0)
+                return container;
+
+            var any = false;
+            for (int i = 0; i < stores.Count; i++)
+            {
+                ILevelProgressStore store = stores[i];
+                bool has;
+                try
+                {
+                    has = store.hasSave;
+                }
+                catch (Exception)
+                {
+                    continue;   // a store that cannot answer is a store with nothing to offer
+                }
+                if (!has)
+                    continue;
+
+                any = true;
+                container.Add(new Label(store.displayName)
+                {
+                    style = { unityFontStyleAndWeight = FontStyle.Bold, marginTop = 4f }
+                });
+
+                var row = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+                row.Add(SaveButton("This level", store,
+                    "Forget what happened in THIS level — its dead, its taken pickups — and leave "
+                        + "the rest of the session alone.",
+                    () => store.ClearLevel(PlacementIds(), m_Level.name)));
+                row.Add(SaveButton("Shared", store,
+                    "Forget what is carried and what has been said, and leave every level's own "
+                        + "state alone.",
+                    store.ClearShared));
+                row.Add(SaveButton("All", store,
+                    "Throw the whole save away and start over.",
+                    store.ClearAll));
+                container.Add(row);
+            }
+
+            if (!any)
+                container.Add(Hint("No saved progress yet."));
+            return container;
+        }
+
+        /// <summary>One clear button, with the confirmation a destructive edit outside the undo
+        /// system has to have — nothing here can be taken back with Ctrl+Z.</summary>
+        private Button SaveButton(string label, ILevelProgressStore store, string tooltip,
+            Action clear)
+        {
+            var button = new Button(() =>
+            {
+                if (!EditorUtility.DisplayDialog("Clear saved progress",
+                    tooltip + "\n\n" + store.displayName + " — this cannot be undone.",
+                    "Clear " + label, "Cancel"))
+                    return;
+                clear();
+                Rebuild();
+            })
+            { text = label, tooltip = tooltip };
+            button.style.flexGrow = 1f;
+            button.style.flexBasis = 0f;
+            return button;
+        }
+
+        /// <summary>The ids of this level's rows — what "this level's saved state" MEANS to a
+        /// save keyed on placements.</summary>
+        private List<string> PlacementIds()
+        {
+            var ids = new List<string>();
+            if (m_Level == null || m_Level.objects == null)
+                return ids;
+            for (int i = 0; i < m_Level.objects.entries.Count; i++)
+            {
+                LevelObjectDef row = m_Level.objects.entries[i];
+                if (row != null && !string.IsNullOrEmpty(row.id))
+                    ids.Add(row.id);
+            }
+            return ids;
+        }
+
+        /// <summary>Every save this project has, built fresh each time the panel is — a store is
+        /// a handle to a file, not state, and holding one across a domain reload buys nothing.</summary>
+        private static IReadOnlyList<ILevelProgressStore> Stores()
+        {
+            var stores = new List<ILevelProgressStore>();
+            foreach (Type type in TypeCache.GetTypesDerivedFrom<ILevelProgressStore>())
+            {
+                if (type.IsAbstract || type.IsInterface || type.GetConstructor(Type.EmptyTypes) == null)
+                    continue;
+                try
+                {
+                    stores.Add((ILevelProgressStore)Activator.CreateInstance(type));
+                }
+                catch (Exception error)
+                {
+                    Debug.LogWarning("[Level Manifest] could not create " + type.Name
+                        + " to offer its save: " + error.Message);
+                }
+            }
+            return stores;
         }
 
         /// <summary>
