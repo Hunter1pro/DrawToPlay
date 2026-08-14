@@ -204,20 +204,51 @@ namespace PowerOfFire.DrawToPlay.Editor
 
                 case GraphTaskParameterKind.String:
                 {
+                    // THE WIRE, resolved first: a value picked with ⛃ carries the entry's id
+                    // (GraphTaskParameterOverride.entryId), and everything below keys off it.
+                    string wiredId = index >= 0
+                        ? Element(values, index).FindPropertyRelative("entryId").stringValue
+                        : string.Empty;
+                    StateTreeRegistryEntry wiredEntry = FindEntry(setProperty, wiredId);
+
+                    // WIRE HEAL: the entry's CURRENT name is what the row must carry — a level
+                    // renamed under a wired destination would otherwise keep travelling to the
+                    // old name. Written only when drifted, so opening the inspector normally
+                    // dirties nothing.
+                    if (wiredEntry != null && index >= 0 && !string.Equals(wiredEntry.name,
+                        Element(values, index).FindPropertyRelative("stringValue").stringValue,
+                        StringComparison.Ordinal))
+                        Write(setProperty, values, parameter, indexOf, "stringValue",
+                            wiredEntry.name);
+
                     var text = new TextField { isDelayed = true };
                     text.style.flexGrow = 1f;
-                    text.SetValueWithoutNotify(index >= 0
-                        ? Element(values, index).FindPropertyRelative("stringValue").stringValue
-                        : parameter.stringValue ?? string.Empty);
+                    text.SetValueWithoutNotify(wiredEntry != null
+                        ? wiredEntry.name
+                        : index >= 0
+                            ? Element(values, index).FindPropertyRelative("stringValue").stringValue
+                            : parameter.stringValue ?? string.Empty);
                     text.RegisterValueChangedCallback(changed => Write(setProperty, values,
                         parameter, indexOf, "stringValue", changed.newValue ?? string.Empty));
+
+                    // LOCKED WHILE THE WIRE STANDS — the M14 rule, a third time: hand-editing a
+                    // picked row's name would silently turn a checked reference back into
+                    // spelling. Unlock is an explicit choice, the ⛃ menu's '✎ Typed value'.
+                    bool wired = !string.IsNullOrEmpty(wiredId);
+                    text.SetEnabled(!wired);
+                    if (wired)
+                        text.tooltip = wiredEntry != null
+                            ? $"Wired to the '{wiredEntry.name}' row. Repick with ⛃, or choose "
+                                + "its '✎ Typed value' to hand-edit."
+                            : "Wired to a row that no longer exists — repick with ⛃, or choose "
+                                + "'✎ Typed value' to hand-edit. Until then the last name stands.";
 
                     // A String parameter is almost always a NAME the program resolves — an item,
                     // a level, a tag. The rows that could legally be that name are exactly the
                     // ones this registry declared in Depends On, so they are one click away
                     // instead of something to remember and mistype. Still a text field, because
                     // a parameter that is not a registry name (a greeting, a key) must stay
-                    // typeable — the picker fills it in, it does not replace it.
+                    // typeable — the picker fills AND WIRES it, '✎ Typed value' unwires.
                     var pair = new VisualElement();
                     pair.style.flexDirection = FlexDirection.Row;
                     pair.style.flexGrow = 1f;
@@ -226,9 +257,35 @@ namespace PowerOfFire.DrawToPlay.Editor
                     var pick = new Button { text = "⛃" };
                     pick.style.width = 22f;
                     pick.style.flexShrink = 0f;
-                    pick.tooltip = "Pick a row from the registries this one Depends On.";
-                    pick.clicked += () => ShowEntryMenu(setProperty, pick,
-                        picked => text.value = picked);
+                    pick.tooltip = "Pick a row from the registries this one Depends On — the "
+                        + "field then locks to it. '✎ Typed value' makes it free text again.";
+                    pick.clicked += () =>
+                    {
+                        // Re-read at CLICK time through indexOf: the row may have been created
+                        // by a Write since this field was built, and the build-time index would
+                        // then point at nothing.
+                        int now = indexOf();
+                        bool nowWired = now >= 0 && !string.IsNullOrEmpty(
+                            Element(values, now).FindPropertyRelative("entryId").stringValue);
+                        ShowEntryMenu(setProperty, pick, nowWired, (rowName, rowId) =>
+                        {
+                            if (rowId == null)
+                            {
+                                // Typed value: break the wire, keep the text — the author may
+                                // only want to tweak what was picked.
+                                Write(setProperty, values, parameter, indexOf, "entryId", "");
+                                text.SetEnabled(true);
+                                text.tooltip = "";
+                                return;
+                            }
+                            Write(setProperty, values, parameter, indexOf, "stringValue", rowName);
+                            Write(setProperty, values, parameter, indexOf, "entryId", rowId);
+                            text.SetValueWithoutNotify(rowName);
+                            text.SetEnabled(false);
+                            text.tooltip = $"Wired to the '{rowName}' row. Repick with ⛃, or "
+                                + "choose its '✎ Typed value' to hand-edit.";
+                        });
+                    };
                     pair.Add(pick);
 
                     return pair;
@@ -260,12 +317,20 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <param name="setProperty">Anything from the registry's SerializedObject — the owning
         /// asset is what the closure starts from.</param>
         /// <param name="anchor">Element to drop the menu under.</param>
-        /// <param name="picked">Called with the chosen row's name.</param>
+        /// <param name="wired">Whether the row currently carries an entry wire — decides which
+        /// menu item wears the checkmark.</param>
+        /// <param name="picked">Called with the chosen row's name and id — or (null, null) for
+        /// the '✎ Typed value' item, which breaks the wire and frees the field.</param>
         private static void ShowEntryMenu(SerializedProperty setProperty, VisualElement anchor,
-            Action<string> picked)
+            bool wired, Action<string, string> picked)
         {
             var menu = new GenericMenu();
             var owner = setProperty.serializedObject.targetObject as StateTreeRegistryAsset;
+
+            // The way OUT of a wire, in the same menu that makes one — mirroring how a ⚿-bound
+            // key unbinds through its own picker rather than through a second button.
+            menu.AddItem(new GUIContent("✎ Typed value"), !wired, () => picked(null, null));
+            menu.AddSeparator("");
 
             var reachable = new List<StateTreeRegistryAsset>();
             owner?.CollectWithDependencies(reachable);
@@ -289,8 +354,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                         ? string.Empty
                         : entry.group + "/";
                     string row = entry.name;
+                    string rowId = entry.id;
                     menu.AddItem(new GUIContent(registry.entryType.Name + "/" + group + row),
-                        false, () => picked(row));
+                        false, () => picked(row, rowId));
                     offered++;
                 }
             }
@@ -303,6 +369,32 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             menu.DropDown(anchor.worldBound);
+        }
+
+        /// <summary>The entry a wire names, from the owner's Depends On closure — the same set
+        /// the ⛃ offers, so a wire can only resolve to something that could have been picked.
+        /// Null for no wire, no owner, or a row that no longer exists (the wear case the
+        /// tooltip explains).</summary>
+        private static StateTreeRegistryEntry FindEntry(SerializedProperty setProperty,
+            string entryId)
+        {
+            if (string.IsNullOrEmpty(entryId))
+                return null;
+            var owner = setProperty.serializedObject.targetObject as StateTreeRegistryAsset;
+            if (owner == null)
+                return null;
+
+            var reachable = new List<StateTreeRegistryAsset>();
+            owner.CollectWithDependencies(reachable);
+            for (int i = 0; i < reachable.Count; i++)
+            {
+                if (reachable[i] == owner)
+                    continue;
+                StateTreeRegistryEntry entry = reachable[i].FindById(entryId);
+                if (entry != null)
+                    return entry;
+            }
+            return null;
         }
 
         /// <summary>Write one field of this parameter's row, creating the row if the author edited
@@ -451,6 +543,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             SerializedProperty source = element.FindPropertyRelative("sourceParameterId");
             if (source != null)
                 source.stringValue = string.Empty;
+            SerializedProperty entry = element.FindPropertyRelative("entryId");
+            if (entry != null)
+                entry.stringValue = string.Empty;
             return index;
         }
 

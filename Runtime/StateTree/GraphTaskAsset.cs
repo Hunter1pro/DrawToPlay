@@ -275,6 +275,21 @@ namespace PowerOfFire.DrawToPlay
         public string sourceParameterId;
 
         /// <summary>
+        /// ENTRY WIRE: id of a REGISTRY ENTRY this row's String value was picked from with the ⛃
+        /// picker, rather than typed — the M14 rule a third time, now for registry rows.
+        /// <see cref="stringValue"/> holds the entry's NAME, which is the runtime contract (the
+        /// RegistryEntry convention: names, checked in the editor, no lookup at runtime); this id
+        /// is the wire the inspector locks the field on — a picked destination hand-edited into a
+        /// misspelling is exactly the failure picking exists to prevent — and heals the shown name
+        /// from when the entry is renamed. Empty = free-typed, still legal: a String parameter
+        /// that is a greeting rather than a row name never carries one.
+        ///
+        /// Appended last, like every field of this row: the ints and strings above are in baked
+        /// assets already.
+        /// </summary>
+        public string entryId = "";
+
+        /// <summary>
         /// THE matching rule, in one place because two appliers implement it and a disagreement
         /// between them would show as an override that the inspector says is live and the runtime
         /// ignores. A row binds to a declaration when both carry the SAME non-empty id — no name

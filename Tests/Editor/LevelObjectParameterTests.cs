@@ -83,7 +83,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             var row = new LevelObjectDef { tree = MakeDeclaringTree() };
             var argument = new GraphTaskParameterOverride
             {
-                name = "destination", enabled = true, stringValue = "ridge", id = k_ParamId
+                name = "destination", enabled = true, stringValue = "ridge", id = k_ParamId,
+                entryId = "level.ridge"
             };
             row.parameters.values.Add(argument);
 
@@ -97,6 +98,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual("ridge", host.parameterOverrides[0].stringValue);
             Assert.AreEqual(k_ParamId, host.parameterOverrides[0].id,
                 "the id is the binding (M7h) and must survive the copy");
+            Assert.AreEqual("level.ridge", host.parameterOverrides[0].entryId,
+                "the entry wire survives the copy — it is authored data like the rest");
         }
 
         // ------------------------------------------------------------------------- helpers
