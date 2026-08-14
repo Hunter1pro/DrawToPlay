@@ -91,6 +91,23 @@ namespace PowerOfFire.DrawToPlay
         [StateTreePick]
         public StateTreeAsset tree;
 
+        /// <summary>
+        /// The ARGUMENTS of <see cref="tree"/> — this placement's values for the parameters
+        /// the tree declares (<see cref="StateTreeAsset.parameters"/>), as the same id-bound
+        /// override rows every other caller of a tree uses
+        /// (<see cref="StateTreeContextHost.parameterOverrides"/>, <c>RunSubTreeTask</c>).
+        /// The spawner copies them onto the spawned object's host, and the executor seeds the
+        /// effective values into the blackboard under the parameters' names before anything
+        /// ticks — so a task reads a plain key and never knows who supplied it.
+        ///
+        /// This is what makes a per-placement tree more than a per-placement COPY: one "exit"
+        /// tree serves every way out because each row hands it a different destination, the
+        /// Blueprint instance model the M7h rows exist for. Empty is the ordinary case: the
+        /// tree's declared defaults stand.
+        /// </summary>
+        public List<GraphTaskParameterOverride> parameterOverrides =
+            new List<GraphTaskParameterOverride>();
+
         public Vector2 position;
 
         /// <summary>
