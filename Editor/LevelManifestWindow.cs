@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using UnityEditor;
-using UnityEditor.Overlays;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -10,7 +9,7 @@ using UnityEngine.UIElements;
 namespace PowerOfFire.DrawToPlay.Editor
 {
     /// <summary>
-    /// THE LEVEL EDITOR for a manifest-driven level: open an area's scene and this overlay
+    /// THE LEVEL EDITOR for a manifest-driven level: open an area's scene and this window
     /// shows that level's object rows — add, remove, configure, and DRAG THEM IN THE SCENE.
     ///
     /// The scene holds only the arena, so there is nothing to select in it; the placements
@@ -18,21 +17,33 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// authored: the open scene picks the level (its <see cref="LevelContent.scenePath"/>
     /// matches), a kind dropdown plus Add appends a row at the view's centre, each row is a
     /// button that selects it, and the selected row draws through the normal property
-    /// drawers — so kind and entry are the same dropdowns the dashboard shows, with no
-    /// duplicate UI to keep in step.
+    /// drawers — so kind, tree and parameters are the same fields the dashboard shows, with
+    /// no duplicate UI to keep in step.
     ///
-    /// Positions are handles in the scene view: drag to move a row, click to select it. That
-    /// is the part a list cannot do, and the reason this is an overlay rather than a window.
+    /// A dockable WINDOW, not a scene overlay. It started as an overlay for the scene
+    /// handles' sake, but the handles never needed that — any window can subscribe to
+    /// <see cref="SceneView.duringSceneGui"/> — and a selected row's full editor (tree,
+    /// parameters, tags) is taller than a scene view can host: the overlay covered the level
+    /// it was editing and cut its own bottom off. As a window it scrolls, the user docks it
+    /// where they like (first open lands beside the Inspector), and the scene stays visible
+    /// while the handles keep working exactly as before: drag to move a row, click to
+    /// select it.
     /// </summary>
-    [Overlay(typeof(SceneView), k_Id, "Level Manifest", true,
-        defaultDockZone = DockZone.RightColumn,
-        defaultDockPosition = DockPosition.Top,
-        defaultLayout = Layout.Panel,
-        defaultWidth = k_Width)]
-    internal sealed class LevelManifestOverlay : Overlay
+    internal sealed class LevelManifestWindow : EditorWindow
     {
-        private const string k_Id = "Scene View/Level Manifest";
-        private const float k_Width = 300f;
+        [MenuItem("Tools/Draw To Play/Level Manifest")]
+        public static void Open()
+        {
+            // Beside the Inspector on FIRST open — the place the user said this belongs —
+            // and wherever they drag it after that: dock position is theirs, this is only
+            // the default. The type is internal, so a missing resolve degrades to floating.
+            Type inspector = Type.GetType("UnityEditor.InspectorWindow,UnityEditor");
+            LevelManifestWindow window = inspector != null
+                ? GetWindow<LevelManifestWindow>(inspector)
+                : GetWindow<LevelManifestWindow>();
+            window.titleContent = new GUIContent("Level Manifest");
+            window.Show();
+        }
 
         /// <summary>Radius of a row's scene handle, in SCREEN pixels — placements have no
         /// size of their own until they spawn, so the handle is a constant target at any
@@ -42,17 +53,24 @@ namespace PowerOfFire.DrawToPlay.Editor
         private VisualElement m_Root;
         private LevelContent m_Level;
         private SerializedObject m_Objects;
-        private int m_Selected = -1;
-        private string m_AddKind = "";
 
-        public override void OnCreated()
+        // SERIALIZED, because an EditorWindow is serialize/deserialized when it is DOCKED and
+        // on every domain reload — a plain field comes back as its C# default, which is how
+        // the selection silently jumped from the row being edited to row zero the moment the
+        // window was dragged into a layout.
+        [SerializeField] private int m_Selected = -1;
+        [SerializeField] private string m_AddKind = "";
+
+        /// <summary>Runs again after every domain reload, which is exactly what these
+        /// subscriptions need — the overlay's OnCreated only ran once per overlay life.</summary>
+        private void OnEnable()
         {
             SceneView.duringSceneGui += OnSceneGui;
             EditorSceneManagerHooks();
             Undo.undoRedoPerformed += Rebuild;
         }
 
-        public override void OnWillBeDestroyed()
+        private void OnDisable()
         {
             SceneView.duringSceneGui -= OnSceneGui;
             UnityEditor.SceneManagement.EditorSceneManager.sceneOpened -= OnSceneOpened;
@@ -72,11 +90,21 @@ namespace PowerOfFire.DrawToPlay.Editor
             Rebuild();
         }
 
-        public override VisualElement CreatePanelContent()
+        /// <summary>The window's whole body is one SCROLL VIEW — the overlay's fatal flaw was
+        /// a fixed panel that cut the selected row's editor off at the scene view's edge.</summary>
+        private void CreateGUI()
         {
-            m_Root = new VisualElement { style = { width = new StyleLength(k_Width) } };
+            var scroll = new ScrollView(ScrollViewMode.Vertical);
+            scroll.style.flexGrow = 1f;
+            rootVisualElement.Add(scroll);
+
+            m_Root = new VisualElement();
+            m_Root.style.paddingLeft = 6f;
+            m_Root.style.paddingRight = 6f;
+            m_Root.style.paddingTop = 6f;
+            m_Root.style.paddingBottom = 6f;
+            scroll.Add(m_Root);
             Rebuild();
-            return m_Root;
         }
 
         // ---- panel -----------------------------------------------------------------------
@@ -130,7 +158,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// there. SHARED is the opposite test — walk into a finished level with empty pockets.
         /// ALL is starting over.
         ///
-        /// The overlay knows nothing about saves. It finds implementations of
+        /// This window knows nothing about saves. It finds implementations of
         /// <see cref="ILevelProgressStore"/> by type and asks them; a project with no save has no
         /// row here, and a project with two gets two.
         /// </summary>
@@ -260,7 +288,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 SceneView.RepaintAll();
             });
 
-            // A prefab edited while the overlay is open keeps showing its old shape, because the
+            // A prefab edited while this window is open keeps showing its old shape, because the
             // posed meshes are cached. This is the way back, and it is next to the toggle because
             // that is where someone looking at a wrong-shaped ghost will look.
             var refresh = new Button(() =>
@@ -705,8 +733,8 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         // ---- lookups ---------------------------------------------------------------------
 
-        /// <summary>The level whose scene is open — the one thing that makes this an overlay
-        /// on the scene rather than a floating asset editor.</summary>
+        /// <summary>The level whose scene is open — the one thing that makes this a scene
+        /// editor rather than a floating asset editor.</summary>
         private void ResolveLevel()
         {
             if (m_Level != null)
@@ -745,7 +773,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// the level, the catalog is a list of names).
         /// </summary>
         /// <returns>The catalog, or null when nothing catalogs this level yet — in which case the
-        /// overlay offers no kinds rather than the wrong ones.</returns>
+        /// window offers no kinds rather than the wrong ones.</returns>
         private LevelObjectKindRegistry Kinds()
         {
             if (m_Kinds != null || m_Level == null)
