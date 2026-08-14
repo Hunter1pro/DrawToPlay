@@ -1984,5 +1984,108 @@ namespace PowerOfFire.DrawToPlay.Editor
             target.name = desired;
             EditorUtility.SetDirty(target);
         }
+
+        // --- implicit flow (M22) ----------------------------------------------------------
+
+        /// <summary>
+        /// The GHOST EDGE, in this frontend's idiom: where a completed state goes when none of
+        /// its declared transitions fire, as a sentence for the inspector. A default an author
+        /// can see is a convention; one they cannot is a trap — this is the seeing half.
+        /// Mirrors <c>StateTreeExecutor.ImplicitAdvance</c> statically (conditions cannot be
+        /// evaluated here, so a parent that HAS completion edges is reported as deciding).
+        /// </summary>
+        internal static string DescribeImplicitFlow(StateTreeAsset tree, StateTreeNodeAsset node)
+        {
+            if (tree == null || node == null)
+                return string.Empty;
+            if (node.completeWhen == StateTreeCompleteWhen.Never)
+                return "∞ Resident: this state never completes — interrupts are its only way out.";
+            if (node.completionFlow == StateTreeCompletionFlow.Hold)
+                return "⊣ Holds on completion: the declared edges stay live; nothing implicit.";
+
+            StateTreeNodeAsset current = node;
+            var guard = 0;
+            while (current != null && guard++ < DepthGuard)
+            {
+                StateTreeNodeAsset parent = ParentOf(tree, current);
+                if (parent == null)
+                    return "⇢ Implicit: completing FINISHES the tree.";
+
+                int slot = parent.children.IndexOf(current);
+                if (slot >= 0 && slot + 1 < parent.children.Count
+                    && parent.children[slot + 1] != null)
+                {
+                    StateTreeNodeAsset next = ResolveEntryNode(parent.children[slot + 1]);
+                    string id = next != null ? next.nodeId : "?";
+                    return current == node
+                        ? "⇢ Implicit: on completion, flows to '" + id + "' (its next sibling)."
+                        : "⇢ Implicit: bubbles up and flows to '" + id + "'.";
+                }
+
+                if (HasCompletionEdge(parent))
+                    return "⇢ Implicit: bubbles to parent '" + parent.nodeId
+                        + "', whose completion edges decide.";
+                if (parent.completionFlow == StateTreeCompletionFlow.Hold)
+                    return "⇢ Implicit: bubbles to parent '" + parent.nodeId + "', which holds.";
+                current = parent;
+            }
+            return string.Empty;
+        }
+
+        /// <summary>The same fact as a BADGE for the outliner row: '∞' resident, '⊣' hold,
+        /// '⇢id' the direct implicit sibling, '⇢↑' a bubble, '⇢■' finishes the tree.</summary>
+        internal static string ImplicitBadge(StateTreeAsset tree, StateTreeNodeAsset node)
+        {
+            if (tree == null || node == null)
+                return string.Empty;
+            if (node.completeWhen == StateTreeCompleteWhen.Never)
+                return "∞";
+            if (node.completionFlow == StateTreeCompletionFlow.Hold)
+                return "⊣";
+
+            StateTreeNodeAsset parent = ParentOf(tree, node);
+            if (parent == null)
+                return "⇢■";
+            int slot = parent.children.IndexOf(node);
+            if (slot >= 0 && slot + 1 < parent.children.Count && parent.children[slot + 1] != null)
+            {
+                StateTreeNodeAsset next = ResolveEntryNode(parent.children[slot + 1]);
+                return next != null ? "⇢" + next.nodeId : "⇢?";
+            }
+            return "⇢↑";
+        }
+
+        private static bool HasCompletionEdge(StateTreeNodeAsset node)
+        {
+            for (var i = 0; i < node.transitions.Count; ++i)
+            {
+                if (node.transitions[i] != null && !node.transitions[i].checkWhileRunning)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>The authored parent of a node — a WALK, not an index: the editor works on
+        /// small authored trees and holds no per-tree caches to invalidate.</summary>
+        internal static StateTreeNodeAsset ParentOf(StateTreeAsset tree, StateTreeNodeAsset node)
+        {
+            return tree != null && tree.root != null ? ParentOf(tree.root, node, 0) : null;
+        }
+
+        private static StateTreeNodeAsset ParentOf(StateTreeNodeAsset candidate,
+            StateTreeNodeAsset node, int depth)
+        {
+            if (candidate == null || depth > DepthGuard)
+                return null;
+            for (var i = 0; i < candidate.children.Count; ++i)
+            {
+                if (candidate.children[i] == node)
+                    return candidate;
+                StateTreeNodeAsset found = ParentOf(candidate.children[i], node, depth + 1);
+                if (found != null)
+                    return found;
+            }
+            return null;
+        }
     }
 }

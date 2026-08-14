@@ -625,7 +625,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             return text;
         }
 
-        private static string RowBadge(StateTreeNodeAsset node)
+        private string RowBadge(StateTreeNodeAsset node)
         {
             var interrupts = 0;
             for (var i = 0; i < node.transitions.Count; ++i)
@@ -635,7 +635,13 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             var badge = $"T{node.tasks.Count} →{node.transitions.Count}";
-            return interrupts > 0 ? badge + $" ⚡{interrupts}" : badge;
+            if (interrupts > 0)
+                badge += $" ⚡{interrupts}";
+            // The GHOST EDGE (M22), in badge form: where completion goes when no declared edge
+            // fires — '⇢id' the implicit sibling, '⇢↑' a bubble, '⇢■' finishes the tree,
+            // '∞' resident, '⊣' hold. A default the author can see instead of a trap.
+            var ghost = StateTreeEditorOps.ImplicitBadge(m_Tree, node);
+            return string.IsNullOrEmpty(ghost) ? badge : badge + "  " + ghost;
         }
 
         private void OnRowSelectionChanged(IEnumerable<object> selection)

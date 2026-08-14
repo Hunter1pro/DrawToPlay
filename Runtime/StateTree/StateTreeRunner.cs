@@ -35,6 +35,11 @@ namespace PowerOfFire.DrawToPlay
 
         public event Action treeStarted;
         public event Action treeStopped;
+
+        /// <summary>The tree ran off its end (M22) — re-raised from
+        /// <see cref="StateTreeExecutor.treeFinished"/>, before the stop that follows it.</summary>
+        public event Action treeFinished;
+
         public event Action<string> nodeEntered;
         public event Action<string> nodeLeft;
         public event Action<string, string> activeNodeChanged;
@@ -104,6 +109,7 @@ namespace PowerOfFire.DrawToPlay
             };
             m_Executor.treeStarted += RaiseTreeStarted;
             m_Executor.treeStopped += RaiseTreeStopped;
+            m_Executor.treeFinished += RaiseTreeFinished;
             m_Executor.nodeEntered += RaiseNodeEntered;
             m_Executor.nodeLeft += RaiseNodeLeft;
             m_Executor.activeNodeChanged += RaiseActiveNodeChanged;
@@ -115,6 +121,8 @@ namespace PowerOfFire.DrawToPlay
         private void RaiseTreeStarted() => treeStarted?.Invoke();
 
         private void RaiseTreeStopped() => treeStopped?.Invoke();
+
+        private void RaiseTreeFinished() => treeFinished?.Invoke();
 
         private void RaiseNodeEntered(string nodeId) => nodeEntered?.Invoke(nodeId);
 

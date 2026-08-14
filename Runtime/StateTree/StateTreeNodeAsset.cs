@@ -15,6 +15,14 @@ namespace PowerOfFire.DrawToPlay
         public List<StateTreeNodeAsset> children = new List<StateTreeNodeAsset>();
         public List<StateTreeTransition> transitions = new List<StateTreeTransition>();
 
+        /// <summary>When this state counts as complete (M22) — the gate on its on-completion
+        /// transitions and the implicit flow. Default keeps the pre-M22 rule.</summary>
+        public StateTreeCompleteWhen completeWhen = StateTreeCompleteWhen.AllTasks;
+
+        /// <summary>Where completion goes when no declared transition fires (M22): the next
+        /// sibling by default — children in order are a sequence — or Hold to stay put.</summary>
+        public StateTreeCompletionFlow completionFlow = StateTreeCompletionFlow.NextSibling;
+
         /// <summary>
         /// This state's wires from the TREE's declared parameters into the serialized fields of the
         /// tasks and transition conditions above (M7i). A parameter otherwise only reaches a task

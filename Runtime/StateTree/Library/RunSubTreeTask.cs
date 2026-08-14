@@ -159,16 +159,33 @@ namespace PowerOfFire.DrawToPlay
                 logContext = context.owner,
                 parameterOverrides = ResolvedOverrides(context)
             };
+            // A sub-tree that runs off its end (M22 implicit flow past the root) is a call
+            // that RETURNED, and the wrapper's status has to say so — before M22 a stopped
+            // executor could only mean "never really started", which is why the flag exists
+            // rather than reading isRunning alone.
+            m_Finished = false;
+            m_Executor.treeFinished += OnSubTreeFinished;
             m_Executor.StartTree();
         }
 
+        private void OnSubTreeFinished()
+        {
+            m_Finished = true;
+        }
+
+        /// <summary>Whether the child machine FINISHED (ran off its end) as opposed to never
+        /// starting or being stopped — set by <see cref="StateTreeExecutor.treeFinished"/>.
+        /// Not serialized; reset per activation.</summary>
+        private bool m_Finished;
+
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
         {
-            // A refused entry (no tree, cycle, too deep) or a sub-tree that could not start
-            // — the executor already logged why — fails, so the parent state can transition
-            // away instead of hanging on a task that will never do anything.
+            // A completed sub-tree is a returned call: Success. A refused entry (no tree,
+            // cycle, too deep) or a sub-tree that could not start — the executor already
+            // logged why — fails, so the parent state can transition away instead of hanging
+            // on a task that will never do anything.
             if (m_Aborted || m_Executor == null || !m_Executor.isRunning)
-                return StateTreeStatus.Failure;
+                return m_Finished ? StateTreeStatus.Success : StateTreeStatus.Failure;
 
             // The entry state itself may already be terminal (a one-state "always succeed"
             // tree), so classify before ticking as well as after. A single TickTree performs
@@ -178,6 +195,8 @@ namespace PowerOfFire.DrawToPlay
                 return status;
 
             m_Executor.TickTree(deltaTime);
+            if (m_Finished)
+                return StateTreeStatus.Success;
             return Classify(m_Executor.activeNodeId);
         }
 

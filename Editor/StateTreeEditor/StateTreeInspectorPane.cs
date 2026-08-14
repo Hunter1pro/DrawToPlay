@@ -2292,6 +2292,53 @@ namespace PowerOfFire.DrawToPlay.Editor
             });
             m_Root.Add(nameField);
 
+            // THE M22 COMPLETION KNOBS, beside the identity because they are what the state
+            // MEANS: when it counts as done, and where done goes when no edge says.
+            var completeField = new EnumField("Complete When", m_Node.completeWhen);
+            completeField.tooltip = "All Tasks — every blocking task finished (the default). "
+                + "Any Task — one finisher is enough; the rest are cancelled on leave. "
+                + "Never — a resident state: interrupts are the only way out.";
+            completeField.RegisterValueChangedCallback(evt =>
+            {
+                var group = StateTreeEditorOps.BeginUndoGroup("Edit Completion");
+                Undo.RecordObject(m_Node, "Edit Completion");
+                m_Node.completeWhen = (StateTreeCompleteWhen)evt.newValue;
+                EditorUtility.SetDirty(m_Node);
+                StateTreeEditorOps.EndUndoGroup(group);
+                m_StructuralChanged?.Invoke();
+            });
+            m_Root.Add(completeField);
+
+            var flowField = new EnumField("On Complete", m_Node.completionFlow);
+            flowField.tooltip = "Where completion goes when none of the declared transitions "
+                + "fire. Next Sibling — the implicit sequence: children in order, a last child "
+                + "bubbles to its parent, the root finishing ends the tree. Hold — complete "
+                + "but stay, keeping the declared edges live.";
+            flowField.RegisterValueChangedCallback(evt =>
+            {
+                var group = StateTreeEditorOps.BeginUndoGroup("Edit Completion");
+                Undo.RecordObject(m_Node, "Edit Completion");
+                m_Node.completionFlow = (StateTreeCompletionFlow)evt.newValue;
+                EditorUtility.SetDirty(m_Node);
+                StateTreeEditorOps.EndUndoGroup(group);
+                m_StructuralChanged?.Invoke();
+            });
+            m_Root.Add(flowField);
+
+            // The GHOST EDGE, spelled out (M22): what actually happens on completion with the
+            // settings above and no declared edge firing. Dim, because it is the default — but
+            // present, because a default nobody can see is a trap.
+            var ghost = StateTreeEditorOps.DescribeImplicitFlow(m_Tree, m_Node);
+            if (!string.IsNullOrEmpty(ghost))
+            {
+                var ghostLabel = new Label(ghost);
+                ghostLabel.style.whiteSpace = WhiteSpace.Normal;
+                ghostLabel.style.opacity = 0.65f;
+                ghostLabel.style.marginLeft = 4f;
+                ghostLabel.style.marginBottom = 2f;
+                m_Root.Add(ghostLabel);
+            }
+
             if (m_Node == m_Tree.root)
             {
                 var entry = StateTreeEditorOps.ResolveEntryNode(m_Node);

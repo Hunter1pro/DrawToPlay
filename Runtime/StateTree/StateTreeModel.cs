@@ -40,12 +40,58 @@ namespace PowerOfFire.DrawToPlay
             => battleDetected?.Invoke(enemies);
     }
 
+    /// <summary>
+    /// WHEN a state's tasks count as complete (M22, brief §10.2) — the gate on its
+    /// on-completion transitions and on the implicit flow. Order is serialized — append only.
+    /// </summary>
+    public enum StateTreeCompleteWhen
+    {
+        /// <summary>Every BLOCKING task finished — the original rule, and the default every
+        /// tree authored before M22 keeps. A state with no tasks is complete immediately.</summary>
+        AllTasks = 0,
+
+        /// <summary>At least one task finished this activation; the rest keep running until
+        /// the state is actually left. A state with no tasks is complete immediately here
+        /// too — "any of nothing" reading as "never" would make an empty state a trap.</summary>
+        AnyTask = 1,
+
+        /// <summary>The state never completes: interrupts are the only way out. THE honest
+        /// resident state — what an hour-long WaitTask used to fake.</summary>
+        Never = 2
+    }
+
+    /// <summary>
+    /// Where a COMPLETED state goes when none of its declared on-completion transitions fire
+    /// (M22, brief §10.1). Order is serialized — append only.
+    /// </summary>
+    public enum StateTreeCompletionFlow
+    {
+        /// <summary>The UE default this port adopts: the next sibling; a last sibling bubbles
+        /// completion to its parent (whose own on-completion transitions get a chance, then
+        /// ITS next sibling); the root completing finishes the tree. Children in order ARE a
+        /// sequence — no edges needed. Declared transitions always win over this.</summary>
+        NextSibling = 0,
+
+        /// <summary>Complete but stay: the state keeps its declared on-completion transitions
+        /// live (a condition may pass later) and goes nowhere by default. For states whose
+        /// work is done but whose exit is someone else's decision.</summary>
+        Hold = 1
+    }
+
     /// <summary>Authored as a sub-asset with serialized params; subclasses override the
     /// virtuals. Port of state_tree_task.gd — the runner deep-copies the whole tree on
     /// Start (data.duplicate(true) mirror), so instance fields on a task are safe
     /// per-runner state.</summary>
     public abstract class StateTreeTaskAsset : ScriptableObject
     {
+        /// <summary>False = this task runs while the state lives but does not hold the
+        /// state's completion open (ambient cues, monitors) — the M22 half of
+        /// <see cref="StateTreeCompleteWhen.AllTasks"/>. It still ticks until the state is
+        /// left, and it exits Cancelled like anything else pre-empted.</summary>
+        [Tooltip("Off: the state can complete while this task still runs — for ambient work "
+            + "that should not hold a sequence open.")]
+        public bool blocking = true;
+
         /// <summary>The task's RETURN connections: outputs published to blackboard keys the
         /// moment the task finishes, whatever way the state then leaves — the unconditional
         /// half of routing, bound where the task is mounted. Works for every output producer

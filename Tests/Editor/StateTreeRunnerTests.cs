@@ -305,6 +305,11 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void TaskFinishedInEarlierTick_IsNotExitedAgainByLaterInterrupt()
         {
             var work = MakeNode("work", MakeTask("alpha", 1, StateTreeStatus.Success));
+            // HOLD (M22): this state's exit is a condition someone else flips, so it must
+            // wait complete rather than flow to its next sibling — which is exactly what a
+            // completed state with an unmatched conditional edge does by default since the
+            // implicit flow landed.
+            work.completionFlow = StateTreeCompletionFlow.Hold;
             var idle = MakeNode("idle", MakeTask("idle"));
             var done = MakeNode("done", MakeTask("done"));
             AddTransition(work, "idle", MakeFlagCondition(k_InterruptKey), true);
@@ -318,7 +323,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             runner.StartTree();
 
             runner.TickTree(0.1f);
-            Assert.AreEqual("work", runner.activeNodeId, "completion condition is false, the node stays active with no running tasks");
+            Assert.AreEqual("work", runner.activeNodeId, "a Hold state stays put, complete, "
+                + "with no running tasks");
 
             runner.context.blackboard[k_InterruptKey] = true;
             runner.TickTree(0.1f);

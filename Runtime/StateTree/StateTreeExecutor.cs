@@ -93,6 +93,14 @@ namespace PowerOfFire.DrawToPlay
 
         public event Action treeStarted;
         public event Action treeStopped;
+
+        /// <summary>The tree ran off its END (M22): the root's last state completed and nothing
+        /// declared or implicit handled it. Fired BEFORE the teardown that follows, so a
+        /// listener still sees the final blackboard — a finished tree is a returned call, and
+        /// this is where its caller reads the result. StopTree alone never fires this: being
+        /// stopped is being cancelled, not being done.</summary>
+        public event Action treeFinished;
+
         public event Action<string> nodeEntered;
         public event Action<string> nodeLeft;
         public event Action<string, string> activeNodeChanged;
@@ -100,6 +108,17 @@ namespace PowerOfFire.DrawToPlay
         private StateTreeAsset m_ActiveData;
         private readonly Dictionary<string, StateTreeNodeAsset> m_NodeIndex =
             new Dictionary<string, StateTreeNodeAsset>();
+
+        /// <summary>Child → parent over the live copy (M22) — what lets a completed last
+        /// sibling bubble. Built beside <see cref="m_NodeIndex"/>; by object identity, because
+        /// the implicit flow walks the copy's real structure, not ids (a grouping node has
+        /// no id worth trusting).</summary>
+        private readonly Dictionary<StateTreeNodeAsset, StateTreeNodeAsset> m_ParentIndex =
+            new Dictionary<StateTreeNodeAsset, StateTreeNodeAsset>();
+
+        /// <summary>Whether any task of the current activation finished (M22) — the fact
+        /// <see cref="StateTreeCompleteWhen.AnyTask"/> gates on. Reset by EnterNode.</summary>
+        private bool m_AnyTaskFinished;
         private StateTreeNodeAsset m_CurrentNode;
         private readonly List<StateTreeTaskAsset> m_RunningTasks = new List<StateTreeTaskAsset>();
         private readonly List<StateTreeTaskAsset> m_Finished = new List<StateTreeTaskAsset>();
@@ -179,6 +198,7 @@ namespace PowerOfFire.DrawToPlay
             }
             m_ActiveData = data.DeepCopy();
             m_NodeIndex.Clear();
+            m_ParentIndex.Clear();
             BuildIndex(m_ActiveData.root);
 
             if (context == null)
@@ -228,6 +248,7 @@ namespace PowerOfFire.DrawToPlay
             StateTreeAsset.DestroyCopy(m_ActiveData);
             m_ActiveData = null;
             m_NodeIndex.Clear();
+            m_ParentIndex.Clear();
             // The exit record and the route diagnostics both belong to the copy that has just been
             // destroyed — holding either would be holding values nothing can route and warnings
             // keyed on rows that no longer exist.
@@ -279,11 +300,23 @@ namespace PowerOfFire.DrawToPlay
                     m_Finished.Add(task);
                 }
             }
+            if (m_Finished.Count > 0)
+                m_AnyTaskFinished = true;
             for (int i = 0; i < m_Finished.Count; i++)
                 RemoveRunning(m_Finished[i]);
 
-            // 3. On-completion transitions — only when every task is done.
-            if (m_RunningTasks.Count == 0)
+            // A task may STOP THIS EXECUTOR from inside its own tick — a despawn deactivating
+            // the host, a travel tearing the level down around it. Everything below belongs to
+            // the run that no longer exists (the local transitions list included: it is the
+            // destroyed copy's). The pre-M22 code survived this by accident; the completion
+            // gate reads the current node and must not.
+            if (m_CurrentNode == null)
+                return;
+
+            // 3. Completion — when the state's policy says it is done (M22): declared
+            // on-completion transitions first, exactly as before; when none fires, the
+            // implicit flow (next sibling / bubble) unless the state Holds.
+            if (IsComplete(m_CurrentNode))
             {
                 for (int i = 0; i < transitions.Count; i++)
                 {
@@ -296,7 +329,122 @@ namespace PowerOfFire.DrawToPlay
                         return;
                     }
                 }
+
+                if (m_CurrentNode.completionFlow == StateTreeCompletionFlow.NextSibling)
+                    ImplicitAdvance();
             }
+        }
+
+        /// <summary>The M22 completion gate — <see cref="StateTreeCompleteWhen"/> applied to
+        /// what is still running. A state with no tasks is complete under both task policies:
+        /// an empty state that never completed would be a trap wearing a default.</summary>
+        private bool IsComplete(StateTreeNodeAsset node)
+        {
+            switch (node.completeWhen)
+            {
+                case StateTreeCompleteWhen.Never:
+                    return false;
+                case StateTreeCompleteWhen.AnyTask:
+                    return m_AnyTaskFinished || m_RunningTasks.Count == 0;
+                default:
+                    return !AnyBlockingRunning();
+            }
+        }
+
+        /// <summary>Whether any still-running task HOLDS completion open — the per-task
+        /// blocking flag's only consumer. A linear scan, because a state has a handful of
+        /// tasks and this runs at most once per tick.</summary>
+        private bool AnyBlockingRunning()
+        {
+            for (int i = 0; i < m_RunningTasks.Count; i++)
+            {
+                if (m_RunningTasks[i].blocking)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The IMPLICIT flow of a completed state none of whose declared transitions fired
+        /// (M22, brief §10.1): the next sibling; a last sibling hands completion to its
+        /// parent, whose own on-completion transitions get a chance before ITS next sibling;
+        /// past the root, the tree is finished. A Hold ancestor stops the bubble — the tree
+        /// stays where it is, complete and waiting for a declared edge or an interrupt.
+        ///
+        /// One implicit hop per tick, like every explicit transition: a chain of instantly
+        /// complete states advances one state per tick rather than unwinding in a single
+        /// frame, which keeps enter/exit observable and makes an accidental cycle survivable.
+        /// </summary>
+        private void ImplicitAdvance()
+        {
+            StateTreeNodeAsset node = m_CurrentNode;
+            int guard = 0;
+            while (node != null && guard++ < 256)
+            {
+                if (!m_ParentIndex.TryGetValue(node, out StateTreeNodeAsset parent)
+                    || parent == null)
+                {
+                    // Completion reached the top: the run is done, and DONE is a result, not
+                    // a stop — see treeFinished.
+                    FinishTree();
+                    return;
+                }
+
+                int slot = parent.children.IndexOf(node);
+                if (slot >= 0 && slot + 1 < parent.children.Count)
+                {
+                    StateTreeNodeAsset next = parent.children[slot + 1];
+                    if (next != null)
+                    {
+                        AdvanceTo(next);
+                        return;
+                    }
+                }
+
+                // Last sibling: the PARENT is now the completed thing. Its declared
+                // on-completion transitions fire from here — a parent edge is how a whole
+                // sequence says where it goes when it ends.
+                for (int i = 0; i < parent.transitions.Count; i++)
+                {
+                    var tr = parent.transitions[i];
+                    if (tr == null || tr.checkWhileRunning)
+                        continue;
+                    if (Eval(tr.condition))
+                    {
+                        TransitionTo(tr);
+                        return;
+                    }
+                }
+
+                if (parent.completionFlow == StateTreeCompletionFlow.Hold)
+                    return;
+
+                node = parent;
+            }
+        }
+
+        /// <summary>An implicit move to a sibling — <see cref="TransitionTo"/> minus the parts
+        /// only a declared transition has (a target id to resolve, outputs to route). The
+        /// finished tasks' returns still exist on the exit record; an implicit hop simply
+        /// assigns none of them, the same as a routeless transition.</summary>
+        private void AdvanceTo(StateTreeNodeAsset target)
+        {
+            string previousId = m_CurrentNode != null ? m_CurrentNode.nodeId : "";
+            target = ResolveEntryNode(target);
+            nodeLeft?.Invoke(previousId);
+            ExitRunningTasks(StateTreeStatus.Cancelled);
+            EnterNode(target);
+            activeNodeChanged?.Invoke(previousId, target.nodeId);
+        }
+
+        /// <summary>The run completed by running off its end (M22). Finished is announced
+        /// BEFORE the teardown so listeners read the final blackboard; then the ordinary stop
+        /// path releases the copy — a finished tree and a stopped tree end in the same clean
+        /// state, they just mean different things on the way there.</summary>
+        private void FinishTree()
+        {
+            treeFinished?.Invoke();
+            StopTree();
         }
 
         private void EnterNode(StateTreeNodeAsset node)
@@ -304,6 +452,9 @@ namespace PowerOfFire.DrawToPlay
             m_CurrentNode = node;
             m_RunningTasks.Clear();
             m_RunningTaskIndices.Clear();
+            // AnyTask means "of THIS activation" — a fact carried over from the last state
+            // would complete a freshly entered one on its first tick.
+            m_AnyTaskFinished = false;
             // The exit record belongs to ONE activation of the state: whatever the last one returned
             // is not what this one is returning, and a route firing on stale values would be worse
             // than one firing on none.
@@ -389,7 +540,11 @@ namespace PowerOfFire.DrawToPlay
             if (!string.IsNullOrEmpty(node.nodeId))
                 m_NodeIndex[node.nodeId] = node;
             for (int i = 0; i < node.children.Count; i++)
+            {
+                if (node.children[i] != null)
+                    m_ParentIndex[node.children[i]] = node;
                 BuildIndex(node.children[i]);
+            }
         }
 
         private bool Eval(StateTreeConditionAsset condition)
