@@ -89,15 +89,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             body.Clear();
 
-            var program = programProperty.objectReferenceValue as GraphTaskAsset;
-            if (program == null)
+            List<GraphTaskParameter> declared = DeclaredOf(programProperty.objectReferenceValue);
+            if (declared == null)
             {
                 // Silent: an empty program slot is a normal half-authored row, not a problem, and
                 // a warning here would shout at every new entry.
                 return;
             }
-
-            List<GraphTaskParameter> declared = program.parameters;
             int count = declared != null ? declared.Count : 0;
             List<int> stale = StaleRows(values, declared);
             if (count == 0 && stale.Count == 0)
@@ -460,6 +458,31 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             return values.GetArrayElementAtIndex(index);
         }
+
+        /// <summary>
+        /// The declarations of whatever the sibling slot holds — a graph program or a STATE TREE,
+        /// because both declare the same parameter rows (the one-vocabulary rule on
+        /// <see cref="StateTreeAsset.parameters"/>) and both are called with the same override
+        /// rows. A level manifest row naming a tree gets the same knobs section a dialog row
+        /// naming a program does. Null means the slot is empty or holds neither.
+        /// </summary>
+        private static List<GraphTaskParameter> DeclaredOf(UnityEngine.Object referenced)
+        {
+            switch (referenced)
+            {
+                case GraphTaskAsset program:
+                    return program.parameters ?? s_NoParameters;
+                case StateTreeAsset tree:
+                    return tree.parameters ?? s_NoParameters;
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>Stands in for a null declaration list so "empty slot" (draw nothing) and
+        /// "asset with no parameters" (draw nothing but still check stale rows) stay distinct.</summary>
+        private static readonly List<GraphTaskParameter> s_NoParameters =
+            new List<GraphTaskParameter>();
 
         /// <summary>The sibling field named by the attribute — resolved through the PARENT of this
         /// property, so it works at any depth (a registry row is an array element of an asset).</summary>

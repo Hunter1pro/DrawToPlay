@@ -377,8 +377,14 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             SerializedProperty element = m_Objects.FindProperty("entries")
                 .GetArrayElementAtIndex(m_Selected);
+            // "tree" and "parameters" are the FLOW half of the row — the mind this placement
+            // runs and its arguments — and hiding them here was how a flow could only be wired
+            // in code. The parameters section draws itself against whatever tree is picked
+            // (one checkbox per declared knob), so reusing a flow and specialising one are the
+            // same gesture.
             foreach (string field in new[]
-                { "name", "group", "kind", "entry", "position", "tags", "config" })
+                { "name", "group", "kind", "entry", "tree", "parameters", "position", "facing",
+                    "tags" })
             {
                 SerializedProperty child = element.FindPropertyRelative(field);
                 if (child == null)

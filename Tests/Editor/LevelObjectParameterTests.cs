@@ -7,7 +7,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 {
     /// <summary>
     /// The MANIFEST → TREE argument channel: a placement row carries id-bound override rows for
-    /// the parameters its tree declares (<see cref="LevelObjectDef.parameterOverrides"/>), the
+    /// the parameters its tree declares (<see cref="LevelObjectDef.parameters"/>), the
     /// spawner copies them onto the spawned host (<see cref="OutpostManifestSpawner.Mind"/>),
     /// and the executor seeds the effective values into the blackboard under the parameters'
     /// names — so a task reads a plain key and one authored tree serves every placement.
@@ -51,7 +51,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void RowArgument_ReachesTheBlackboard_UnderTheParameterName()
         {
             var row = new LevelObjectDef { tree = MakeDeclaringTree() };
-            row.parameterOverrides.Add(new GraphTaskParameterOverride
+            row.parameters.values.Add(new GraphTaskParameterOverride
             {
                 name = "destination", enabled = true, stringValue = "ridge", id = k_ParamId
             });
@@ -85,7 +85,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             {
                 name = "destination", enabled = true, stringValue = "ridge", id = k_ParamId
             };
-            row.parameterOverrides.Add(argument);
+            row.parameters.values.Add(argument);
 
             StateTreeContextHost host = MakeHost();
             OutpostManifestSpawner.Mind(host, row);

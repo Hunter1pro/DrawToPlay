@@ -100,13 +100,19 @@ namespace PowerOfFire.DrawToPlay
         /// effective values into the blackboard under the parameters' names before anything
         /// ticks — so a task reads a plain key and never knows who supplied it.
         ///
+        /// The SET wrapper, not a raw list, exactly like a registry row that tunes its
+        /// program: the inspector then draws one checkbox-per-declared-knob section against
+        /// whatever tree the row picks, with the ⛃ registry picker for String parameters —
+        /// so a flow is reused for the simple case and specialised per placement without
+        /// touching the tree.
+        ///
         /// This is what makes a per-placement tree more than a per-placement COPY: one "exit"
         /// tree serves every way out because each row hands it a different destination, the
         /// Blueprint instance model the M7h rows exist for. Empty is the ordinary case: the
         /// tree's declared defaults stand.
         /// </summary>
-        public List<GraphTaskParameterOverride> parameterOverrides =
-            new List<GraphTaskParameterOverride>();
+        [GraphTaskParameters(nameof(tree))]
+        public GraphTaskParameterSet parameters = new GraphTaskParameterSet();
 
         public Vector2 position;
 
