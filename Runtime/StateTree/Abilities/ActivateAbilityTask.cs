@@ -27,6 +27,13 @@ namespace PowerOfFire.DrawToPlay
             + "for a state that queues its swing until the gate opens.")]
         public bool retryWhileRefused;
 
+        [Tooltip("Empty: no payload — the ability targets for itself. Set: the key holding "
+            + "the MIND'S SEARCH RESULT (who its perception published), handed to the "
+            + "activation so the ability attacks who the mind chose rather than re-finding "
+            + "somebody of its own.")]
+        [StateTreeKey(StateTreeKeyKind.String, any: true)]
+        public StateTreeKeyField targetKey = new StateTreeKeyField();
+
         [InjectOwner] private AbilityHost m_Host;
 
         private AbilityDef m_Started;
@@ -37,7 +44,7 @@ namespace PowerOfFire.DrawToPlay
         {
             m_Started = null;
             m_Ended = false;
-            TryActivate();
+            TryActivate(context);
         }
 
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
@@ -49,7 +56,7 @@ namespace PowerOfFire.DrawToPlay
             {
                 if (!retryWhileRefused)
                     return StateTreeStatus.Failure;
-                TryActivate();
+                TryActivate(context);
                 return m_Started == null ? StateTreeStatus.Running
                     : waitForFinish ? StateTreeStatus.Running : StateTreeStatus.Success;
             }
@@ -72,7 +79,7 @@ namespace PowerOfFire.DrawToPlay
             // the tie has waitForFinish.
         }
 
-        private void TryActivate()
+        private void TryActivate(StateTreeContext context)
         {
             if (m_Host == null)
                 return;
@@ -90,13 +97,32 @@ namespace PowerOfFire.DrawToPlay
             // and a listener attached afterwards would wait forever for a finish that
             // already happened.
             m_Host.abilityFinished += OnAbilityFinished;
-            if (m_Host.Activate(def))
+            if (m_Host.Activate(def, ResolvePayload(context)))
             {
                 m_Started = def;
             }
             else
             {
                 m_Host.abilityFinished -= OnAbilityFinished;
+            }
+        }
+
+        /// <summary>The mind's published search result, read off ITS blackboard — null for
+        /// an unwired key or an empty search, both meaning "no payload".</summary>
+        private GameObject ResolvePayload(StateTreeContext context)
+        {
+            string key = (string)targetKey;
+            if (string.IsNullOrEmpty(key) || context == null
+                || !context.blackboard.TryGetValue(key, out object held))
+                return null;
+            switch (held)
+            {
+                case GameObject go:
+                    return go;
+                case Component component when component != null:
+                    return component.gameObject;
+                default:
+                    return null;
             }
         }
 

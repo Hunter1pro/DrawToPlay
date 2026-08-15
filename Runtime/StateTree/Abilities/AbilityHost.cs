@@ -125,6 +125,10 @@ namespace PowerOfFire.DrawToPlay
                 || Time.time >= readyAt;
         }
 
+        /// <summary>The running ability tree's context, or null — how tests and tools see
+        /// what an activation seeded.</summary>
+        public StateTreeContext activeContext => m_Executor != null ? m_Executor.context : null;
+
         /// <summary>Activate by row name — the string flavor for callers without a wire.</summary>
         public bool Activate(string abilityName)
         {
@@ -137,8 +141,14 @@ namespace PowerOfFire.DrawToPlay
         /// cancel the active ability when the incoming one's cancel tags say so, and start
         /// its tree — or finish immediately for a row without one. What the ability DOES,
         /// effects included, is the tree's business. False = refused.
+        ///
+        /// <paramref name="target"/> is the activation's PAYLOAD — the caller's search
+        /// result, seeded onto the ability tree's blackboard under the row's declared
+        /// <see cref="AbilityDef.targetKey"/> BEFORE anything ticks, so the first task
+        /// already knows who this is about. Null, or a row with no target key, means the
+        /// ability targets for itself.
         /// </summary>
-        public bool Activate(AbilityDef def)
+        public bool Activate(AbilityDef def, GameObject target = null)
         {
             AbilityService resolved = service;
             if (def == null || resolved == null)
@@ -171,6 +181,18 @@ namespace PowerOfFire.DrawToPlay
                 logContext = this,
                 parameterOverrides = def.parameters != null ? def.parameters.values : null
             };
+
+            // THE PAYLOAD, seeded before anything ticks — an argument, not something the
+            // tree observes changing (the rule parameters follow). Landing under the
+            // DECLARED key's current name: the row's field is wired by id, so renaming the
+            // tree's key never splits the seed from its readers.
+            string landing = target != null ? LandingKeyOf(def) : "";
+            if (!string.IsNullOrEmpty(landing))
+            {
+                m_Executor.context = new StateTreeContext(gameObject);
+                m_Executor.context.blackboard[landing] = target;
+            }
+
             m_Executor.treeFinished += OnTreeFinished;
             m_Executor.StartTree();
             if (!m_Executor.isRunning)
@@ -180,6 +202,27 @@ namespace PowerOfFire.DrawToPlay
                 FinishActive(m_TreeFinished ? StateTreeStatus.Success : StateTreeStatus.Failure);
             }
             return true;
+        }
+
+        /// <summary>The blackboard key an activation's target lands under — the row's wired
+        /// field resolved against the TREE's declaration (current name wins over the field's
+        /// possibly-stale text), or the free-typed text, or empty for "no payload".</summary>
+        private static string LandingKeyOf(AbilityDef def)
+        {
+            StateTreeKeyField field = def.targetKey;
+            if (field == null)
+                return "";
+            if (!string.IsNullOrEmpty(field.keyId) && def.tree != null)
+            {
+                for (int i = 0; i < def.tree.keys.Count; i++)
+                {
+                    StateTreeKeyDeclaration declared = def.tree.keys[i];
+                    if (declared != null && string.Equals(declared.id, field.keyId,
+                        StringComparison.Ordinal))
+                        return declared.name;
+                }
+            }
+            return field.text ?? "";
         }
 
         /// <summary>Cancel the active ability, if any — a pre-emption, so no continuation.</summary>

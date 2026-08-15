@@ -257,6 +257,31 @@ namespace PowerOfFire.DrawToPlay.Tests
             CollectionAssert.Contains(log, "swing:Success");
         }
 
+        [Test]
+        public void ActivationPayload_LandsUnderTheDeclaredKey_ByWire()
+        {
+            // The mind searched; the activation hands the result over; the ability tree
+            // finds it under ITS declared key — and the row's field being wired by id means
+            // the declaration's CURRENT name wins over the field's stale text.
+            StateTreeAsset tree = MakeResidentTree();
+            tree.keys.Add(new StateTreeKeyDeclaration
+            {
+                id = "key.victim", name = "victim", kind = StateTreeKeyKind.String
+            });
+            AbilityDef ambush = MakeAbility("ambush", tree: tree);
+            ambush.targetKey = new StateTreeKeyField("renamed-away") { keyId = "key.victim" };
+
+            var prey = new GameObject("prey");
+            prey.hideFlags = HideFlags.HideAndDontSave;
+            prey.SetActive(false);
+            m_Objects.Add(prey);
+
+            AbilityHost hunter = MakeActor("hunter");
+            Assert.IsTrue(hunter.Activate(ambush, prey));
+            Assert.AreSame(prey, hunter.activeContext.blackboard["victim"],
+                "the payload landed under the DECLARATION'S name, not the field's stale text");
+        }
+
         // ------------------------------------------------- 5. effects as rows, with targets
 
         [Test]

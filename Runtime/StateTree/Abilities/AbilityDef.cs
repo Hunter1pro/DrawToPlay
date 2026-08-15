@@ -68,5 +68,15 @@ namespace PowerOfFire.DrawToPlay
         /// (not when it is cancelled: a cancelled call returns nothing). Empty = fall back to
         /// the host's default ability, the idle floor.</summary>
         public StateTreeEntryRef<AbilityDef> nextOnFinish = new StateTreeEntryRef<AbilityDef>();
+
+        /// <summary>
+        /// Where an activation's TARGET payload lands on this ability's tree — a key the tree
+        /// declares, wired by id like every key use. The caller's mind did the searching (its
+        /// perception published a quarry); the activation hands the result over, and the
+        /// ability attacks WHO IT WAS GIVEN instead of re-finding somebody on its own.
+        /// Empty = the ability targets for itself (the player's push, swung at whatever is
+        /// in front).
+        /// </summary>
+        public StateTreeKeyField targetKey = new StateTreeKeyField();
     }
 }
