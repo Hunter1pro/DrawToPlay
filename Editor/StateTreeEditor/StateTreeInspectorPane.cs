@@ -2498,6 +2498,39 @@ namespace PowerOfFire.DrawToPlay.Editor
                                     + "' resolves to no row in the service's registries.",
                                     HelpBoxMessageType.Warning));
                             }
+
+                            // A CUE CAN LIVE ON THE EFFECT ROW instead — and when it marks the
+                            // landing, it SHOULD: there its target is wired for free (it shows
+                            // on whoever the effect lands on). Recognize the relationship: the
+                            // same cue on both paths would flash twice; otherwise say where
+                            // the alternative is.
+                            EffectDef aboveEffect = EffectAbove(service);
+                            if (aboveEffect != null)
+                            {
+                                if (!string.IsNullOrEmpty(shows.cue.entryName)
+                                    && string.Equals(aboveEffect.cue.entryName,
+                                        shows.cue.entryName, System.StringComparison.Ordinal))
+                                {
+                                    m_Root.Add(new HelpBox("Effect '" + aboveEffect.name
+                                        + "' already shows '" + shows.cue.entryName
+                                        + "' when it lands — this state would show it TWICE. "
+                                        + "Keep the one on the effect row (its target is "
+                                        + "wired there) and delete this state, or pick a "
+                                        + "different cue here.", HelpBoxMessageType.Warning));
+                                }
+                                else
+                                {
+                                    var hint = new Label("A cue that marks effect '"
+                                        + aboveEffect.name + "' LANDING belongs on that row "
+                                        + "(its target is wired there). A cue state is for "
+                                        + "the ability's own moments — windup, recovery — "
+                                        + "aimed by its Target Key.");
+                                    hint.style.whiteSpace = WhiteSpace.Normal;
+                                    hint.style.opacity = 0.65f;
+                                    hint.style.marginLeft = 4f;
+                                    m_Root.Add(hint);
+                                }
+                            }
                             break;
                         }
                     }
@@ -2513,6 +2546,27 @@ namespace PowerOfFire.DrawToPlay.Editor
                     + $"'{entryId}'. Give the root tasks or transitions only if you want it to be a "
                     + "state in its own right.", HelpBoxMessageType.Info));
             }
+        }
+
+        /// <summary>The effect row applied by the nearest ancestor state — the effect this
+        /// node's cue hangs under, per the nesting rules — or null when there is none.</summary>
+        private EffectDef EffectAbove(ServiceDef service)
+        {
+            StateTreeNodeAsset holder = StateTreeEditorOps.ParentOf(m_Tree, m_Node);
+            var guard = 0;
+            while (holder != null && guard++ < 64)
+            {
+                for (var i = 0; i < holder.tasks.Count; ++i)
+                {
+                    if (holder.tasks[i] is ApplyEffectTask applies)
+                    {
+                        var (_, entry) = RowInClosure(service, applies.effect.entryName);
+                        return entry as EffectDef;
+                    }
+                }
+                holder = StateTreeEditorOps.ParentOf(m_Tree, holder);
+            }
+            return null;
         }
 
         /// <summary>A row plus the registry it lives in, found through the service's dependsOn
