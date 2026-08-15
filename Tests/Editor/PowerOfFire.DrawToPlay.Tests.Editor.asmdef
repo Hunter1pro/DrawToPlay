@@ -3,6 +3,7 @@
     "rootNamespace": "PowerOfFire.DrawToPlay.Tests",
     "references": [
         "PowerOfFire.DrawToPlay",
+        "PowerOfFire.DrawToPlay.Editor",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "PowerOfFire.DrawToPlay.Examples"

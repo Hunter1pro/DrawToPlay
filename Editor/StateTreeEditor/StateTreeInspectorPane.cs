@@ -429,6 +429,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// foldout's reason.</summary>
         private bool m_DataOpen;
 
+        /// <summary>The Used-by foldout's open state — persists across pane rebuilds so an
+        /// open list survives selection changes.</summary>
+        private bool m_UsedByOpen;
+
         /// <summary>Which transitions' "Route outputs" foldouts the author has opened, by transition
         /// index. Remembered on the pane for the same reason <see cref="m_ParametersOpen"/> is —
         /// adding a route rebuilds the pane, and a foldout that closed itself each time would make
@@ -482,6 +486,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Root.Add(BuildTreeParameters());
             m_Root.Add(BuildTreeKeys());
             m_Root.Add(BuildTreeData());
+            m_Root.Add(BuildTreeUsedBy());
 
             BuildHeader();
             BuildIdentity();
@@ -574,6 +579,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Root.Add(BuildTreeParameters());
             m_Root.Add(BuildTreeKeys());
             m_Root.Add(BuildTreeData());
+            m_Root.Add(BuildTreeUsedBy());
 
             m_Root.Add(SectionLabel("States"));
             var nodes = StateTreeEditorOps.CollectNodes(m_Tree);
@@ -1802,6 +1808,80 @@ namespace PowerOfFire.DrawToPlay.Editor
             });
             foldout.Add(add);
 
+            return foldout;
+        }
+
+        // --- the reverse wire: who runs this tree -----------------------------------------
+
+        /// <summary>
+        /// WHO USES THIS TREE (M23 review) — the reverse of every wire the other sections
+        /// author: the ability rows that run it, the placements that spawn it, the prefabs
+        /// that carry it, the trees that import it. Read from the cached project scan
+        /// (<see cref="AssetWireScan"/>), filled when the foldout opens — the closed header
+        /// costs nothing.
+        /// </summary>
+        private VisualElement BuildTreeUsedBy()
+        {
+            var display = StateTreeEditorOps.TreeDisplayName(m_Tree);
+            var foldout = new Foldout
+            {
+                text = $"Used by · {display}",
+                value = m_UsedByOpen
+            };
+            foldout.style.marginTop = 2f;
+            foldout.style.marginBottom = 4f;
+
+            void Fill()
+            {
+                foldout.contentContainer.Clear();
+                List<AssetWireScan.WireUse> uses =
+                    AssetWireScan.UsersOfAsset(AssetWireScan.Get(), m_Tree);
+                foldout.text = $"Used by · {display} ({uses.Count})";
+
+                var note = Hint(uses.Count == 0
+                    ? "Nothing in assets references this tree — no registry row runs it, no "
+                    + "placement spawns it, no prefab carries it, no tree imports it. (Scene "
+                    + "objects are not scanned.)"
+                    : "Everywhere this tree is referenced, from a scan of registries, trees "
+                    + "and prefabs. Ping opens the asset holding the wire.");
+                note.style.marginBottom = 4f;
+                foldout.Add(note);
+
+                foreach (AssetWireScan.WireUse use in uses)
+                {
+                    var row = new VisualElement();
+                    row.style.flexDirection = FlexDirection.Row;
+                    row.style.alignItems = Align.Center;
+                    row.style.minHeight = k_RowMinHeight;
+
+                    var text = new Label(use.description);
+                    text.style.flexGrow = 1f;
+                    text.style.whiteSpace = WhiteSpace.Normal;
+                    text.style.opacity = 0.8f;
+                    row.Add(text);
+
+                    UnityEngine.Object ping = use.context;
+                    var open = new Button(() => EditorGUIUtility.PingObject(ping))
+                    {
+                        text = "Ping"
+                    };
+                    open.style.flexShrink = 0f;
+                    open.tooltip = "Highlight the asset holding this reference.";
+                    row.Add(open);
+                    foldout.Add(row);
+                }
+            }
+
+            if (m_UsedByOpen)
+                Fill();
+            foldout.RegisterValueChangedCallback(evt =>
+            {
+                if (evt.target != foldout)
+                    return;
+                m_UsedByOpen = evt.newValue;
+                if (evt.newValue)
+                    Fill();
+            });
             return foldout;
         }
 

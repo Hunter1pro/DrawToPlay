@@ -380,6 +380,39 @@ namespace PowerOfFire.DrawToPlay.Editor
                 container.Add(line);
             }
 
+            // THE REVERSE WIRE (M23 review: "see who used the ability"): where this row is
+            // referenced, from the cached project scan. Click lists every use; picking one
+            // pings the asset that holds it. An unused row says so — that is a finding.
+            if (described != null)
+            {
+                List<AssetWireScan.WireUse> uses =
+                    AssetWireScan.UsersOfRow(AssetWireScan.Get(), described);
+                var usage = new Label(uses.Count == 0
+                    ? "⛓ unused — nothing in assets references this row"
+                    : "⛓ used in " + uses.Count + " place" + (uses.Count == 1 ? "" : "s")
+                        + " — click to list");
+                usage.style.marginLeft = 8f;
+                usage.style.opacity = uses.Count == 0 ? 0.45f : 0.6f;
+                usage.tooltip = "Computed from a project scan of registries, trees and "
+                    + "prefabs (scene objects are not walked). Refreshes on project changes.";
+                if (uses.Count > 0)
+                {
+                    usage.RegisterCallback<ClickEvent>(_ =>
+                    {
+                        var menu = new GenericMenu();
+                        foreach (AssetWireScan.WireUse use in uses)
+                        {
+                            UnityEngine.Object ping = use.context;
+                            menu.AddItem(new GUIContent(
+                                use.description.Replace('/', '∕')), false,
+                                () => EditorGUIUtility.PingObject(ping));
+                        }
+                        menu.ShowAsContext();
+                    });
+                }
+                container.Add(usage);
+            }
+
             container.Bind(serializedObject);
             return container;
         }
