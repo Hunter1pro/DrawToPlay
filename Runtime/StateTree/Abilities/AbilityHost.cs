@@ -551,27 +551,10 @@ namespace PowerOfFire.DrawToPlay
 
             string attributeName = effect.attribute.entryName;
 
-            // HEALTH ROUTES THROUGH ITS RULEKEEPER: the number lives in the attribute
-            // component either way, but the guard window and the death latch are health's
-            // domain rules and the facade is where they are enforced.
-            if (string.Equals(attributeName, HealthComponent.AttributeName,
-                StringComparison.Ordinal))
-            {
-                var health = GetComponent<HealthComponent>();
-                if (health != null)
-                {
-                    if (magnitude > 0f)
-                        health.Heal(magnitude);
-                    else if (firstApplication)
-                        health.TakeDamage(-magnitude);
-                    else
-                        health.TickDamage(-magnitude);
-                    return;
-                }
-            }
-
-            // Every other attribute lands on the component directly — negative consumes,
-            // positive restores, the same sign convention health uses.
+            // Every attribute lands on the store the same way — negative consumes,
+            // positive restores. Health's old component rules live elsewhere now: the
+            // guard window is the 'guarded' tag on the row, death is the value crossing
+            // zero (watched by whoever needs the event), i-frames are data.
             AttributeComponent attributes = GetComponent<AttributeComponent>();
             if (attributes != null && attributes.Has(attributeName))
             {

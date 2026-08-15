@@ -8,7 +8,7 @@ namespace PowerOfFire.DrawToPlay
     public static class WorldTags
     {
         /// <summary>Everything that participates in combat targeting — carried automatically
-        /// by every <see cref="HealthComponent"/>, queried by
+        /// by whatever gives an object a health attribute, queried by
         /// <see cref="TargetDetectedCondition"/>. The registry-backed replacement for the M6
         /// polled health scan.</summary>
         public const string Combatant = "combatant";

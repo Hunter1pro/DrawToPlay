@@ -11,7 +11,7 @@ namespace PowerOfFire.DrawToPlay.Tests
     /// undecorated one that must never be captured.
     ///
     /// The outputs are written on the tick the task FINISHES, not in OnEnter, because that is where
-    /// a real task computes them (<see cref="AttackTask.lastDamageDealt"/> is set on the tick the
+    /// a real task computes them (a damage task's last-dealt figure is set on the tick the
     /// hit lands) and because it is the only way to tell "the executor read the fields at completion"
     /// apart from "the executor read the authored values".
     ///

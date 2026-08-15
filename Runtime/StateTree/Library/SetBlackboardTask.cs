@@ -17,7 +17,7 @@ namespace PowerOfFire.DrawToPlay
     /// against elsewhere. Object references are excluded on purpose — a serialized
     /// UnityEngine.Object on a sub-asset would create a hard reference from a preset tree into
     /// scene content, and the one cross-task object reference this library needs ("target") is
-    /// owned by <see cref="TargetDetectedCondition"/>.
+    /// owned by a perception condition.
     ///
     /// Clearing is a first-class operation (<see cref="ValueKind.Clear"/>): removing a key so
     /// a condition falls back to its "absent" branch is how a state resets a timer or drops a

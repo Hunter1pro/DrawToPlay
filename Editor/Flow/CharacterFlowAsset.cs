@@ -18,7 +18,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// FlowDefinition would have meant maintaining five duplicated stages to add one. The AI tab
     /// is therefore the seventh stage of this asset and simply stays neutral for a player
     /// entity, which is the same "nothing is modal, badges just tell the truth" contract every
-    /// other stage follows. §6.2's Combat stage is not a tab: its outputs (HealthComponent, the
+    /// other stage follows. §6.2's Combat stage is not a tab: its outputs (the health attribute, the
     /// weapon/effect/loot defs, hitbox windows) are components and assets with no tool of their
     /// own, and a tab that activates nothing and validates nothing is worse than the Inspector.
     ///
@@ -237,7 +237,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                         "Ragdoll is play-mode only: the bodies are created on StartRagdoll and destroyed " +
                         "on StopRagdoll, so there is nothing to see (and nothing to break) in edit mode.",
                         "Destructible props: DestructibleShape on the drawn shape, with impactSpeedThreshold " +
-                        "for impact breaks and HealthComponent.fragmentOnDeath for the §6.3 HP seam.",
+                        "for impact breaks (the old HP-death seam retired with HealthComponent).",
                         "§6.1 also wants sensor hit/hurt volumes and collision categories. Draw them with " +
                         "the Draw tool and set the layers on the shape definition; the badge does not " +
                         "check either — every shape has some layer, so there is nothing honest to test.",

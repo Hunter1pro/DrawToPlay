@@ -289,11 +289,11 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             EffectDef bite = MakeEffect("bite", magnitude: -1f);
             AbilityHost victim = MakeActor("victim", withHealth: true);
-            var health = victim.GetComponent<HealthComponent>();
-            float before = health.hp;
+            var vitals = victim.GetComponent<AttributeComponent>();
+            float before = vitals.Value(AttributeNames.Health);
 
             victim.ApplyEffect(bite);
-            Assert.AreEqual(before - 1f, health.hp, 0.001f,
+            Assert.AreEqual(before - 1f, vitals.Value(AttributeNames.Health), 0.001f,
                 "negative magnitude is damage — the HT sign convention, on the TARGET");
         }
 
@@ -379,21 +379,21 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             AbilityHost victim = MakeActor("facade-free");
             var vitals = victim.gameObject.AddComponent<AttributeComponent>();
-            vitals.Ensure(HealthComponent.AttributeName, 3f);
+            vitals.Ensure(AttributeNames.Health, 3f);
 
             var crossings = 0;
             vitals.changed += (attributeName, previous, current) =>
             {
-                if (attributeName == HealthComponent.AttributeName
+                if (attributeName == AttributeNames.Health
                     && previous > 0f && current <= 0f)
                     crossings++;
             };
 
             victim.ApplyEffect(hit);
-            Assert.AreEqual(1f, vitals.Value(HealthComponent.AttributeName), 0.001f);
+            Assert.AreEqual(1f, vitals.Value(AttributeNames.Health), 0.001f);
             Assert.AreEqual(0, crossings);
             victim.ApplyEffect(hit);
-            Assert.AreEqual(-1f, vitals.Value(HealthComponent.AttributeName), 0.001f,
+            Assert.AreEqual(-1f, vitals.Value(AttributeNames.Health), 0.001f,
                 "overkill preserved, no facade involved");
             Assert.AreEqual(1, crossings, "death is the crossing — the event without a component");
         }
@@ -406,7 +406,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             go.SetActive(false);
             m_Objects.Add(go);
             var vitals = go.AddComponent<AttributeComponent>();
-            vitals.Ensure(HealthComponent.AttributeName, 6f);
+            vitals.Ensure(AttributeNames.Health, 6f);
 
             var condition = ScriptableObject.CreateInstance<HealthThresholdCondition>();
             condition.source = HealthThresholdCondition.Source.Owner;
@@ -416,11 +416,11 @@ namespace PowerOfFire.DrawToPlay.Tests
             var context = new StateTreeContext(go);
 
             Assert.IsFalse(condition.Evaluate(context), "6 of 6 is not at half");
-            vitals.Consume(HealthComponent.AttributeName, 3f);
+            vitals.Consume(AttributeNames.Health, 3f);
             Assert.IsTrue(condition.Evaluate(context), "3 of 6 is — read from the attribute");
             condition.fraction = 0f;
             Assert.IsFalse(condition.Evaluate(context));
-            vitals.Consume(HealthComponent.AttributeName, 5f);
+            vitals.Consume(AttributeNames.Health, 5f);
             Assert.IsTrue(condition.Evaluate(context), "overkill below zero is still dead");
         }
 
@@ -563,7 +563,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             AbilityHost victim = MakeActor("bitten", withHealth: true);
             victim.ApplyEffect(bite, caster.gameObject);
-            Assert.AreEqual(3f, victim.GetComponent<HealthComponent>().hp, 0.001f,
+            Assert.AreEqual(3f, victim.GetComponent<AttributeComponent>().Value(AttributeNames.Health), 0.001f,
                 "-1 at power 2: the same row hits harder because the SOURCE is level 5");
         }
 
@@ -604,7 +604,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             AbilityHost victim = MakeActor("mauled", withHealth: true);
             victim.ApplyEffect(bite, boss.gameObject);
-            Assert.AreEqual(2f, victim.GetComponent<HealthComponent>().hp, 0.001f,
+            Assert.AreEqual(2f, victim.GetComponent<AttributeComponent>().Value(AttributeNames.Health), 0.001f,
                 "-3, the boss's own line — not -1, the shared world scale's");
         }
 
@@ -635,11 +635,11 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             AbilityHost victim = MakeActor("poisoned2", withHealth: true);
             victim.ApplyEffect(venom, caster.gameObject);   // lands -2 (power 2 at level 5)
-            Assert.AreEqual(3f, victim.GetComponent<HealthComponent>().hp, 0.001f);
+            Assert.AreEqual(3f, victim.GetComponent<AttributeComponent>().Value(AttributeNames.Health), 0.001f);
 
             casterAttributes.level = 1;   // the snake got weaker AFTER the bite
             victim.Tick(1f);
-            Assert.AreEqual(1f, victim.GetComponent<HealthComponent>().hp, 0.001f,
+            Assert.AreEqual(1f, victim.GetComponent<AttributeComponent>().Value(AttributeNames.Health), 0.001f,
                 "the tick still drains -2 — a landed status keeps the strength it landed "
                 + "with (the snapshot rule)");
         }
@@ -720,7 +720,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             EffectDef row = MakeEffect("strike-hit", magnitude: -1f);
             AbilityHost attacker = MakeActor("attacker");
             AbilityHost victim = MakeActor("victim2", withHealth: true);
-            float before = victim.GetComponent<HealthComponent>().hp;
+            float before = victim.GetComponent<AttributeComponent>().Value(AttributeNames.Health);
 
             var world = m_Level.gameObject.AddComponent<WorldService>();
             world.Connect();
@@ -752,7 +752,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             mind.TickTree(0.1f);
             mind.StopTree();
 
-            Assert.AreEqual(before - 1f, victim.GetComponent<HealthComponent>().hp, 0.001f,
+            Assert.AreEqual(before - 1f, victim.GetComponent<AttributeComponent>().Value(AttributeNames.Health), 0.001f,
                 "the swing published WHO; the task landed the picked row on exactly them");
         }
 
@@ -843,7 +843,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             // The attribute is a PICKED row (M23 attributes) — the tests' effects land on
             // health unless a test rewires them.
             def.attribute.entryId = "attribute.health";
-            def.attribute.entryName = HealthComponent.AttributeName;
+            def.attribute.entryName = AttributeNames.Health;
             m_Effects.entries.Add(def);
             return def;
         }
@@ -892,9 +892,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Objects.Add(go);
             if (withHealth)
             {
-                var health = go.AddComponent<HealthComponent>();
-                health.maxHP = 5f;
-                health.ResetHealth();
+                var vitals = go.AddComponent<AttributeComponent>();
+                vitals.Ensure(AttributeNames.Health, 5f);
             }
             return go.AddComponent<AbilityHost>();
         }

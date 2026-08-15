@@ -193,7 +193,7 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>Make <paramref name="go"/> a citizen carrying <paramref name="tag"/>,
-        /// creating the component when it is absent — how a CODE feature (a HealthComponent,
+        /// creating the component when it is absent — how a CODE feature (an attribute store,
         /// a future interactable) enrolls its object without asking the author to remember a
         /// second component. Registration still follows the normal order-free paths.</summary>
         public static WorldObjectBehaviour EnsureCitizen(GameObject go, string tag)

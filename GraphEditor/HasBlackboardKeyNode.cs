@@ -8,7 +8,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     /// test, and the only way to tell an unset key from one set to 0 or "".
     ///
     /// The AI library's convention is that a cleared target REMOVES the key
-    /// (<see cref="TargetDetectedCondition"/>'s <c>clearTargetWhenNone</c>), so
+    /// (a perception condition's <c>clearTargetWhenNone</c>), so
     /// <c>Has("target")</c> is the honest way for a graph task to ask whether there is one.
     ///
     /// Bakes to <see cref="GraphTaskNodeKind.HasBlackboardKey"/>: <c>stringValue</c> the key.

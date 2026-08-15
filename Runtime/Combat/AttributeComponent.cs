@@ -19,9 +19,9 @@ namespace PowerOfFire.DrawToPlay
     ///
     /// Names come from <see cref="AttributeDef"/> rows where authored (seeds, effects picking
     /// attributes) and are plain strings at runtime — the RegistryEntry convention. Domain
-    /// RULES stay on domain components: <see cref="HealthComponent"/> is the health
-    /// attribute's rulekeeper (guard window, death, destruction), running on the number that
-    /// lives here.
+    /// RULES live where behaviour lives: guard windows are status tags on effect rows, death
+    /// is the value crossing zero, read by trees and services — no component owns a rule
+    /// over the numbers here.
     /// </summary>
     [AddComponentMenu("Draw To Play/Combat/Attributes")]
     public sealed class AttributeComponent : MonoBehaviour

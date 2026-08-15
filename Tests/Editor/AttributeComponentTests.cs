@@ -9,8 +9,8 @@ namespace PowerOfFire.DrawToPlay.Tests
     /// current, and REVERTIBLE modifiers. Effective = (base + Σ additive) × Π multiplicative
     /// is both the derived read a stat uses and the cap a pool clamps against; Consume never
     /// clamps from below (overkill is information) and never gates (guard windows are a
-    /// domain rule, health's); Restore clamps to the effective cap. HealthComponent rides
-    /// this as a facade — its rules, this number.
+    /// domain rule, health's); Restore clamps to the effective cap. The old health facade is
+    /// gone — rules live in rows, tags and trees; only the numbers live here.
     /// </summary>
     [TestFixture]
     public sealed class AttributeComponentTests
@@ -299,50 +299,5 @@ namespace PowerOfFire.DrawToPlay.Tests
                 "add, remove, and the base change each announced a new effective value");
         }
 
-        // ------------------------------------------------------------- the health facade
-
-        [Test]
-        public void HealthComponent_RidesTheAttribute_RulesStayOnTheFacade()
-        {
-            var go = new GameObject("guarded");
-            go.hideFlags = HideFlags.HideAndDontSave;
-            go.SetActive(false);
-            m_Objects.Add(go);
-            var health = go.AddComponent<HealthComponent>();
-            health.maxHP = 3f;
-
-            health.TakeDamage(1f);
-            var attributes = go.GetComponent<AttributeComponent>();
-            Assert.IsNotNull(attributes, "the facade backed itself with the attribute");
-            Assert.AreEqual(2f, attributes.Value(HealthComponent.AttributeName), 0.001f,
-                "one number — the facade's hp and the attribute's current agree");
-
-            health.TakeDamage(1f);
-            Assert.AreEqual(2f, health.hp, 0.001f,
-                "the guard window blocked the second hit — health's RULE, kept on the "
-                + "facade, not in the attribute store");
-        }
-
-        [Test]
-        public void MaxHealthModifier_RaisesTheHealCeiling()
-        {
-            var go = new GameObject("fortified");
-            go.hideFlags = HideFlags.HideAndDontSave;
-            go.SetActive(false);
-            m_Objects.Add(go);
-            var health = go.AddComponent<HealthComponent>();
-            health.maxHP = 3f;
-            health.ResetHealth();
-
-            var attributes = go.GetComponent<AttributeComponent>();
-            AttributeComponent.ModifierHandle fortify =
-                attributes.AddModifier(HealthComponent.AttributeName, additive: 2f);
-            health.Heal(10f);
-            Assert.AreEqual(5f, health.hp, 0.001f,
-                "the heal clamped to the MODIFIED cap — the thing the flat maxHP model "
-                + "could never say");
-            attributes.RemoveModifier(fortify);
-            Assert.AreEqual(3f, health.hp, 0.001f);
-        }
     }
 }

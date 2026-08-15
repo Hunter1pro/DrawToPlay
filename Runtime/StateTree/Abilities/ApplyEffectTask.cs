@@ -69,22 +69,21 @@ namespace PowerOfFire.DrawToPlay
                 return StateTreeStatus.Success;
             }
 
-            // No host: an Instant health delta still lands — a crate can be hurt — but a
-            // status has nowhere to live.
+            // No host: an Instant Delta still lands on a bare attribute store — a crate
+            // can be hurt — but a status has nowhere to live.
             if (row.duration == AbilityEffectDuration.Instant
-                && row.operation == EffectOperation.Delta
-                && string.Equals(row.attribute.entryName, HealthComponent.AttributeName,
-                    System.StringComparison.Ordinal))
+                && row.operation == EffectOperation.Delta)
             {
-                var health = victim.GetComponent<HealthComponent>();
-                if (health != null)
+                var vitals = victim.GetComponent<AttributeComponent>();
+                var attributeName = row.attribute.entryName;
+                if (vitals != null && vitals.Has(attributeName))
                 {
                     float magnitude = AbilityHost.ScaledMagnitude(row, m_Owner.gameObject,
                         service);
                     if (magnitude > 0f)
-                        health.Heal(magnitude);
+                        vitals.Restore(attributeName, magnitude);
                     else
-                        health.TakeDamage(-magnitude);
+                        vitals.Consume(attributeName, -magnitude);
                     return StateTreeStatus.Success;
                 }
             }

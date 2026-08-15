@@ -78,9 +78,9 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>Port of <c>_is_target_valid</c>: alive, active, and not ourselves. A
-        /// target with no <see cref="HealthComponent"/> counts as valid (Godot's
-        /// <c>_is_target_alive</c> falls through to true when the node cannot be asked), so
-        /// scenery props and dummies without health can still be chased.</summary>
+        /// target with no health ATTRIBUTE counts as valid (Godot's <c>_is_target_alive</c>
+        /// falls through to true when the node cannot be asked), so scenery props and
+        /// dummies without health can still be chased.</summary>
         public static bool IsTargetValid(GameObject target, GameObject owner)
         {
             if (target == null || owner == null)
@@ -90,8 +90,9 @@ namespace PowerOfFire.DrawToPlay
             if (!target.activeInHierarchy)
                 return false;
 
-            HealthComponent health = ResolveComponent<HealthComponent>(target);
-            return health == null || health.isAlive;
+            AttributeComponent vitals = ResolveComponent<AttributeComponent>(target);
+            return vitals == null || !vitals.Has(AttributeNames.Health)
+                || vitals.Value(AttributeNames.Health) > 0f;
         }
 
         /// <summary>The blackboard target when it is still valid for
