@@ -63,6 +63,13 @@ namespace PowerOfFire.DrawToPlay
             + "between rows, the nextOnFinish pattern.")]
         public StateTreeEntryRef<ObjectiveDef> nextOnComplete = new StateTreeEntryRef<ObjectiveDef>();
 
+        [Tooltip("The arrow's glyph for this row — empty keeps the default pointer. The "
+            + "HT per-objective icon override, as authored text.")]
+        public string arrowGlyph = "";
+
+        [Tooltip("The accent this row wears — the objective line and the arrow tint.")]
+        public Color accentColor = new Color(0.95f, 0.92f, 0.75f);
+
         [Tooltip("The ZONE whose stack this row belongs to — a world tag carried by a "
             + "placed zone volume. Rows sharing it form that zone's stack (entered at the "
             + "row no other row in the zone chains TO); the service activates the NEAREST "

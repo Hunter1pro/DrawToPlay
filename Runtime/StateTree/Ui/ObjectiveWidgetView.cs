@@ -19,6 +19,12 @@ namespace PowerOfFire.DrawToPlay
         private Label m_Arrow;
         private VisualElement m_Root;
 
+        private ObjectiveService m_Wired;
+        private string m_FlashText;
+        private float m_FlashUntil;
+
+        private static readonly Color k_FlashColor = new Color(0.55f, 0.9f, 0.55f);
+
         private void OnEnable()
         {
             m_Root = GetComponent<UIDocument>().rootVisualElement;
@@ -45,9 +51,44 @@ namespace PowerOfFire.DrawToPlay
             m_Root.Add(m_Arrow);
         }
 
+        private void OnDisable()
+        {
+            if (m_Wired != null)
+            {
+                m_Wired.completedObjective -= OnCompleted;
+                m_Wired = null;
+            }
+        }
+
+        /// <summary>The completion BEAT (HT's checkmark moment): a green tick with the
+        /// finished name holds the line for a second before the next ask takes it.</summary>
+        private void OnCompleted(ObjectiveDef done)
+        {
+            m_FlashText = "✓  " + (string.IsNullOrEmpty(done.displayName)
+                ? done.name : done.displayName);
+            m_FlashUntil = Time.time + 1.2f;
+        }
+
         private void Update()
         {
             ObjectiveService service = ResolveService();
+            if (!ReferenceEquals(service, m_Wired))
+            {
+                if (m_Wired != null)
+                    m_Wired.completedObjective -= OnCompleted;
+                m_Wired = service;
+                if (m_Wired != null)
+                    m_Wired.completedObjective += OnCompleted;
+            }
+
+            if (Time.time < m_FlashUntil && m_FlashText != null)
+            {
+                m_Name.text = m_FlashText;
+                m_Name.style.color = k_FlashColor;
+                m_Arrow.style.display = DisplayStyle.None;
+                return;
+            }
+
             ObjectiveDef current = service != null ? service.current : null;
             if (current == null)
             {
@@ -55,6 +96,11 @@ namespace PowerOfFire.DrawToPlay
                 m_Arrow.style.display = DisplayStyle.None;
                 return;
             }
+
+            m_Name.style.color = current.accentColor;
+            m_Arrow.style.color = current.accentColor;
+            m_Arrow.text = string.IsNullOrEmpty(current.arrowGlyph)
+                ? "➤" : current.arrowGlyph;
 
             var counted = current.kind == ObjectiveKind.EnemyKill
                 || current.kind == ObjectiveKind.Pickup;

@@ -169,6 +169,48 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void SaveState_RoundTrips_CursorsDoneStacksAndTheLinearLine()
+        {
+            ObjectiveDef a1 = MakeObjective("a1", ObjectiveKind.Dialog);
+            a1.zone = "zone.a";
+            a1.target.entryName = "keeper";
+            a1.nextOnComplete.entryName = "a2";
+            ObjectiveDef a2 = MakeObjective("a2", ObjectiveKind.EnemyKill);
+            a2.zone = "zone.a";
+            ObjectiveDef b1 = MakeObjective("b1", ObjectiveKind.Dialog);
+            b1.zone = "zone.b";
+            b1.target.entryName = "scout";
+            ObjectiveDef linear = MakeObjective("linear", ObjectiveKind.EnemyKill);
+
+            MakeCitizen("VolumeA", new Vector3(-5f, 0f, 0f), "zone.a");
+            m_Player.transform.position = new Vector3(-4f, 0f, 0f);
+
+            m_Service.Activate(linear);
+            m_Service.OrchestrateNow();          // zone A takes the screen at a1
+            m_Service.ReportDialogFinished("keeper");   // a1 done → cursor a2
+            m_Service.ReportDialogFinished("scout");    // wrong current kind/target — no-op
+
+            ObjectiveService.SaveState saved = m_Service.CaptureState();
+
+            // Wreck the live state, then restore — the reload shape.
+            m_Service.Activate(b1);
+            m_Service.ReportDialogFinished("scout");    // b1 done → zone.b cursor null
+            m_Service.RestoreState(saved);
+
+            Assert.AreSame(a2, m_Service.current, "what was current came back");
+            m_Player.transform.position = new Vector3(-4f, 0f, 0f);
+            m_Service.OrchestrateNow();
+            Assert.AreSame(a2, m_Service.current, "zone A resumed at ITS cursor");
+
+            // zone.b was untouched at capture: its entry must still be alive.
+            m_Player.transform.position = new Vector3(50f, 0f, 0f);
+            MakeCitizen("VolumeB", new Vector3(51f, 0f, 0f), "zone.b");
+            m_Service.OrchestrateNow();
+            Assert.AreSame(b1, m_Service.current,
+                "the restore rewound the wreckage — b1 is back on offer");
+        }
+
+        [Test]
         public void TheChain_ActivatesTheNextRow_OnComplete()
         {
             ObjectiveDef talk = MakeObjective("talk", ObjectiveKind.Dialog);

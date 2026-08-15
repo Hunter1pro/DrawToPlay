@@ -36,6 +36,20 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>An objective completed — fired before the chain activates the next.</summary>
         public event Action<ObjectiveDef> completedObjective;
 
+        /// <summary>The quest line's saveable heart: every zone's cursor, the linear
+        /// line's, and what was current — row NAMES, the registry keys. A serializable
+        /// plain class so any save system can carry it without knowing objectives.</summary>
+        [Serializable]
+        public sealed class SaveState
+        {
+            public bool hasState;
+            public List<string> zoneNames = new List<string>();
+            public List<string> zoneCursors = new List<string>();   // "" = that stack is done
+            public string linearCursor = "";
+            public string currentName = "";
+            public int progress;
+        }
+
         private bool m_AutoStarted;
         private readonly List<WorldObjectBehaviour> m_Buffer = new List<WorldObjectBehaviour>();
 
@@ -266,6 +280,42 @@ namespace PowerOfFire.DrawToPlay
         public void OrchestrateNow()
         {
             OrchestrateZones();
+        }
+
+        /// <summary>Everything a reload needs, as row names.</summary>
+        public SaveState CaptureState()
+        {
+            IndexZones();
+            var state = new SaveState { hasState = true };
+            foreach (KeyValuePair<string, ObjectiveDef> pair in m_ZoneCursor)
+            {
+                state.zoneNames.Add(pair.Key);
+                state.zoneCursors.Add(pair.Value != null ? pair.Value.name : "");
+            }
+            state.linearCursor = m_LinearCursor != null ? m_LinearCursor.name : "";
+            state.currentName = current != null ? current.name : "";
+            state.progress = progress;
+            return state;
+        }
+
+        /// <summary>Resume a saved line: cursors land where they stood, done stacks stay
+        /// done, and auto-start stands down — the save IS the start.</summary>
+        public void RestoreState(SaveState state)
+        {
+            if (state == null || !state.hasState)
+                return;
+            IndexZones();
+            m_AutoStarted = true;
+            for (int i = 0; i < state.zoneNames.Count; i++)
+            {
+                var cursorName = i < state.zoneCursors.Count ? state.zoneCursors[i] : "";
+                m_ZoneCursor[state.zoneNames[i]] =
+                    string.IsNullOrEmpty(cursorName) ? null : Find(cursorName);
+            }
+            m_LinearCursor = Find(state.linearCursor);
+            current = Find(state.currentName);
+            progress = state.progress;
+            changed?.Invoke();
         }
 
         /// <summary>The MoveTo watcher: nearest zone carrying the row's tag, arrived when
