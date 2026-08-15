@@ -81,6 +81,12 @@ namespace PowerOfFire.DrawToPlay
             + "attribute while the effect lives, 1 leaves the scale alone.")]
         public float multiplier = 1f;
 
+        [Tooltip("Optional: the magnitude scales by this progression row evaluated at the "
+            + "SOURCE's level — a level-5 raider hits like level 5 because the same balance "
+            + "sheet that gives it hit points says what its power means. Empty = the "
+            + "magnitude as written. Snapshotted when the effect applies.")]
+        public StateTreeEntryRef<ProgressionRow> scaleByLevel = new StateTreeEntryRef<ProgressionRow>();
+
         public AbilityEffectDuration duration = AbilityEffectDuration.Instant;
 
         [Tooltip("Duration: how long it lives, in seconds.")]

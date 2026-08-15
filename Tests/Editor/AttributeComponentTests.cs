@@ -16,6 +16,7 @@ namespace PowerOfFire.DrawToPlay.Tests
     public sealed class AttributeComponentTests
     {
         private readonly List<GameObject> m_Objects = new List<GameObject>();
+        private readonly List<ScriptableObject> m_Assets = new List<ScriptableObject>();
 
         [TearDown]
         public void TearDown()
@@ -25,7 +26,30 @@ namespace PowerOfFire.DrawToPlay.Tests
                 if (m_Objects[i] != null)
                     Object.DestroyImmediate(m_Objects[i]);
             }
+            for (int i = 0; i < m_Assets.Count; i++)
+            {
+                if (m_Assets[i] != null)
+                    Object.DestroyImmediate(m_Assets[i]);
+            }
             m_Objects.Clear();
+            m_Assets.Clear();
+        }
+
+        /// <summary>A one-row balance sheet: health along (1,4)(3,6)(7,12).</summary>
+        private ProgressionTable MakeHealthTable()
+        {
+            var table = ScriptableObject.CreateInstance<ProgressionTable>();
+            m_Assets.Add(table);
+            var row = new ProgressionRow
+            {
+                id = "progress.health", name = "health",
+                valueByLevel = new AnimationCurve(
+                    new Keyframe(1f, 4f), new Keyframe(3f, 6f), new Keyframe(7f, 12f)),
+                wholeNumbers = true
+            };
+            row.attribute.entryName = "health";
+            table.entries.Add(row);
+            return table;
         }
 
         private AttributeComponent MakeActor()
@@ -87,6 +111,92 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             Assert.IsTrue(attributes.Has("mana"));
             Assert.AreEqual(12f, attributes.Value("mana"), 0.001f);
+        }
+
+        // ------------------------------------------------------------------- progression
+
+        [Test]
+        public void Table_GivesTheBases_AtTheAuthoredLevel()
+        {
+            AttributeComponent attributes = MakeActor();
+            attributes.table = MakeHealthTable();
+            attributes.level = 3;
+
+            Assert.AreEqual(6f, attributes.BaseOf("health"), 0.001f,
+                "one int plus the sheet is the whole authored difference");
+            Assert.AreEqual(6f, attributes.Value("health"), 0.001f);
+        }
+
+        [Test]
+        public void SetLevel_FullPoolFollowsItsCap_WoundedOneKeepsItsWound()
+        {
+            AttributeComponent attributes = MakeActor();
+            attributes.table = MakeHealthTable();
+            attributes.level = 1;
+            Assert.AreEqual(4f, attributes.Value("health"), 0.001f);
+
+            attributes.SetLevel(3);
+            Assert.AreEqual(6f, attributes.Value("health"), 0.001f,
+                "an unhurt actor levels up full — the pool follows its cap");
+
+            attributes.Consume("health", 2f);   // 4 of 6
+            attributes.SetLevel(7);
+            Assert.AreEqual(12f, attributes.Effective("health"), 0.001f);
+            Assert.AreEqual(4f, attributes.Value("health"), 0.001f,
+                "the wound survived the level — a level-up heal is an EFFECT, not a side "
+                + "effect of the sheet");
+        }
+
+        [Test]
+        public void Seed_Overrides_TheTable_AndSurvivesLevelling()
+        {
+            AttributeComponent attributes = MakeActor();
+            attributes.table = MakeHealthTable();
+            attributes.level = 1;
+            var seed = new AttributeComponent.Seed { baseValue = 10f };
+            seed.attribute.entryName = "health";
+            attributes.seeds.Add(seed);
+
+            Assert.AreEqual(10f, attributes.Value("health"), 0.001f,
+                "the authored exception outranks the sheet");
+            attributes.SetLevel(7);
+            Assert.AreEqual(10f, attributes.BaseOf("health"), 0.001f,
+                "and keeps outranking it when the level moves");
+        }
+
+        [Test]
+        public void ProgressionRow_WholeNumbers_RoundsTheRead()
+        {
+            var row = new ProgressionRow
+            {
+                name = "power",
+                valueByLevel = AnimationCurve.Linear(1f, 0f, 11f, 5f),
+                wholeNumbers = true
+            };
+            Assert.AreEqual(2f, row.Evaluate(4), 0.001f, "1.5 reads as a whole 2");
+            row.wholeNumbers = false;
+            Assert.AreEqual(1.5f, row.Evaluate(4), 0.001f);
+        }
+
+        [Test]
+        public void SetLevelTask_HandsTheDeclaredParameter_ToTheComponent()
+        {
+            var go = new GameObject("levelled");
+            go.hideFlags = HideFlags.HideAndDontSave;
+            go.SetActive(false);
+            m_Objects.Add(go);
+            var attributes = go.AddComponent<AttributeComponent>();
+            attributes.table = MakeHealthTable();
+
+            var task = ScriptableObject.CreateInstance<SetLevelTask>();
+            m_Assets.Add(task);
+            var context = new StateTreeContext(go);
+            context.blackboard["level"] = 5f;   // what the executor seeds from the parameter
+
+            Assert.AreEqual(StateTreeStatus.Success, task.OnTick(context, 0.1f));
+            Assert.AreEqual(5, attributes.level);
+            Assert.AreEqual(9f, attributes.Value("health"), 0.001f,
+                "the placement's one number became hit points through the sheet");
         }
 
         // -------------------------------------------------------------------- modifiers

@@ -75,6 +75,11 @@ namespace PowerOfFire.DrawToPlay
             public float remaining;
             public float tickAccumulated;
 
+            /// <summary>The row's magnitude AFTER level scaling, snapshotted when the effect
+            /// applied — a poison keeps the strength its caster had when it landed, whatever
+            /// the caster does afterwards (the GAS snapshot rule).</summary>
+            public float magnitudePerStack;
+
             /// <summary>The granted modifier's receipt, for Modifier-operation effects —
             /// removed on expiry, re-granted when stacks change.</summary>
             public AttributeComponent.ModifierHandle modifier;
@@ -352,15 +357,17 @@ namespace PowerOfFire.DrawToPlay
                         + "or Infinite, or use a Delta.", this);
                     return;
                 }
-                ApplyMagnitude(effect, effect.magnitude, firstApplication: true);
+                ApplyMagnitude(effect, ScaledMagnitude(effect, source, service),
+                    firstApplication: true);
             }
             else
             {
                 ActiveStatus status = StackStatus(effect);
+                status.magnitudePerStack = ScaledMagnitude(effect, source, service);
                 if (effect.operation == EffectOperation.Modifier)
                     ReGrant(status);
                 else if (effect.tickInterval > 0f)
-                    ApplyMagnitude(effect, effect.magnitude * StacksOf(effect.name),
+                    ApplyMagnitude(effect, status.magnitudePerStack * status.stacks,
                         firstApplication: true);
             }
 
@@ -378,8 +385,41 @@ namespace PowerOfFire.DrawToPlay
             string attributeName = status.effect.attribute.entryName;
             attributes.Ensure(attributeName, 0f);
             status.modifier = attributes.AddModifier(attributeName,
-                status.effect.magnitude * status.stacks,
+                status.magnitudePerStack * status.stacks,
                 Mathf.Pow(status.effect.multiplier, status.stacks));
+        }
+
+        /// <summary>
+        /// The ScalableFloat read (M23 progression): a row's magnitude, times its picked
+        /// progression curve evaluated at the SOURCE's level — the same balance sheet that
+        /// gives a level-5 raider its hit points says how hard it hits. No scaling row, no
+        /// source, or no resolvable curve = the magnitude as written.
+        /// </summary>
+        internal static float ScaledMagnitude(EffectDef effect, GameObject source,
+            AbilityService service)
+        {
+            if (effect == null)
+                return 0f;
+            if (string.IsNullOrEmpty(effect.scaleByLevel.entryName))
+                return effect.magnitude;
+
+            ProgressionRow row = service != null
+                ? service.FindProgression(effect.scaleByLevel.entryName)
+                : null;
+            if (row == null)
+            {
+                Debug.LogWarning("[Ability] effect '" + effect.name + "' scales by '"
+                    + effect.scaleByLevel.entryName + "' but no progression row of that "
+                    + "name is in the service's registries — applying unscaled.");
+                return effect.magnitude;
+            }
+
+            int sourceLevel = 1;
+            var sourceAttributes = source != null
+                ? source.GetComponent<AttributeComponent>() : null;
+            if (sourceAttributes != null)
+                sourceLevel = sourceAttributes.level;
+            return effect.magnitude * row.Evaluate(sourceLevel);
         }
 
         private void ShowCue(EffectDef effect, GameObject source)
@@ -461,7 +501,7 @@ namespace PowerOfFire.DrawToPlay
                     while (status.tickAccumulated >= status.effect.tickInterval)
                     {
                         status.tickAccumulated -= status.effect.tickInterval;
-                        ApplyMagnitude(status.effect, status.effect.magnitude * status.stacks,
+                        ApplyMagnitude(status.effect, status.magnitudePerStack * status.stacks,
                             firstApplication: false);
                     }
                 }

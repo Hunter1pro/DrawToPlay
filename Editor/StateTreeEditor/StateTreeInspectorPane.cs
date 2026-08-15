@@ -2471,6 +2471,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                                             + effect.magnitude.ToString("0.##"),
                                     effect.duration.ToString()
                                 };
+                                if (!string.IsNullOrEmpty(effect.scaleByLevel.entryName))
+                                    parts.Add("× '" + effect.scaleByLevel.entryName
+                                        + "' @ source level");
                                 if (effect.duration != AbilityEffectDuration.Instant)
                                     parts.Add(effect.seconds.ToString("0.##") + "s ×"
                                         + Mathf.Max(1, effect.maxStacks));

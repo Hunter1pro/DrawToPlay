@@ -370,6 +370,73 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void ScaledEffect_HitsAtTheSourcesLevel()
+        {
+            // The ScalableFloat half of progression: the row's magnitude times its picked
+            // curve at the SOURCE's level — resolved through the same dependsOn closure as
+            // every other reference.
+            var progression = ScriptableObject.CreateInstance<ProgressionTable>();
+            m_Assets.Add(progression);
+            var power = new ProgressionRow
+            {
+                id = "progress.power", name = "power",
+                valueByLevel = new AnimationCurve(new Keyframe(1f, 1f), new Keyframe(5f, 2f)),
+                wholeNumbers = true
+            };
+            power.attribute.entryName = "power";
+            progression.entries.Add(power);
+            m_Effects.dependsOn.Add(progression);
+
+            EffectDef bite = MakeEffect("bite", magnitude: -1f);
+            bite.scaleByLevel.entryName = "power";
+
+            AbilityHost caster = MakeActor("veteran");
+            var casterAttributes = caster.gameObject.AddComponent<AttributeComponent>();
+            casterAttributes.level = 5;
+
+            AbilityHost victim = MakeActor("bitten", withHealth: true);
+            victim.ApplyEffect(bite, caster.gameObject);
+            Assert.AreEqual(3f, victim.GetComponent<HealthComponent>().hp, 0.001f,
+                "-1 at power 2: the same row hits harder because the SOURCE is level 5");
+        }
+
+        [Test]
+        public void ScaledStatus_SnapshotsItsStrength_WhenItLands()
+        {
+            var progression = ScriptableObject.CreateInstance<ProgressionTable>();
+            m_Assets.Add(progression);
+            var power = new ProgressionRow
+            {
+                id = "progress.power", name = "power",
+                valueByLevel = new AnimationCurve(new Keyframe(1f, 1f), new Keyframe(5f, 2f)),
+                wholeNumbers = true
+            };
+            power.attribute.entryName = "power";
+            progression.entries.Add(power);
+            m_Effects.dependsOn.Add(progression);
+
+            EffectDef venom = MakeEffect("venom", magnitude: -1f);
+            venom.scaleByLevel.entryName = "power";
+            venom.duration = AbilityEffectDuration.Duration;
+            venom.seconds = 10f;
+            venom.tickInterval = 1f;
+
+            AbilityHost caster = MakeActor("snake");
+            var casterAttributes = caster.gameObject.AddComponent<AttributeComponent>();
+            casterAttributes.level = 5;
+
+            AbilityHost victim = MakeActor("poisoned2", withHealth: true);
+            victim.ApplyEffect(venom, caster.gameObject);   // lands -2 (power 2 at level 5)
+            Assert.AreEqual(3f, victim.GetComponent<HealthComponent>().hp, 0.001f);
+
+            casterAttributes.level = 1;   // the snake got weaker AFTER the bite
+            victim.Tick(1f);
+            Assert.AreEqual(1f, victim.GetComponent<HealthComponent>().hp, 0.001f,
+                "the tick still drains -2 — a landed status keeps the strength it landed "
+                + "with (the snapshot rule)");
+        }
+
+        [Test]
         public void ModifierEffect_GrantsWhileAlive_RevertsOnExpiry_RecomputesOnStack()
         {
             // The GAS step: a Duration effect can carry a revertible MODIFIER instead of a

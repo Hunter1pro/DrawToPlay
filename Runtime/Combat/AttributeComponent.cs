@@ -37,8 +37,19 @@ namespace PowerOfFire.DrawToPlay
         }
 
         [Tooltip("This actor's starting attributes. Domain components (health) ensure their "
-            + "own regardless, so an empty list is a plain actor, not a broken one.")]
+            + "own regardless, so an empty list is a plain actor, not a broken one. A seed "
+            + "OVERRIDES the table for its attribute — an authored exception the level "
+            + "never touches.")]
         public List<Seed> seeds = new List<Seed>();
+
+        [Tooltip("The balance sheet this actor reads its bases from — level → value per "
+            + "attribute, one page for the whole world scale. Empty = seeds and domain "
+            + "defaults only.")]
+        public ProgressionTable table;
+
+        [Tooltip("Where this actor stands on the table's scale. One int is the whole "
+            + "authored difference between a fresh raider and a veteran.")]
+        public int level = 1;
 
         /// <summary>CURRENT changed: (name, previous, current). Consumes and restores only —
         /// modifier changes announce through <see cref="effectiveChanged"/>.</summary>
@@ -65,6 +76,10 @@ namespace PowerOfFire.DrawToPlay
         private readonly Dictionary<string, Entry> m_Entries =
             new Dictionary<string, Entry>(StringComparer.Ordinal);
 
+        /// <summary>Attributes an explicit seed authored — the table never re-bases these,
+        /// at creation or on a level change: the exception outranks the sheet.</summary>
+        private readonly HashSet<string> m_SeededNames = new HashSet<string>(StringComparer.Ordinal);
+
         private bool m_Seeded;
 
         private void Awake()
@@ -80,9 +95,77 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < seeds.Count; i++)
             {
                 Seed seed = seeds[i];
-                if (seed != null && !string.IsNullOrEmpty(seed.attribute.entryName))
-                    Ensure(seed.attribute.entryName, seed.baseValue);
+                if (seed == null || string.IsNullOrEmpty(seed.attribute.entryName))
+                    continue;
+                m_SeededNames.Add(seed.attribute.entryName);
+                Ensure(seed.attribute.entryName, seed.baseValue);
             }
+            // The table speaks after the seeds (Ensure is a no-op where a seed already did)
+            // and before any domain fallback ever runs — the precedence chain in one place:
+            // seed > table > AttributeDef default > domain component (maxHP).
+            ApplyTable(rebase: false);
+        }
+
+        /// <summary>Derive bases from the table at the current level. <paramref name="rebase"/>
+        /// false only creates missing entries (first seeding); true moves existing bases too
+        /// (a level change). Seeded attributes are never touched either way.</summary>
+        private void ApplyTable(bool rebase)
+        {
+            if (table == null)
+                return;
+            for (int i = 0; i < table.entries.Count; i++)
+            {
+                ProgressionRow row = table.entries[i];
+                if (row == null || string.IsNullOrEmpty(row.attribute.entryName))
+                    continue;
+                string attributeName = row.attribute.entryName;
+                if (m_SeededNames.Contains(attributeName))
+                    continue;
+                float value = row.Evaluate(level);
+                if (!m_Entries.TryGetValue(attributeName, out Entry entry))
+                {
+                    m_Entries[attributeName] = new Entry
+                    {
+                        baseValue = value,
+                        current = value
+                    };
+                }
+                else if (rebase)
+                {
+                    // Re-asserting the same level is silence, not a re-announcement — a
+                    // state re-entered may set its level every time.
+                    if (Mathf.Approximately(entry.baseValue, value))
+                        continue;
+                    // A pool that was FULL follows its cap — levelling a fresh spawn or an
+                    // unhurt actor lands them full. A wounded pool keeps its wound (a
+                    // level-up heal is an EFFECT the game applies, not a side effect here).
+                    bool wasFull = entry.current >= EffectiveOf(entry)
+                        || Mathf.Approximately(entry.current, EffectiveOf(entry));
+                    entry.baseValue = value;
+                    if (wasFull)
+                    {
+                        float previous = entry.current;
+                        entry.current = EffectiveOf(entry);
+                        if (!Mathf.Approximately(previous, entry.current))
+                            changed?.Invoke(attributeName, previous, entry.current);
+                    }
+                    else
+                    {
+                        ClampToCap(attributeName, entry);
+                    }
+                    effectiveChanged?.Invoke(attributeName);
+                }
+            }
+        }
+
+        /// <summary>Move this actor on the table's scale: every table-owned base re-derives
+        /// at the new level. Modifiers survive (they reshape whatever the base is); full
+        /// pools follow their caps, wounded ones keep their wounds.</summary>
+        public void SetLevel(int newLevel)
+        {
+            EnsureSeeds();
+            level = Mathf.Max(1, newLevel);
+            ApplyTable(rebase: true);
         }
 
         /// <summary>The attribute exists from here on — created at <paramref name="baseValue"/>

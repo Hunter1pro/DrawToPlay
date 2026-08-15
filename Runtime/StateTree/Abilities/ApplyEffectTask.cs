@@ -79,10 +79,12 @@ namespace PowerOfFire.DrawToPlay
                 var health = victim.GetComponent<HealthComponent>();
                 if (health != null)
                 {
-                    if (row.magnitude > 0f)
-                        health.Heal(row.magnitude);
+                    float magnitude = AbilityHost.ScaledMagnitude(row, m_Owner.gameObject,
+                        service);
+                    if (magnitude > 0f)
+                        health.Heal(magnitude);
                     else
-                        health.TakeDamage(-row.magnitude);
+                        health.TakeDamage(-magnitude);
                     return StateTreeStatus.Success;
                 }
             }

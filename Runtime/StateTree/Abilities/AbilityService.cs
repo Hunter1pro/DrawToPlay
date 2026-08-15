@@ -59,6 +59,13 @@ namespace PowerOfFire.DrawToPlay
             return FindInClosure(cueName) as CueDef;
         }
 
+        /// <summary>A progression row, through the same closure — how a scaled effect's
+        /// curve resolves (the effect registry lists the table in dependsOn).</summary>
+        public ProgressionRow FindProgression(string rowName)
+        {
+            return FindInClosure(rowName) as ProgressionRow;
+        }
+
         private StateTreeRegistryEntry FindInClosure(string entryName)
         {
             if (string.IsNullOrEmpty(entryName) || definition == null
