@@ -63,7 +63,9 @@ namespace PowerOfFire.DrawToPlay
             var host = victim.GetComponent<AbilityHost>();
             if (host != null)
             {
-                host.ApplyEffect(row);
+                // The owner is the SOURCE of this application — what a Source-aspect cue on
+                // the row shows at (the caster's flash on a landed hit).
+                host.ApplyEffect(row, m_Owner.gameObject);
                 return StateTreeStatus.Success;
             }
 

@@ -2468,7 +2468,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                                     parts.Add(effect.seconds.ToString("0.##") + "s ×"
                                         + Mathf.Max(1, effect.maxStacks));
                                 if (!string.IsNullOrEmpty(effect.cue.entryName))
-                                    parts.Add("cue '" + effect.cue.entryName + "'");
+                                    parts.Add("cue '" + effect.cue.entryName + "'"
+                                        + (effect.cueAspect == AbilityCueAspect.Source
+                                            ? " @ source" : ""));
                                 m_Root.Add(RecognizedRow("⛃ Applies effect '" + effect.name
                                     + "' — " + string.Join(" · ", parts) + " → "
                                     + applies.target + ".", registry));

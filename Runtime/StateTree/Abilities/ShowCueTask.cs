@@ -42,7 +42,8 @@ namespace PowerOfFire.DrawToPlay
             {
                 GameObject shown = Object.Instantiate(row.prefab, where.position,
                     Quaternion.identity, row.attachToTarget ? where : null);
-                Object.Destroy(shown, row.secondsAlive > 0f ? row.secondsAlive : 2f);
+                if (Application.isPlaying)
+                    Object.Destroy(shown, row.secondsAlive > 0f ? row.secondsAlive : 2f);
             }
             return StateTreeStatus.Success;
         }

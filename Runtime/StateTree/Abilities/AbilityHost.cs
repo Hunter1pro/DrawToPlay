@@ -31,6 +31,10 @@ namespace PowerOfFire.DrawToPlay
     [AddComponentMenu("Draw To Play/Services/Ability Host")]
     public sealed class AbilityHost : WorldObjectBehaviour
     {
+        /// <summary>Build sentinel for the CLI toolchain — bumped when a compile must be
+        /// provably loaded (the guard-vs-stale-domain hunt of 2026-08-15).</summary>
+        internal const int compileStamp = 2;
+
         [Tooltip("The idle floor — activated whenever nothing else is. Empty = no floor: "
             + "the host only runs what something explicitly starts.")]
         public StateTreeEntryRef<AbilityDef> defaultAbility = new StateTreeEntryRef<AbilityDef>();
@@ -270,12 +274,15 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>
         /// One effect row applied TO THIS ACTOR — by its own recovery tree or by whoever just
-        /// hit it; the call does not care which. Instant magnitudes land at once (through
-        /// i-frames — a hit is a hit); Duration/Infinite rows join the status list, stack by
-        /// their mode, tick past i-frames, and carry their granted tags. The row's picked cue
-        /// spawns at this actor and <see cref="cueFired"/> tells the listeners.
+        /// hit it; the call does not care which, but it may say WHO (<paramref name="source"/>),
+        /// because the row's cue aspect can name the caster's end of the wire. Instant
+        /// magnitudes land at once (through i-frames — a hit is a hit); Duration/Infinite
+        /// rows join the status list, stack by their mode, tick past i-frames, and carry
+        /// their granted tags. The row's picked cue spawns per its aspect — at this actor
+        /// (Target) or at the source (Source) — and <see cref="cueFired"/> tells this
+        /// actor's listeners either way: the effect happened HERE.
         /// </summary>
-        public void ApplyEffect(EffectDef effect)
+        public void ApplyEffect(EffectDef effect, GameObject source = null)
         {
             if (effect == null)
                 return;
@@ -292,21 +299,30 @@ namespace PowerOfFire.DrawToPlay
                         firstApplication: true);
             }
 
-            ShowCue(effect);
+            ShowCue(effect, source);
         }
 
-        private void ShowCue(EffectDef effect)
+        private void ShowCue(EffectDef effect, GameObject source)
         {
             AbilityService resolved = service;
             CueDef cue = resolved != null ? resolved.FindCue(effect.cue.entryName) : null;
             if (cue == null)
                 return;
 
+            // THE ASPECT (the review's question, answered in data): Target shows where the
+            // effect landed — here; Source shows at the caster, falling back here when the
+            // application carried none (a self-applied recovery has no other end).
+            Transform where = effect.cueAspect == AbilityCueAspect.Source && source != null
+                ? source.transform
+                : transform;
             if (cue.prefab != null)
             {
-                GameObject shown = Instantiate(cue.prefab, transform.position,
-                    Quaternion.identity, cue.attachToTarget ? transform : null);
-                Destroy(shown, cue.secondsAlive > 0f ? cue.secondsAlive : 2f);
+                GameObject shown = Instantiate(cue.prefab, where.position,
+                    Quaternion.identity, cue.attachToTarget ? where : null);
+                // Timed Destroy is a play-mode verb; edit-mode callers (tests, tooling) own
+                // their spawn's lifetime the way they own everything else they make.
+                if (Application.isPlaying)
+                    Destroy(shown, cue.secondsAlive > 0f ? cue.secondsAlive : 2f);
             }
             cueFired?.Invoke(cue, effect);
         }

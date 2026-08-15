@@ -313,6 +313,38 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void CueAspect_Source_ShowsAtTheCaster_NotTheVictim()
+        {
+            // The review's question: from a tree the task's variable aims a cue — from the
+            // registry, the effect row's ASPECT does. Source shows at whoever applied it.
+            var template = new GameObject("FlashTemplate");
+            template.hideFlags = HideFlags.HideAndDontSave;
+            template.SetActive(false);
+            m_Objects.Add(template);
+
+            var flash = new CueDef
+            {
+                id = "cue.flash", name = "flash", prefab = template,
+                secondsAlive = 0.2f, attachToTarget = true
+            };
+            m_Cues.entries.Add(flash);
+
+            EffectDef drain = MakeEffect("drain", magnitude: -1f);
+            drain.cue.entryName = "flash";
+            drain.cueAspect = AbilityCueAspect.Source;
+
+            AbilityHost caster = MakeActor("caster");
+            AbilityHost victim = MakeActor("drained", withHealth: true);
+
+            victim.ApplyEffect(drain, caster.gameObject);
+
+            Assert.AreEqual(1, caster.transform.childCount,
+                "a Source-aspect cue attaches at the CASTER — the drain's glow");
+            Assert.AreEqual(0, victim.transform.childCount,
+                "and not at the victim, who only takes the magnitude");
+        }
+
+        [Test]
         public void ApplyEffectTask_FromBlackboard_LandsOnTheStruckActor()
         {
             EffectDef row = MakeEffect("strike-hit", magnitude: -1f);

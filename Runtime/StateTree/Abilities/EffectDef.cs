@@ -13,6 +13,21 @@ namespace PowerOfFire.DrawToPlay
         Infinite = 2
     }
 
+    /// <summary>Where a ROW-RIDING cue shows (the review's question: from a tree the task's
+    /// variable aims a cue — from the registry, THIS does). The aspect belongs to the
+    /// effect→cue WIRE, not to the cue row: the same flash is on-victim for a strike and
+    /// on-caster for a drain's heal-glow. Order serialized, append only.</summary>
+    public enum AbilityCueAspect
+    {
+        /// <summary>At whoever the effect LANDS ON — the default, and the wired-for-free
+        /// case: the point of application is the position.</summary>
+        Target = 0,
+
+        /// <summary>At whoever APPLIED the effect — the caster's muzzle flash, the drain's
+        /// glow. Falls back to the target when the application carried no source.</summary>
+        Source = 1
+    }
+
     /// <summary>What a re-applied Duration effect does to the copy already running — the four
     /// HT stacking modes. Order serialized, append only.</summary>
     public enum AbilityStacking
@@ -68,5 +83,9 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>The cue shown when this effect APPLIES — a picked row of the cue registry
         /// this registry depends on, never a typed name. Empty = a silent effect.</summary>
         public StateTreeEntryRef<CueDef> cue = new StateTreeEntryRef<CueDef>();
+
+        [Tooltip("Where the cue shows: Target — at whoever the effect lands on (wired for "
+            + "free). Source — at whoever applied it (a caster's flash, a drain's glow).")]
+        public AbilityCueAspect cueAspect = AbilityCueAspect.Target;
     }
 }
