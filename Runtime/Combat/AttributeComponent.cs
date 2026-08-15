@@ -165,8 +165,20 @@ namespace PowerOfFire.DrawToPlay
         {
             EnsureSeeds();
             level = Mathf.Max(1, newLevel);
+            if (table != null && !m_WarnedPastSheet && level > table.maxLevel
+                && table.maxLevel > 0)
+            {
+                // Past the sheet the curves clamp — legal, but never silent: the flat
+                // values ARE the answer, and this is where that gets said.
+                m_WarnedPastSheet = true;
+                Debug.LogWarning("[Attributes] level " + level + " asked of '" + table.name
+                    + "', whose sheet ends at " + table.maxLevel + " — values hold at "
+                    + table.maxLevel + "'s.", this);
+            }
             ApplyTable(rebase: true);
         }
+
+        private bool m_WarnedPastSheet;
 
         /// <summary>The attribute exists from here on — created at <paramref name="baseValue"/>
         /// when new, left untouched when already present (a domain component ensuring after a

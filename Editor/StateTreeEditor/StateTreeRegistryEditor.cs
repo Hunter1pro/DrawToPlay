@@ -366,6 +366,20 @@ namespace PowerOfFire.DrawToPlay.Editor
                 container.Add(fieldRow);
             }
 
+            // The row's own one-line meaning (Describe) — how a progression row announces
+            // its span without anyone opening the curve.
+            var registryTarget = (StateTreeRegistryAsset)target;
+            StateTreeRegistryEntry described = registryTarget.EntryAt(index);
+            var summary = described != null ? described.Describe() : null;
+            if (!string.IsNullOrEmpty(summary))
+            {
+                var line = new Label(summary);
+                line.style.marginLeft = 8f;
+                line.style.opacity = 0.6f;
+                line.style.whiteSpace = WhiteSpace.Normal;
+                container.Add(line);
+            }
+
             container.Bind(serializedObject);
             return container;
         }

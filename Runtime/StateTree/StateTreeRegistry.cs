@@ -21,6 +21,16 @@ namespace PowerOfFire.DrawToPlay
         public string name = "";
 
         public string group = "";
+
+        /// <summary>One dim line the registry dashboard shows under this row's fields —
+        /// what the row MEANS at a glance, derived from its data (a progression row says
+        /// "levels 1–7 · 4 → 12"). Null or empty = no line. On the entry rather than in
+        /// editor code so a new registry kind describes itself with no editor work — the
+        /// M13 rule.</summary>
+        public virtual string Describe()
+        {
+            return null;
+        }
     }
 
     /// <summary>

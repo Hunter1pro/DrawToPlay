@@ -403,22 +403,29 @@ namespace PowerOfFire.DrawToPlay
             if (string.IsNullOrEmpty(effect.scaleByLevel.entryName))
                 return effect.magnitude;
 
-            ProgressionRow row = service != null
-                ? service.FindProgression(effect.scaleByLevel.entryName)
-                : null;
+            var sourceAttributes = source != null
+                ? source.GetComponent<AttributeComponent>() : null;
+
+            // THE SOURCE'S OWN SHEET SPEAKS FIRST: a boss with its own table hits like
+            // its table's row of the picked name says — the effect row picks WHICH line
+            // ("power"), the actor's sheet says what that line means where it stands.
+            // Falls back to the registry closure's row, the shared world scale.
+            ProgressionRow row = null;
+            if (sourceAttributes != null && sourceAttributes.table != null)
+                row = sourceAttributes.table.FindByName(effect.scaleByLevel.entryName)
+                    as ProgressionRow;
+            if (row == null && service != null)
+                row = service.FindProgression(effect.scaleByLevel.entryName);
             if (row == null)
             {
                 Debug.LogWarning("[Ability] effect '" + effect.name + "' scales by '"
                     + effect.scaleByLevel.entryName + "' but no progression row of that "
-                    + "name is in the service's registries — applying unscaled.");
+                    + "name is on the source's sheet or in the service's registries — "
+                    + "applying unscaled.");
                 return effect.magnitude;
             }
 
-            int sourceLevel = 1;
-            var sourceAttributes = source != null
-                ? source.GetComponent<AttributeComponent>() : null;
-            if (sourceAttributes != null)
-                sourceLevel = sourceAttributes.level;
+            int sourceLevel = sourceAttributes != null ? sourceAttributes.level : 1;
             return effect.magnitude * row.Evaluate(sourceLevel);
         }
 

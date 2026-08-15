@@ -401,6 +401,47 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void ScaledEffect_PrefersTheSourcesOwnSheet()
+        {
+            // The world's shared line says power is 1 at level 1 — but the boss carries
+            // its own sheet where the same line reads 3. The effect row picks WHICH line;
+            // the striker's sheet says what it means where they stand.
+            var shared = ScriptableObject.CreateInstance<ProgressionTable>();
+            m_Assets.Add(shared);
+            var worldPower = new ProgressionRow
+            {
+                id = "progress.power", name = "power",
+                valueByLevel = new AnimationCurve(new Keyframe(1f, 1f), new Keyframe(5f, 2f))
+            };
+            worldPower.attribute.entryName = "power";
+            shared.entries.Add(worldPower);
+            m_Effects.dependsOn.Add(shared);
+
+            var bossSheet = ScriptableObject.CreateInstance<ProgressionTable>();
+            m_Assets.Add(bossSheet);
+            var bossPower = new ProgressionRow
+            {
+                id = "boss.power", name = "power",
+                valueByLevel = new AnimationCurve(new Keyframe(1f, 3f))
+            };
+            bossPower.attribute.entryName = "power";
+            bossSheet.entries.Add(bossPower);
+
+            EffectDef bite = MakeEffect("bite", magnitude: -1f);
+            bite.scaleByLevel.entryName = "power";
+
+            AbilityHost boss = MakeActor("boss");
+            var bossAttributes = boss.gameObject.AddComponent<AttributeComponent>();
+            bossAttributes.table = bossSheet;
+            bossAttributes.level = 1;
+
+            AbilityHost victim = MakeActor("mauled", withHealth: true);
+            victim.ApplyEffect(bite, boss.gameObject);
+            Assert.AreEqual(2f, victim.GetComponent<HealthComponent>().hp, 0.001f,
+                "-3, the boss's own line — not -1, the shared world scale's");
+        }
+
+        [Test]
         public void ScaledStatus_SnapshotsItsStrength_WhenItLands()
         {
             var progression = ScriptableObject.CreateInstance<ProgressionTable>();

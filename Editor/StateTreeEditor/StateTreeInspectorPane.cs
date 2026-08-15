@@ -2472,8 +2472,16 @@ namespace PowerOfFire.DrawToPlay.Editor
                                     effect.duration.ToString()
                                 };
                                 if (!string.IsNullOrEmpty(effect.scaleByLevel.entryName))
-                                    parts.Add("× '" + effect.scaleByLevel.entryName
-                                        + "' @ source level");
+                                {
+                                    var (_, scaleEntry) = RowInClosure(service,
+                                        effect.scaleByLevel.entryName);
+                                    parts.Add(scaleEntry is ProgressionRow scale
+                                        ? "× '" + effect.scaleByLevel.entryName + "' ("
+                                            + scale.firstLevel + "–" + scale.lastLevel
+                                            + ") @ source level"
+                                        : "× '" + effect.scaleByLevel.entryName
+                                            + "' @ source level");
+                                }
                                 if (effect.duration != AbilityEffectDuration.Instant)
                                     parts.Add(effect.seconds.ToString("0.##") + "s ×"
                                         + Mathf.Max(1, effect.maxStacks));

@@ -11,5 +11,21 @@ namespace PowerOfFire.DrawToPlay
         fileName = "ProgressionTable")]
     public sealed class ProgressionTable : StateTreeRegistry<ProgressionRow>
     {
+        /// <summary>The highest level any row speaks for — "this world is balanced up to
+        /// here". Levels past it are legal and hold every curve's last value; consumers
+        /// that assign levels read this to SAY so instead of flattening silently.</summary>
+        public int maxLevel
+        {
+            get
+            {
+                var max = 0;
+                for (int i = 0; i < entries.Count; i++)
+                {
+                    if (entries[i] != null && entries[i].lastLevel > max)
+                        max = entries[i].lastLevel;
+                }
+                return max;
+            }
+        }
     }
 }

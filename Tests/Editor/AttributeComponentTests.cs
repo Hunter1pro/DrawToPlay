@@ -165,6 +165,27 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void PastTheSheet_ValuesHold_AndItIsSaid()
+        {
+            AttributeComponent attributes = MakeActor();
+            ProgressionTable table = MakeHealthTable();
+            attributes.table = table;
+            attributes.level = 1;
+
+            Assert.AreEqual(7, table.maxLevel, "the sheet knows its own reach");
+            Assert.AreEqual(1, table.entries[0].firstLevel);
+            Assert.AreEqual(7, table.entries[0].lastLevel);
+
+            UnityEngine.TestTools.LogAssert.Expect(LogType.Warning,
+                new System.Text.RegularExpressions.Regex("ends at 7"));
+            attributes.SetLevel(50);
+            Assert.AreEqual(50, attributes.level, "the actor's fact stays as asked");
+            Assert.AreEqual(12f, attributes.BaseOf("health"), 0.001f,
+                "past the last key the curve clamps — level 50 gets level 7's numbers, "
+                + "and the warning above is what keeps that from being silent");
+        }
+
+        [Test]
         public void ProgressionRow_WholeNumbers_RoundsTheRead()
         {
             var row = new ProgressionRow

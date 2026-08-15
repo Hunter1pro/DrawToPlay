@@ -29,13 +29,34 @@ namespace PowerOfFire.DrawToPlay
             + "that are genuinely continuous (a speed multiplier).")]
         public bool wholeNumbers = true;
 
-        /// <summary>The curve read every consumer uses, rounding applied.</summary>
+        /// <summary>The curve read every consumer uses, rounding applied. PAST THE LAST
+        /// KEY the curve clamps — level 50 of a sheet that ends at 10 answers with the
+        /// level-10 value, which is why the span below is readable: the silence would
+        /// otherwise be the only signal.</summary>
         public float Evaluate(int level)
         {
             if (valueByLevel == null || valueByLevel.length == 0)
                 return 0f;
             float value = valueByLevel.Evaluate(level);
             return wholeNumbers ? Mathf.Round(value) : value;
+        }
+
+        /// <summary>The first level the curve speaks for.</summary>
+        public int firstLevel => valueByLevel != null && valueByLevel.length > 0
+            ? Mathf.RoundToInt(valueByLevel[0].time) : 0;
+
+        /// <summary>The last level the curve speaks for — beyond it, values hold flat.</summary>
+        public int lastLevel => valueByLevel != null && valueByLevel.length > 0
+            ? Mathf.RoundToInt(valueByLevel[valueByLevel.length - 1].time) : 0;
+
+        public override string Describe()
+        {
+            if (valueByLevel == null || valueByLevel.length == 0)
+                return "no curve — always 0";
+            return "levels " + firstLevel + "–" + lastLevel + " · "
+                + Evaluate(firstLevel).ToString("0.##") + " → "
+                + Evaluate(lastLevel).ToString("0.##")
+                + " (holds past " + lastLevel + ")";
         }
     }
 }
