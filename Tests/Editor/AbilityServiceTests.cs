@@ -107,6 +107,61 @@ namespace PowerOfFire.DrawToPlay.Tests
             CollectionAssert.IsEmpty(problems);
         }
 
+        [Test]
+        public void TreeNesting_FollowsTheServiceRules()
+        {
+            // The HT ability editor's law, on states: root IS the ability, effects under it,
+            // cues under effects, a cue is a leaf.
+            m_Def.nestingRules.Add(new ServiceNestingRule
+            {
+                parentKind = "ability", childKinds = new List<string> { "effect" }
+            });
+            m_Def.nestingRules.Add(new ServiceNestingRule
+            {
+                parentKind = "effect", childKinds = new List<string> { "cue" }
+            });
+
+            StateTreeAsset tree = MakeResidentTree();
+            StateTreeNodeAsset root = tree.root;
+
+            var effect = MakeNode("land");
+            effect.roleKind = "effect";
+            root.children.Add(effect);
+            var cue = MakeNode("flash");
+            cue.roleKind = "cue";
+            effect.children.Add(cue);
+
+            var problems = new List<string>();
+            AbilityRules.ValidateTree(m_Def, tree, problems);
+            CollectionAssert.IsEmpty(problems,
+                "ability → effect → cue as STATES is the lawful shape");
+
+            // A cue state directly under the ability root: not in the rules.
+            var strayCue = MakeNode("strayFlash");
+            strayCue.roleKind = "cue";
+            root.children.Add(strayCue);
+            AbilityRules.ValidateTree(m_Def, tree, problems);
+            Assert.AreEqual(1, problems.Count, "a 'cue' cannot sit under 'ability'");
+            StringAssert.Contains("cannot sit under", problems[0]);
+
+            // Anything under a cue state: a leaf is a leaf, plain grouping included.
+            problems.Clear();
+            root.children.Remove(strayCue);
+            cue.children.Add(MakeNode("underLeaf"));
+            AbilityRules.ValidateTree(m_Def, tree, problems);
+            Assert.AreEqual(1, problems.Count, "a leaf kind admits nothing beneath it");
+            StringAssert.Contains("leaf", problems[0]);
+        }
+
+        private StateTreeNodeAsset MakeNode(string nodeId)
+        {
+            var node = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
+            node.nodeId = nodeId;
+            node.completeWhen = StateTreeCompleteWhen.Never;
+            m_Assets.Add(node);
+            return node;
+        }
+
         // -------------------------------------------------------------------- 2. tag gates
 
         [Test]

@@ -15,6 +15,17 @@ namespace PowerOfFire.DrawToPlay
         public List<StateTreeNodeAsset> children = new List<StateTreeNodeAsset>();
         public List<StateTreeTransition> transitions = new List<StateTreeTransition>();
 
+        /// <summary>
+        /// What this state IS in its service's vocabulary (M23 tree-nesting rules) — 'effect',
+        /// 'cue', or empty for a plain state. Meaningful only in a tree whose kind a
+        /// <see cref="ServiceDef"/> claims: the service's nesting rules then say which roles
+        /// may sit under which (the HT ability editor's typed Add Child, applied to state
+        /// trees — root IS the ability, its children default to effects, an effect's children
+        /// to cues, and the type stays changeable among what the rules allow). Empty states
+        /// are transparent: they group without changing what the rules see.
+        /// </summary>
+        public string roleKind = "";
+
         /// <summary>When this state counts as complete (M22) — the gate on its on-completion
         /// transitions and the implicit flow. Default keeps the pre-M22 rule.</summary>
         public StateTreeCompleteWhen completeWhen = StateTreeCompleteWhen.AllTasks;

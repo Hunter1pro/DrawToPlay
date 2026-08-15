@@ -31,6 +31,67 @@ namespace PowerOfFire.DrawToPlay
                     + "' — one ability is one ability tree, and this row points somewhere "
                     + "else.");
             }
+
+            if (row.tree != null)
+                ValidateTree(service, row.tree, problems);
+        }
+
+        /// <summary>
+        /// The nesting rules applied to the TREE (the HT ability editor's law, on states):
+        /// the root IS the service's root kind; a rule-typed state must be allowed under the
+        /// nearest typed ancestor; a plain state is transparent grouping; a state whose kind
+        /// allows nothing beneath it is a leaf, and anything under it — typed or not — is a
+        /// finding.
+        /// </summary>
+        public static void ValidateTree(ServiceDef service, StateTreeAsset tree,
+            List<string> problems)
+        {
+            if (service == null || tree == null || tree.root == null || problems == null)
+                return;
+            string rootKind = string.IsNullOrEmpty(service.treeKind)
+                ? AbilityDef.RootKind
+                : service.treeKind;
+            ValidateChildren(service, rootKind, tree.root,
+                "tree '" + tree.name + "'", problems, 0);
+        }
+
+        private static void ValidateChildren(ServiceDef service, string effectiveKind,
+            StateTreeNodeAsset node, string path, List<string> problems, int depth)
+        {
+            if (node == null || depth > 64)
+                return;
+
+            bool leaf = !string.IsNullOrEmpty(effectiveKind)
+                && service.AllowedUnder(effectiveKind).Count == 0;
+
+            for (int i = 0; i < node.children.Count; i++)
+            {
+                StateTreeNodeAsset child = node.children[i];
+                if (child == null)
+                    continue;
+                string label = path + " → '" + child.nodeId + "'";
+
+                if (leaf)
+                {
+                    problems.Add(label + ": a '" + effectiveKind + "' state is a leaf — "
+                        + "nothing may nest under it.");
+                    continue;
+                }
+
+                string childKind = child.roleKind;
+                if (!string.IsNullOrEmpty(childKind)
+                    && !service.Allows(effectiveKind, childKind))
+                {
+                    problems.Add(label + ": a '" + childKind + "' cannot sit under '"
+                        + effectiveKind + "' — the rules allow ["
+                        + string.Join(", ", service.AllowedUnder(effectiveKind)) + "].");
+                }
+
+                // A plain state is transparent: its children answer to the same kind it did.
+                ValidateChildren(service,
+                    string.IsNullOrEmpty(childKind) ? effectiveKind : childKind,
+                    child, label, problems, depth + 1);
+            }
         }
     }
 }

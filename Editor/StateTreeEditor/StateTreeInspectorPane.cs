@@ -2339,6 +2339,53 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Root.Add(ghostLabel);
             }
 
+            // THE ROLE (M23 tree-nesting): in a tree a service claims, what this state IS in
+            // that service's vocabulary — offered from the rules, changeable among what the
+            // parent allows, exactly the HT ability editor's changeable-but-lawful type.
+            var service = StateTreeEditorOps.ServiceClaiming(m_Tree);
+            if (service != null && m_Node != m_Tree.root)
+            {
+                StateTreeNodeAsset parent = StateTreeEditorOps.ParentOf(m_Tree, m_Node);
+                string parentRole = parent != null
+                    ? StateTreeEditorOps.EffectiveRoleOf(m_Tree, parent)
+                    : service.treeKind;
+                var allowed = service.AllowedUnder(parentRole);
+                var choices = new List<string> { "(state)" };
+                for (var i = 0; i < allowed.Count; ++i)
+                    choices.Add(allowed[i]);
+                string current = string.IsNullOrEmpty(m_Node.roleKind)
+                    ? "(state)"
+                    : m_Node.roleKind;
+                bool illegal = current != "(state)" && !choices.Contains(current);
+                if (illegal)
+                    choices.Add(current);   // shown so the error can name it, never offered
+
+                var roleField = new DropdownField("Role", choices,
+                    Mathf.Max(0, choices.IndexOf(current)));
+                roleField.tooltip = "What this state IS to the '" + service.serviceName
+                    + "' service. '(state)' is a plain state — transparent to the rules. "
+                    + "Under '" + parentRole + "' the rules allow: ["
+                    + string.Join(", ", allowed) + "].";
+                roleField.RegisterValueChangedCallback(evt =>
+                {
+                    var group = StateTreeEditorOps.BeginUndoGroup("Edit Role");
+                    Undo.RecordObject(m_Node, "Edit Role");
+                    m_Node.roleKind = evt.newValue == "(state)" ? "" : evt.newValue;
+                    EditorUtility.SetDirty(m_Node);
+                    StateTreeEditorOps.EndUndoGroup(group);
+                    m_StructuralChanged?.Invoke();
+                });
+                m_Root.Add(roleField);
+
+                if (illegal)
+                {
+                    m_Root.Add(new HelpBox("A '" + current + "' cannot sit under '"
+                        + parentRole + "' — the '" + service.serviceName + "' rules allow ["
+                        + string.Join(", ", allowed) + "]. Re-pick the role or move the "
+                        + "state.", HelpBoxMessageType.Error));
+                }
+            }
+
             if (m_Node == m_Tree.root)
             {
                 var entry = StateTreeEditorOps.ResolveEntryNode(m_Node);

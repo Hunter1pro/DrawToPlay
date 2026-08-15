@@ -47,6 +47,27 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public List<ServiceNestingRule> nestingRules = new List<ServiceNestingRule>();
 
+        /// <summary>
+        /// What a freshly created child of each KIND is born holding — the task the editor
+        /// seeds into a rule-typed state (an 'effect' state arrives with an ApplyEffectTask,
+        /// a 'cue' state with a ShowCueTask), so Add Child creates a THING, not an empty box
+        /// to fill from memory. Declared here, not hard-coded in the editor: a different
+        /// service seeds different atoms.
+        /// </summary>
+        public List<ServiceKindSeed> kindSeeds = new List<ServiceKindSeed>();
+
+        /// <summary>The task type name a state of this kind is seeded with, or empty.</summary>
+        public string SeedTaskFor(string kind)
+        {
+            for (int i = 0; i < kindSeeds.Count; i++)
+            {
+                ServiceKindSeed seed = kindSeeds[i];
+                if (seed != null && string.Equals(seed.kind, kind, StringComparison.Ordinal))
+                    return seed.taskTypeName ?? "";
+            }
+            return "";
+        }
+
         /// <summary>Whether <paramref name="childKind"/> may sit under
         /// <paramref name="parentKind"/>. No rule for the parent = leaf = nothing may.</summary>
         public bool Allows(string parentKind, string childKind)
@@ -77,6 +98,17 @@ namespace PowerOfFire.DrawToPlay
             }
             return null;
         }
+    }
+
+    /// <summary>One kind's birth gift: the task a rule-typed state starts with.</summary>
+    [Serializable]
+    public sealed class ServiceKindSeed
+    {
+        public string kind = "";
+
+        [Tooltip("Full or simple type name of a StateTreeTaskAsset — resolved by the editor "
+            + "when the state is created.")]
+        public string taskTypeName = "";
     }
 
     /// <summary>One nesting rule: what kinds may be the children of this kind. Beside

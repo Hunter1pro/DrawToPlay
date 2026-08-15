@@ -2065,6 +2065,58 @@ namespace PowerOfFire.DrawToPlay.Editor
             return false;
         }
 
+        // --- service rules on tree nesting (M23) --------------------------------------------
+
+        /// <summary>The ServiceDef that claims trees of this kind — how the editor knows a
+        /// tree is, say, an ABILITY, and whose law its nesting answers to. Null for a plain
+        /// tree; first match wins, two services claiming one kind is its own problem.</summary>
+        internal static ServiceDef ServiceClaiming(StateTreeAsset tree)
+        {
+            if (tree == null || string.IsNullOrEmpty(tree.treeKind))
+                return null;
+            string[] guids = AssetDatabase.FindAssets("t:" + nameof(ServiceDef));
+            for (var i = 0; i < guids.Length; i++)
+            {
+                var def = AssetDatabase.LoadAssetAtPath<ServiceDef>(
+                    AssetDatabase.GUIDToAssetPath(guids[i]));
+                if (def != null && !string.IsNullOrEmpty(def.treeKind)
+                    && def.treeKind == tree.treeKind)
+                    return def;
+            }
+            return null;
+        }
+
+        /// <summary>The kind a node ANSWERS TO under its service's rules: its own role, or —
+        /// plain states being transparent grouping — the nearest typed ancestor's, ending at
+        /// the tree kind itself (the root IS the ability).</summary>
+        internal static string EffectiveRoleOf(StateTreeAsset tree, StateTreeNodeAsset node)
+        {
+            var current = node;
+            var guard = 0;
+            while (current != null && guard++ < DepthGuard)
+            {
+                if (!string.IsNullOrEmpty(current.roleKind))
+                    return current.roleKind;
+                current = ParentOf(tree, current);
+            }
+            return tree != null ? tree.treeKind ?? "" : "";
+        }
+
+        /// <summary>The task type a kind's seed names, resolved over loaded assemblies by
+        /// full or simple name — null when the seed is empty or names nothing.</summary>
+        internal static Type SeedTaskType(ServiceDef service, string kind)
+        {
+            string typeName = service != null ? service.SeedTaskFor(kind) : "";
+            if (string.IsNullOrEmpty(typeName))
+                return null;
+            foreach (Type type in TypeCache.GetTypesDerivedFrom<StateTreeTaskAsset>())
+            {
+                if (type.Name == typeName || type.FullName == typeName)
+                    return type;
+            }
+            return null;
+        }
+
         /// <summary>The authored parent of a node — a WALK, not an index: the editor works on
         /// small authored trees and holds no per-tree caches to invalidate.</summary>
         internal static StateTreeNodeAsset ParentOf(StateTreeAsset tree, StateTreeNodeAsset node)

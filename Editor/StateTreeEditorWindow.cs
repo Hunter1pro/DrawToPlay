@@ -637,6 +637,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             var badge = $"T{node.tasks.Count} →{node.transitions.Count}";
             if (interrupts > 0)
                 badge += $" ⚡{interrupts}";
+            if (!string.IsNullOrEmpty(node.roleKind))
+                badge = "⟨" + node.roleKind + "⟩ " + badge;
             // The GHOST EDGE (M22), in badge form: where completion goes when no declared edge
             // fires — '⇢id' the implicit sibling, '⇢↑' a bubble, '⇢■' finishes the tree,
             // '∞' resident, '⊣' hold. A default the author can see instead of a trap.
@@ -726,8 +728,42 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (m_Tree == null || parent == null)
                 return;
 
+            // THE RULES TYPE THE GESTURE (M23, the HT ability editor's law on state trees):
+            // in a tree a service claims, Add Child under the root creates the first kind the
+            // rules allow there — an 'effect' state, born holding its seed task — and under a
+            // leaf kind it refuses outright. The type stays changeable in the inspector,
+            // among what the rules offer.
+            var service = StateTreeEditorOps.ServiceClaiming(m_Tree);
+            string childKind = null;
+            if (service != null)
+            {
+                string parentRole = StateTreeEditorOps.EffectiveRoleOf(m_Tree, parent);
+                var allowed = service.AllowedUnder(parentRole);
+                if (!string.IsNullOrEmpty(parentRole) && allowed.Count == 0)
+                {
+                    EditorUtility.DisplayDialog("Add Child",
+                        $"A '{parentRole}' state is a leaf in the '{service.serviceName}' "
+                        + "service's rules — nothing nests under it.", "OK");
+                    return;
+                }
+                if (allowed.Count > 0)
+                    childKind = allowed[0];
+            }
+
             var group = StateTreeEditorOps.BeginUndoGroup("Add State");
-            var node = StateTreeEditorOps.CreateNode(m_Tree, parent, "state", "State", "Add State");
+            var node = StateTreeEditorOps.CreateNode(m_Tree, parent,
+                childKind ?? "state", childKind != null
+                    ? char.ToUpperInvariant(childKind[0]) + childKind.Substring(1)
+                    : "State",
+                "Add State");
+            if (node != null && childKind != null)
+            {
+                node.roleKind = childKind;
+                var seedType = StateTreeEditorOps.SeedTaskType(service, childKind);
+                if (seedType != null)
+                    StateTreeEditorOps.CreateTask(m_Tree, node, seedType, "Add State");
+                EditorUtility.SetDirty(node);
+            }
             StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
             StateTreeEditorOps.EndUndoGroup(group);
 
