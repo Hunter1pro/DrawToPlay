@@ -3,55 +3,33 @@ using System.Collections.Generic;
 namespace PowerOfFire.DrawToPlay
 {
     /// <summary>
-    /// The ability service's rulebook, applied — validation of a row's authored parts against
-    /// the <see cref="ServiceDef.nestingRules"/>. One place, because two consumers implement
-    /// refusal (the part drawer's kind picker and this walk) and they must not disagree about
-    /// what "legal" means. Code-built data goes through here too: the editor refusing a pick
-    /// does nothing about a builder script writing the wrong shape.
+    /// The ability service's rulebook, applied — validation of rows against their
+    /// <see cref="ServiceDef"/>. The structure that used to need a nesting walk went TYPED on
+    /// review (effect rows referencing cue rows: an illegal child is unrepresentable, which
+    /// beats refused), so what remains to check is what types cannot say:
+    ///
+    /// ONE ABILITY IS ONE TREE — a row's tree must carry the service's declared
+    /// <see cref="ServiceDef.treeKind"/>, so the catalog cannot quietly point an ability at
+    /// an NPC's mind or a level flow. The kind is stamped where the tree is authored; this is
+    /// the read side.
     /// </summary>
     public static class AbilityRules
     {
-        /// <summary>Validate one ability row's parts. Problems are appended, one line each,
-        /// naming the row and the offending part — a report nobody can trace is not worth
-        /// writing.</summary>
+        /// <summary>Validate one ability row. Problems are appended, one line each, naming
+        /// the row — a report nobody can trace is not worth writing.</summary>
         public static void Validate(ServiceDef service, AbilityDef row, List<string> problems)
         {
             if (service == null || row == null || problems == null)
                 return;
-            ValidateChildren(service, AbilityDef.RootKind, row.parts,
-                "ability '" + row.name + "'", problems);
-        }
 
-        private static void ValidateChildren(ServiceDef service, string parentKind,
-            List<AbilityPartDef> children, string path, List<string> problems)
-        {
-            if (children == null)
-                return;
-            for (int i = 0; i < children.Count; i++)
+            if (row.tree != null && !string.IsNullOrEmpty(service.treeKind)
+                && !string.Equals(row.tree.treeKind, service.treeKind,
+                    System.StringComparison.Ordinal))
             {
-                AbilityPartDef part = children[i];
-                if (part == null)
-                    continue;
-
-                string label = path + " → " + (string.IsNullOrEmpty(part.name)
-                    ? part.kind + "[" + i + "]"
-                    : "'" + part.name + "'");
-
-                if (string.IsNullOrEmpty(part.kind))
-                {
-                    problems.Add(label + ": part has no kind.");
-                    continue;
-                }
-                if (!service.Allows(parentKind, part.kind))
-                {
-                    problems.Add(label + ": a '" + part.kind + "' cannot sit under '"
-                        + parentKind + "' — the service's nesting rules allow ["
-                        + string.Join(", ", service.AllowedUnder(parentKind)) + "].");
-                    // The subtree beneath an illegal part is judged against ITS kind anyway:
-                    // one wrong level must not silence everything below it.
-                }
-
-                ValidateChildren(service, part.kind, part.children, label, problems);
+                problems.Add("ability '" + row.name + "': its tree '" + row.tree.name
+                    + "' is kind '" + row.tree.treeKind + "', not '" + service.treeKind
+                    + "' — one ability is one ability tree, and this row points somewhere "
+                    + "else.");
             }
         }
     }

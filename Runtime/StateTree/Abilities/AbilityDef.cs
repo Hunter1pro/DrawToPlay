@@ -59,9 +59,10 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("Seconds before this ability may start again, counted from when it finishes.")]
         public float cooldownSeconds;
 
-        /// <summary>The payload: effect parts (which hold cue parts), applied when the ability
-        /// ACTIVATES. Nesting is the service's rules, refused at author time.</summary>
-        public List<AbilityPartDef> parts = new List<AbilityPartDef>();
+        // The payload lives in the TREE, as tasks — ApplyEffectTask picking effect rows with
+        // their targets — not as data nested here. The first cut nested string-bag "parts" on
+        // this row and was reviewed out: it wired by loose strings, could not name a target,
+        // and duplicated what a tree already is.
 
         /// <summary>The continuation — the ability activated when this one's tree finishes
         /// (not when it is cancelled: a cancelled call returns nothing). Empty = fall back to

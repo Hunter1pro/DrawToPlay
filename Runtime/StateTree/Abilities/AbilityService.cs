@@ -44,6 +44,38 @@ namespace PowerOfFire.DrawToPlay
                 : null;
         }
 
+        /// <summary>An effect row, found through the ability registry's dependsOn closure —
+        /// the same provenance chain the pickers offer from, so a name that resolves here is
+        /// a name that could have been picked.</summary>
+        public EffectDef FindEffect(string effectName)
+        {
+            return FindInClosure(effectName) as EffectDef;
+        }
+
+        /// <summary>A cue row, through the same closure (the effect registry lists the cue
+        /// registry in ITS dependsOn — a chain of declarations, never a typed path).</summary>
+        public CueDef FindCue(string cueName)
+        {
+            return FindInClosure(cueName) as CueDef;
+        }
+
+        private StateTreeRegistryEntry FindInClosure(string entryName)
+        {
+            if (string.IsNullOrEmpty(entryName) || definition == null
+                || definition.registry == null)
+                return null;
+
+            var reachable = new System.Collections.Generic.List<StateTreeRegistryAsset>();
+            definition.registry.CollectWithDependencies(reachable);
+            for (int i = 0; i < reachable.Count; i++)
+            {
+                StateTreeRegistryEntry entry = reachable[i].FindByName(entryName);
+                if (entry != null && reachable[i] != definition.registry)
+                    return entry;
+            }
+            return null;
+        }
+
         /// <summary>
         /// The activation GATE — the four-tag policy's read side. Refused when the def is on
         /// cooldown for this host, when it is already the active ability, or when the active

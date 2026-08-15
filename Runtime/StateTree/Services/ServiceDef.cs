@@ -34,11 +34,16 @@ namespace PowerOfFire.DrawToPlay
             + "reference.")]
         public StateTreeRegistryAsset registry;
 
+        [Tooltip("The tree kind this service's rows may name — 'ability' for the ability "
+            + "service, so ONE ability is ONE tree and a row pointing at some other domain's "
+            + "tree is a validation finding, not a runtime surprise. Empty = unchecked.")]
+        public string treeKind = "";
+
         /// <summary>
-        /// What may nest under what, per KIND — the Ability→Effect→Cue rule generalized from a
-        /// hard-coded validator into declared rows. An author-time surface: the part drawer
-        /// only OFFERS legal kinds, and validation reports anything code smuggled in. A kind
-        /// with no rule allows nothing beneath it (a leaf by default — the safe reading).
+        /// What may nest under what, per KIND — declared rows a service's validators and
+        /// pickers read. The ability service no longer nests data (its structure went typed:
+        /// effect rows referencing cue rows, unrepresentable errors instead of refused ones),
+        /// but the mechanism stays for services whose rows do compose (objectives).
         /// </summary>
         public List<ServiceNestingRule> nestingRules = new List<ServiceNestingRule>();
 

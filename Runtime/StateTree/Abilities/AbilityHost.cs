@@ -9,23 +9,24 @@ namespace PowerOfFire.DrawToPlay
     /// component both HT generations converged on: the shared catalog answers what an ability
     /// IS, this host owns what is RUNNING here. It runs the active ability's tree on its own
     /// executor (own context — two parallel executors must not share a parameter scope),
-    /// applies the row's effect parts, carries statuses and runtime tags, counts cooldowns,
-    /// and drives the two FSM behaviours. A WORLD CITIZEN, because [InjectOwner] is a world
-    /// contract: a task's owner facets resolve through the registry, and an ability-bearing
-    /// actor is a unit the world knows — the M21 composed-object pattern (body citizen +
-    /// mind citizen + this) rather than a loose component only GetComponent can find.
+    /// carries the statuses effects leave on this actor, counts cooldowns, and is where
+    /// EFFECTS LAND: <see cref="ApplyEffect"/> is called by <c>ApplyEffectTask</c> with this
+    /// host as the TARGET — self-recovery and being-struck are the same call from different
+    /// trees, which is what the first cut (self-only application on activation) could not say.
+    ///
+    /// A WORLD CITIZEN, because [InjectOwner] is a world contract: a task's owner facets
+    /// resolve through the registry, and an ability-bearing actor is a unit the world knows —
+    /// the M21 composed-object pattern rather than a loose component only GetComponent finds.
     ///
     /// It drives the two FSM behaviours the Godot side proved and the Unity side listed as
     /// missing:
     ///
     /// THE FLOOR — when nothing is active and <see cref="defaultAbility"/> names a row, it
-    /// activates. "Nothing running" means something instead of nothing, exactly the
-    /// ability-host idle floor (and the same move as M22's implicit flow, one level up).
+    /// activates. "Nothing running" means something instead of nothing.
     ///
     /// THE CONTINUATION — when the active ability's tree FINISHES (M22's treeFinished; a
     /// cancelled ability returns nothing), <see cref="AbilityDef.nextOnFinish"/> activates:
-    /// a combo is a wire between two rows. One hop per frame, the M22 discipline, so a cycle
-    /// of instant abilities is a visible spin rather than a same-frame hang.
+    /// a combo is a wire between two rows. One hop per frame, the M22 discipline.
     /// </summary>
     [AddComponentMenu("Draw To Play/Services/Ability Host")]
     public sealed class AbilityHost : WorldObjectBehaviour
@@ -39,19 +40,20 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>An ability ended: the row and how — Success for a tree that finished (or
         /// an ability with no tree, which finishes on arrival), Cancelled for a pre-emption.
-        /// Fired before the continuation decides what runs next, so a listener sees the gap.</summary>
+        /// Fired before the continuation decides what runs next.</summary>
         public event Action<AbilityDef, StateTreeStatus> abilityFinished;
 
         /// <summary>(previous, current) — current null between abilities.</summary>
         public event Action<AbilityDef, AbilityDef> activeAbilityChanged;
 
-        /// <summary>A cue part fired: its name, the ability it belongs to, the part row. A cue
-        /// OBSERVES — listeners do the flash and the sound; nothing here mutates state.</summary>
-        public event Action<string, AbilityDef, AbilityPartDef> cueFired;
+        /// <summary>An effect landed on THIS actor and its cue row fired — the listener-style
+        /// observation channel (a HUD flash, a sound). The spawned prefab is the dispatched
+        /// half; this event is the subscribed half.</summary>
+        public event Action<CueDef, EffectDef> cueFired;
 
         /// <summary>An effect landed on an attribute this host does not know natively
-        /// (anything but 'health') — the game's hook: (attribute, signed magnitude, part).</summary>
-        public event Action<string, float, AbilityPartDef> attributeApplied;
+        /// (anything but 'health') — the game's hook: (attribute, signed magnitude, effect).</summary>
+        public event Action<string, float, EffectDef> attributeApplied;
 
         private AbilityService m_Service;
         private StateTreeExecutor m_Executor;
@@ -60,19 +62,18 @@ namespace PowerOfFire.DrawToPlay
         private readonly Dictionary<string, float> m_ReadyAt = new Dictionary<string, float>();
         private readonly List<ActiveStatus> m_Statuses = new List<ActiveStatus>();
 
-        /// <summary>One running Duration/Infinite effect: the authored part plus this
+        /// <summary>One running Duration/Infinite effect on THIS actor: the row plus this
         /// application's clock. A class, not a struct — the tick loop mutates in place.</summary>
         private sealed class ActiveStatus
         {
-            public AbilityPartDef part;
-            public AbilityDef source;
+            public EffectDef effect;
             public int stacks;
             public float remaining;
             public float tickAccumulated;
         }
 
         /// <summary>The service, resolved lazily — a service resolved in Awake is a race
-        /// (the M20 lesson), and one resolved per call is a dictionary hit.</summary>
+        /// (the M20 lesson).</summary>
         public AbilityService service
         {
             get
@@ -83,7 +84,7 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        /// <summary>Whether the owner currently holds a tag — the active ability's activation
+        /// <summary>Whether the actor currently holds a tag — the active ability's activation
         /// tags plus every active status's granted tags. The single "is this happening to me"
         /// read conditions gate on.</summary>
         public bool HasTag(string tag)
@@ -95,7 +96,7 @@ namespace PowerOfFire.DrawToPlay
                 return true;
             for (int i = 0; i < m_Statuses.Count; i++)
             {
-                List<string> granted = m_Statuses[i].part.grantedTags;
+                List<string> granted = m_Statuses[i].effect.grantedTags;
                 if (granted != null && granted.Contains(tag))
                     return true;
             }
@@ -107,7 +108,7 @@ namespace PowerOfFire.DrawToPlay
         {
             for (int i = 0; i < m_Statuses.Count; i++)
             {
-                if (string.Equals(m_Statuses[i].part.name, effectName, StringComparison.Ordinal))
+                if (string.Equals(m_Statuses[i].effect.name, effectName, StringComparison.Ordinal))
                     return m_Statuses[i].stacks;
             }
             return 0;
@@ -129,9 +130,9 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>
         /// Activate a row: gate through the service (cooldown, block tags, one-at-a-time),
-        /// cancel the active ability when the incoming one's cancel tags say so, apply the
-        /// row's effect parts, and start its tree — or finish immediately for a row without
-        /// one. False = refused, and the caller decides whether that is worth a log.
+        /// cancel the active ability when the incoming one's cancel tags say so, and start
+        /// its tree — or finish immediately for a row without one. What the ability DOES,
+        /// effects included, is the tree's business. False = refused.
         /// </summary>
         public bool Activate(AbilityDef def)
         {
@@ -149,12 +150,10 @@ namespace PowerOfFire.DrawToPlay
             active = def;
             activeAbilityChanged?.Invoke(null, def);
 
-            ApplyParts(def);
-
             if (def.tree == null)
             {
-                // An ability that is only its payload: applied, done, and the continuation
-                // gets its turn next frame (one hop per frame — see m_PendingNext).
+                // An ability that is only its gates and its continuation: done on arrival,
+                // and the continuation gets its turn next frame (one hop per frame).
                 FinishActive(StateTreeStatus.Success);
                 return true;
             }
@@ -196,15 +195,14 @@ namespace PowerOfFire.DrawToPlay
             Tick(Time.deltaTime);
         }
 
-        /// <summary>One frame of the host, callable headless — the executor's TickTree rule
-        /// applied to the component that wraps one, so EditMode tests own the clock.</summary>
+        /// <summary>One frame of the host, callable headless — EditMode tests own the clock.</summary>
         public void Tick(float deltaTime)
         {
             TickStatuses(deltaTime);
 
             if (m_Executor != null)
             {
-                m_Executor.TickTree(Time.deltaTime);
+                m_Executor.TickTree(deltaTime);
                 if (m_TreeFinished)
                     FinishActive(StateTreeStatus.Success);
                 else if (m_Executor != null && !m_Executor.isRunning)
@@ -268,45 +266,57 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        // ---- the payload -------------------------------------------------------------------
+        // ---- effects land here -------------------------------------------------------------
 
-        private void ApplyParts(AbilityDef def)
+        /// <summary>
+        /// One effect row applied TO THIS ACTOR — by its own recovery tree or by whoever just
+        /// hit it; the call does not care which. Instant magnitudes land at once (through
+        /// i-frames — a hit is a hit); Duration/Infinite rows join the status list, stack by
+        /// their mode, tick past i-frames, and carry their granted tags. The row's picked cue
+        /// spawns at this actor and <see cref="cueFired"/> tells the listeners.
+        /// </summary>
+        public void ApplyEffect(EffectDef effect)
         {
-            if (def.parts == null)
+            if (effect == null)
                 return;
-            for (int i = 0; i < def.parts.Count; i++)
-            {
-                AbilityPartDef part = def.parts[i];
-                if (part == null || part.kind != AbilityPartDef.EffectKind)
-                    continue;
-                ApplyEffect(part, def);
-            }
-        }
 
-        private void ApplyEffect(AbilityPartDef part, AbilityDef source)
-        {
-            if (part.duration == AbilityEffectDuration.Instant)
+            if (effect.duration == AbilityEffectDuration.Instant)
             {
-                ApplyMagnitude(part, part.magnitude, firstApplication: true);
+                ApplyMagnitude(effect, effect.magnitude, firstApplication: true);
             }
             else
             {
-                StackStatus(part, source);
-                // The application itself still lands once, up front — a poison's first tick
-                // is the bite.
-                if (part.tickInterval > 0f)
-                    ApplyMagnitude(part, part.magnitude * StacksOf(part.name),
+                StackStatus(effect);
+                if (effect.tickInterval > 0f)
+                    ApplyMagnitude(effect, effect.magnitude * StacksOf(effect.name),
                         firstApplication: true);
             }
-            FireCues(part, source);
+
+            ShowCue(effect);
         }
 
-        private void StackStatus(AbilityPartDef part, AbilityDef source)
+        private void ShowCue(EffectDef effect)
+        {
+            AbilityService resolved = service;
+            CueDef cue = resolved != null ? resolved.FindCue(effect.cue.entryName) : null;
+            if (cue == null)
+                return;
+
+            if (cue.prefab != null)
+            {
+                GameObject shown = Instantiate(cue.prefab, transform.position,
+                    Quaternion.identity, cue.attachToTarget ? transform : null);
+                Destroy(shown, cue.secondsAlive > 0f ? cue.secondsAlive : 2f);
+            }
+            cueFired?.Invoke(cue, effect);
+        }
+
+        private void StackStatus(EffectDef effect)
         {
             ActiveStatus held = null;
             for (int i = 0; i < m_Statuses.Count && held == null; i++)
             {
-                if (string.Equals(m_Statuses[i].part.name, part.name, StringComparison.Ordinal))
+                if (string.Equals(m_Statuses[i].effect.name, effect.name, StringComparison.Ordinal))
                     held = m_Statuses[i];
             }
 
@@ -314,27 +324,27 @@ namespace PowerOfFire.DrawToPlay
             {
                 m_Statuses.Add(new ActiveStatus
                 {
-                    part = part, source = source, stacks = 1, remaining = part.seconds
+                    effect = effect, stacks = 1, remaining = effect.seconds
                 });
                 return;
             }
 
-            switch (part.stacking)
+            switch (effect.stacking)
             {
                 case AbilityStacking.Replace:
-                    held.part = part;
+                    held.effect = effect;
                     held.stacks = 1;
-                    held.remaining = part.seconds;
+                    held.remaining = effect.seconds;
                     break;
                 case AbilityStacking.RefreshDuration:
-                    held.remaining = part.seconds;
+                    held.remaining = effect.seconds;
                     break;
                 case AbilityStacking.AddStacksKeepDuration:
-                    held.stacks = Mathf.Min(held.stacks + 1, Mathf.Max(1, part.maxStacks));
+                    held.stacks = Mathf.Min(held.stacks + 1, Mathf.Max(1, effect.maxStacks));
                     break;
                 default:   // AddStacksRefreshDuration — the HT default
-                    held.stacks = Mathf.Min(held.stacks + 1, Mathf.Max(1, part.maxStacks));
-                    held.remaining = part.seconds;
+                    held.stacks = Mathf.Min(held.stacks + 1, Mathf.Max(1, effect.maxStacks));
+                    held.remaining = effect.seconds;
                     break;
             }
         }
@@ -344,37 +354,37 @@ namespace PowerOfFire.DrawToPlay
             for (int i = m_Statuses.Count - 1; i >= 0; i--)
             {
                 ActiveStatus status = m_Statuses[i];
-                if (status.part.duration == AbilityEffectDuration.Duration)
+                if (status.effect.duration == AbilityEffectDuration.Duration)
                     status.remaining -= deltaTime;
 
-                if (status.part.tickInterval > 0f)
+                if (status.effect.tickInterval > 0f)
                 {
                     status.tickAccumulated += deltaTime;
-                    while (status.tickAccumulated >= status.part.tickInterval)
+                    while (status.tickAccumulated >= status.effect.tickInterval)
                     {
-                        status.tickAccumulated -= status.part.tickInterval;
-                        ApplyMagnitude(status.part, status.part.magnitude * status.stacks,
+                        status.tickAccumulated -= status.effect.tickInterval;
+                        ApplyMagnitude(status.effect, status.effect.magnitude * status.stacks,
                             firstApplication: false);
                     }
                 }
 
-                if (status.part.duration == AbilityEffectDuration.Duration
+                if (status.effect.duration == AbilityEffectDuration.Duration
                     && status.remaining <= 0f)
                     m_Statuses.RemoveAt(i);
             }
         }
 
-        /// <summary>One signed delta onto an attribute. 'health' reaches the owner's
+        /// <summary>One signed delta onto an attribute. 'health' reaches the actor's
         /// <see cref="HealthComponent"/> natively — through i-frames on a first application
-        /// (a hit is a hit) and past them on periodic ticks (a poison that i-frames could
-        /// shrug off would never tick). Anything else is the game's business via
+        /// (a hit is a hit) and past them on periodic ticks (a poison i-frames could shrug
+        /// off would never tick). Anything else is the game's business via
         /// <see cref="attributeApplied"/>.</summary>
-        private void ApplyMagnitude(AbilityPartDef part, float magnitude, bool firstApplication)
+        private void ApplyMagnitude(EffectDef effect, float magnitude, bool firstApplication)
         {
             if (Mathf.Approximately(magnitude, 0f))
                 return;
 
-            if (string.Equals(part.attribute, "health", StringComparison.Ordinal))
+            if (string.Equals(effect.attribute, "health", StringComparison.Ordinal))
             {
                 var health = GetComponent<HealthComponent>();
                 if (health != null)
@@ -388,20 +398,7 @@ namespace PowerOfFire.DrawToPlay
                     return;
                 }
             }
-            attributeApplied?.Invoke(part.attribute, magnitude, part);
-        }
-
-        private void FireCues(AbilityPartDef effect, AbilityDef source)
-        {
-            if (effect.children == null)
-                return;
-            for (int i = 0; i < effect.children.Count; i++)
-            {
-                AbilityPartDef child = effect.children[i];
-                if (child != null && child.kind == AbilityPartDef.CueKind
-                    && !string.IsNullOrEmpty(child.cueName))
-                    cueFired?.Invoke(child.cueName, source, child);
-            }
+            attributeApplied?.Invoke(effect.attribute, magnitude, effect);
         }
     }
 }

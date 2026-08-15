@@ -5,11 +5,11 @@ using UnityEngine;
 namespace PowerOfFire.DrawToPlay.Tests
 {
     /// <summary>
-    /// M23 (brief §10.3): the ability ServiceDef — nesting rules refusing an illegal child,
-    /// the four-tag activation gates, the idle floor, the nextOnFinish continuation riding
-    /// M22's treeFinished, effect parts landing on health (Instant) and stacking/expiring
-    /// (Duration, with granted tags), cues observing, and ActivateAbilityTask bridging a
-    /// mind-tree to the host.
+    /// M23 (brief §10.3, reworked on review): the ability ServiceDef — effects and cues as
+    /// PICKED registry rows chained by dependsOn (abilities → effects → cues), application as
+    /// a TASK on the ability's tree with a declared target (self, or whoever the swing
+    /// published), the four-tag activation gates, the idle floor, the nextOnFinish
+    /// continuation riding M22's treeFinished, and the one-ability-one-tree validation.
     ///
     /// EditMode ground rules: actor GameObjects stay INACTIVE so no Unity message runs behind
     /// the tests' back — the service connects explicitly, the host ticks explicitly.
@@ -24,28 +24,29 @@ namespace PowerOfFire.DrawToPlay.Tests
         private StateTreeContextHost m_Level;
         private AbilityService m_Service;
         private AbilityRegistry m_Registry;
+        private EffectRegistry m_Effects;
+        private CueRegistry m_Cues;
         private ServiceDef m_Def;
 
         [SetUp]
         public void SetUp()
         {
+            m_Cues = ScriptableObject.CreateInstance<CueRegistry>();
+            m_Assets.Add(m_Cues);
+
+            m_Effects = ScriptableObject.CreateInstance<EffectRegistry>();
+            m_Effects.dependsOn.Add(m_Cues);
+            m_Assets.Add(m_Effects);
+
             m_Registry = ScriptableObject.CreateInstance<AbilityRegistry>();
+            m_Registry.dependsOn.Add(m_Effects);
             m_Assets.Add(m_Registry);
 
             m_Def = ScriptableObject.CreateInstance<ServiceDef>();
             m_Def.serviceName = "abilities";
             m_Def.scope = StateTreeContextKind.Level;
             m_Def.registry = m_Registry;
-            m_Def.nestingRules.Add(new ServiceNestingRule
-            {
-                parentKind = AbilityDef.RootKind,
-                childKinds = new List<string> { AbilityPartDef.EffectKind }
-            });
-            m_Def.nestingRules.Add(new ServiceNestingRule
-            {
-                parentKind = AbilityPartDef.EffectKind,
-                childKinds = new List<string> { AbilityPartDef.CueKind }
-            });
+            m_Def.treeKind = "ability";
             m_Assets.Add(m_Def);
 
             var levelGo = new GameObject("Level");
@@ -85,40 +86,25 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Hosts.Clear();
         }
 
-        // ------------------------------------------------------------------ 1. nesting rules
+        // ------------------------------------------------------------------ 1. validation
 
         [Test]
-        public void Nesting_CueUnderAbility_IsRefused_EffectChainIsNot()
+        public void Validate_TreeOfAnotherKind_IsReported()
         {
-            AbilityDef legal = MakeAbility("legal");
-            var effect = new AbilityPartDef { kind = AbilityPartDef.EffectKind, name = "hit" };
-            effect.children.Add(new AbilityPartDef
-            {
-                kind = AbilityPartDef.CueKind, cueName = "flash"
-            });
-            legal.parts.Add(effect);
+            AbilityDef stray = MakeAbility("stray", tree: MakeResidentTree());
+            stray.tree.treeKind = "npc";   // an ability row pointing at somebody's mind
 
             var problems = new List<string>();
-            AbilityRules.Validate(m_Def, legal, problems);
-            CollectionAssert.IsEmpty(problems, "ability → effect → cue is the lawful shape");
-
-            AbilityDef illegal = MakeAbility("illegal");
-            illegal.parts.Add(new AbilityPartDef
-            {
-                kind = AbilityPartDef.CueKind, cueName = "flash"
-            });
-            AbilityRules.Validate(m_Def, illegal, problems);
+            AbilityRules.Validate(m_Def, stray, problems);
             Assert.AreEqual(1, problems.Count,
-                "a cue directly under an ability breaks the declared rule");
-            StringAssert.Contains("cannot sit under", problems[0]);
+                "one ability is one ability tree — a row naming another domain's tree is a "
+                + "finding");
+            StringAssert.Contains("not 'ability'", problems[0]);
 
             problems.Clear();
-            AbilityDef nested = MakeAbility("nested");
-            var outer = new AbilityPartDef { kind = AbilityPartDef.EffectKind };
-            outer.children.Add(new AbilityPartDef { kind = AbilityPartDef.EffectKind });
-            nested.parts.Add(outer);
-            AbilityRules.Validate(m_Def, nested, problems);
-            Assert.AreEqual(1, problems.Count, "an effect under an effect is not in the rules");
+            AbilityDef lawful = MakeAbility("lawful", tree: MakeResidentTree());
+            AbilityRules.Validate(m_Def, lawful, problems);
+            CollectionAssert.IsEmpty(problems);
         }
 
         // -------------------------------------------------------------------- 2. tag gates
@@ -157,7 +143,6 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             AbilityHost host = MakeActor("cooldown");
             Assert.IsTrue(host.Activate(burst), "first activation is free");
-            // Treeless: it finished on arrival, active is null again — only the cooldown gates.
             Assert.IsFalse(host.Activate(burst), "sixty seconds have not passed");
         }
 
@@ -197,66 +182,101 @@ namespace PowerOfFire.DrawToPlay.Tests
             CollectionAssert.Contains(log, "swing:Success");
         }
 
-        // --------------------------------------------------------------------- 5. the payload
+        // ------------------------------------------------- 5. effects as rows, with targets
 
         [Test]
-        public void InstantEffect_LandsOnHealth()
+        public void InstantEffect_Row_LandsOnTheTargetsHealth()
         {
-            AbilityDef bite = MakeAbility("bite");
-            bite.parts.Add(new AbilityPartDef
-            {
-                kind = AbilityPartDef.EffectKind, magnitude = -1f
-            });
-
-            AbilityHost host = MakeActor("target", withHealth: true);
-            var health = host.GetComponent<HealthComponent>();
+            EffectDef bite = MakeEffect("bite", magnitude: -1f);
+            AbilityHost victim = MakeActor("victim", withHealth: true);
+            var health = victim.GetComponent<HealthComponent>();
             float before = health.hp;
 
-            host.Activate(bite);
+            victim.ApplyEffect(bite);
             Assert.AreEqual(before - 1f, health.hp, 0.001f,
-                "negative magnitude is damage — the HT sign convention");
+                "negative magnitude is damage — the HT sign convention, on the TARGET");
         }
 
         [Test]
-        public void DurationEffect_Stacks_GrantsTags_Expires()
+        public void DurationEffect_Row_Stacks_GrantsTags_Expires()
         {
-            AbilityDef poison = MakeAbility("poison");
-            poison.parts.Add(new AbilityPartDef
-            {
-                kind = AbilityPartDef.EffectKind, name = "venom", magnitude = 0f,
-                duration = AbilityEffectDuration.Duration, seconds = 1f, maxStacks = 3,
-                stacking = AbilityStacking.AddStacksRefreshDuration,
-                grantedTags = new List<string> { "Poisoned" }
-            });
+            EffectDef venom = MakeEffect("venom", magnitude: 0f);
+            venom.duration = AbilityEffectDuration.Duration;
+            venom.seconds = 1f;
+            venom.maxStacks = 3;
+            venom.stacking = AbilityStacking.AddStacksRefreshDuration;
+            venom.grantedTags.Add("Poisoned");
 
-            AbilityHost host = MakeActor("victim");
-            host.Activate(poison);
-            host.Activate(poison);
-            Assert.AreEqual(2, host.StacksOf("venom"), "re-application stacked");
-            Assert.IsTrue(host.HasTag("Poisoned"), "the status holds its granted tag");
+            AbilityHost victim = MakeActor("poisoned");
+            victim.ApplyEffect(venom);
+            victim.ApplyEffect(venom);
+            Assert.AreEqual(2, victim.StacksOf("venom"), "re-application stacked");
+            Assert.IsTrue(victim.HasTag("Poisoned"), "the status holds its granted tag");
 
-            host.Tick(1.1f);
-            Assert.AreEqual(0, host.StacksOf("venom"), "the duration ran out");
-            Assert.IsFalse(host.HasTag("Poisoned"));
+            victim.Tick(1.1f);
+            Assert.AreEqual(0, victim.StacksOf("venom"), "the duration ran out");
+            Assert.IsFalse(victim.HasTag("Poisoned"));
         }
 
         [Test]
-        public void Cue_FiresOnEffectApplication_AndOnlyObserves()
+        public void Cue_IsAPickedRow_AndFiresOnApplication()
         {
-            AbilityDef hit = MakeAbility("hit");
-            var effect = new AbilityPartDef { kind = AbilityPartDef.EffectKind, magnitude = 0f };
-            effect.children.Add(new AbilityPartDef
-            {
-                kind = AbilityPartDef.CueKind, cueName = "impact-flash"
-            });
-            hit.parts.Add(effect);
+            var flash = new CueDef { id = "cue.flash", name = "flash", secondsAlive = 0.2f };
+            m_Cues.entries.Add(flash);
 
-            AbilityHost host = MakeActor("shown");
+            EffectDef hit = MakeEffect("hit", magnitude: 0f);
+            hit.cue.entryId = "cue.flash";
+            hit.cue.entryName = "flash";
+
+            AbilityHost shown = MakeActor("shown");
             var cues = new List<string>();
-            host.cueFired += (cueName, source, part) => cues.Add(source.name + ":" + cueName);
+            shown.cueFired += (cue, effect) => cues.Add(effect.name + ":" + cue.name);
 
-            host.Activate(hit);
-            CollectionAssert.AreEqual(new[] { "hit:impact-flash" }, cues);
+            shown.ApplyEffect(hit);
+            CollectionAssert.AreEqual(new[] { "hit:flash" }, cues,
+                "the cue arrived as the ROW the effect picked, not a string that hoped");
+        }
+
+        [Test]
+        public void ApplyEffectTask_FromBlackboard_LandsOnTheStruckActor()
+        {
+            EffectDef row = MakeEffect("strike-hit", magnitude: -1f);
+            AbilityHost attacker = MakeActor("attacker");
+            AbilityHost victim = MakeActor("victim2", withHealth: true);
+            float before = victim.GetComponent<HealthComponent>().hp;
+
+            var world = m_Level.gameObject.AddComponent<WorldService>();
+            world.Connect();
+            attacker.RegisterToWorld();
+
+            var apply = ScriptableObject.CreateInstance<ApplyEffectTask>();
+            apply.effect.entryName = "strike-hit";
+            apply.target = ApplyEffectTask.Target.FromBlackboard;
+            m_Assets.Add(apply);
+
+            var node = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
+            node.nodeId = "land";
+            node.tasks.Add(apply);
+            m_Assets.Add(node);
+            var tree = ScriptableObject.CreateInstance<StateTreeAsset>();
+            tree.treeName = "LandTree";
+            tree.root = node;
+            tree.registries.Add(m_Effects);
+            m_Assets.Add(tree);
+
+            var mind = new StateTreeExecutor
+            {
+                data = tree,
+                owner = attacker.gameObject,
+                context = new StateTreeContext(attacker.gameObject)
+            };
+            mind.context.blackboard["struck"] = victim.gameObject;
+            mind.StartTree();
+            mind.TickTree(0.1f);
+            mind.StopTree();
+
+            Assert.AreEqual(before - 1f, victim.GetComponent<HealthComponent>().hp, 0.001f,
+                "the swing published WHO; the task landed the picked row on exactly them");
         }
 
         // ------------------------------------------------------------------------ 6. the task
@@ -269,8 +289,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             AbilityHost host = MakeActor("actor");
 
             // [InjectOwner] is a WORLD contract — the owner must be a citizen the world knows,
-            // with the host found as its sibling facet (the M21 composed-object rule). The
-            // demo's actors are citizens; the test provides the same.
+            // with the host found as its sibling facet (the M21 composed-object rule).
             var world = m_Level.gameObject.AddComponent<WorldService>();
             world.Connect();
             host.RegisterToWorld();
@@ -310,7 +329,6 @@ namespace PowerOfFire.DrawToPlay.Tests
             mind.StartTree();
             Assert.AreEqual("call", mind.activeNodeId);
 
-            // Interleave the two clocks the way play mode does.
             for (int i = 0; i < 4 && mind.activeNodeId == "call"; i++)
             {
                 mind.TickTree(0.1f);
@@ -334,6 +352,18 @@ namespace PowerOfFire.DrawToPlay.Tests
                 tree = tree
             };
             m_Registry.entries.Add(def);
+            return def;
+        }
+
+        private EffectDef MakeEffect(string effectName, float magnitude)
+        {
+            var def = new EffectDef
+            {
+                id = "effect." + effectName,
+                name = effectName,
+                magnitude = magnitude
+            };
+            m_Effects.entries.Add(def);
             return def;
         }
 
@@ -366,6 +396,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Assets.Add(node);
             var tree = ScriptableObject.CreateInstance<StateTreeAsset>();
             tree.treeName = "AbilityTree";
+            tree.treeKind = "ability";
             tree.root = node;
             m_Assets.Add(tree);
             return tree;
