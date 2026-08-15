@@ -370,6 +370,61 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void AFacadeFreeActor_TakesRowDamage_AndDeathIsACrossing()
+        {
+            // The retirement's proof: no HealthComponent anywhere — the row lands on the
+            // attribute store, overkill stays as information, and 'died' is readable as
+            // the value crossing zero.
+            EffectDef hit = MakeEffect("bare-hit", magnitude: -2f);
+
+            AbilityHost victim = MakeActor("facade-free");
+            var vitals = victim.gameObject.AddComponent<AttributeComponent>();
+            vitals.Ensure(HealthComponent.AttributeName, 3f);
+
+            var crossings = 0;
+            vitals.changed += (attributeName, previous, current) =>
+            {
+                if (attributeName == HealthComponent.AttributeName
+                    && previous > 0f && current <= 0f)
+                    crossings++;
+            };
+
+            victim.ApplyEffect(hit);
+            Assert.AreEqual(1f, vitals.Value(HealthComponent.AttributeName), 0.001f);
+            Assert.AreEqual(0, crossings);
+            victim.ApplyEffect(hit);
+            Assert.AreEqual(-1f, vitals.Value(HealthComponent.AttributeName), 0.001f,
+                "overkill preserved, no facade involved");
+            Assert.AreEqual(1, crossings, "death is the crossing — the event without a component");
+        }
+
+        [Test]
+        public void HealthThreshold_ReadsTheAttributeStore()
+        {
+            var go = new GameObject("thresholded");
+            go.hideFlags = HideFlags.HideAndDontSave;
+            go.SetActive(false);
+            m_Objects.Add(go);
+            var vitals = go.AddComponent<AttributeComponent>();
+            vitals.Ensure(HealthComponent.AttributeName, 6f);
+
+            var condition = ScriptableObject.CreateInstance<HealthThresholdCondition>();
+            condition.source = HealthThresholdCondition.Source.Owner;
+            condition.comparison = HealthThresholdCondition.Comparison.AtOrBelow;
+            condition.fraction = 0.5f;
+            m_Assets.Add(condition);
+            var context = new StateTreeContext(go);
+
+            Assert.IsFalse(condition.Evaluate(context), "6 of 6 is not at half");
+            vitals.Consume(HealthComponent.AttributeName, 3f);
+            Assert.IsTrue(condition.Evaluate(context), "3 of 6 is — read from the attribute");
+            condition.fraction = 0f;
+            Assert.IsFalse(condition.Evaluate(context));
+            vitals.Consume(HealthComponent.AttributeName, 5f);
+            Assert.IsTrue(condition.Evaluate(context), "overkill below zero is still dead");
+        }
+
+        [Test]
         public void BlockedByTags_GateApplication_AndExpiryReopensIt()
         {
             // The old i-frame window as DATA: a hit row refused while the target is Guarded.

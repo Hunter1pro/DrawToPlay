@@ -13,6 +13,14 @@ namespace PowerOfFire.DrawToPlay
     }
 
     /// <summary>
+    /// LEGACY (health-native pass, M23): characters no longer carry this — the number lives
+    /// on <see cref="AttributeComponent"/>, damage/heal are effect rows, the guard window is
+    /// the 'guarded' status tag, "was hit" is the 'struck' tag, and death is the health
+    /// attribute crossing zero (watched by whoever needs it — see OutpostCombatService).
+    /// This component remains ONLY for the pre-M23 demos and for MINDLESS PROPS, where its
+    /// destruction seam (die → <see cref="DestructibleShape.Fragment"/>) is the one rule a
+    /// tree-less object still needs.
+    ///
     /// Hit points for any drawn entity — port of hunter's <c>health.gd</c> (draw-tool-port-brief.md
     /// §6.2 "Health (max HP, i-frames)"). Damage is gated by an invulnerability window so a swept
     /// hitbox cannot land twice in the same strike, damage-over-time bypasses that window (§ the
