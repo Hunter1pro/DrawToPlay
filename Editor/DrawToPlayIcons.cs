@@ -46,6 +46,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             Texture2D abilities = Icon("abilities", force, DrawAbilities);
             Texture2D effects = Icon("effects", force, DrawEffects);
             Texture2D cues = Icon("cues", force, DrawCues);
+            Texture2D level = Icon("level", force, DrawLevel);
+            Texture2D animation = Icon("animation", force, DrawAnimation);
 
             // Specialized rules first — the order IS the precedence.
             var rules = new List<(Func<Type, bool> claims, Texture2D icon)>
@@ -56,6 +58,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 (type => type == typeof(ServiceDef), service),
                 (type => type == typeof(StateTreeAsset), tree),
                 (type => type == typeof(GraphTaskAsset), graph),
+                (type => type == typeof(LevelContent), level),
                 (type => typeof(StateTreeRegistryAsset).IsAssignableFrom(type), registry)
             };
 
@@ -76,6 +79,42 @@ namespace PowerOfFire.DrawToPlay.Editor
                     break;
                 }
             }
+
+            // The VENDOR family: CAS's AnimationAsset lives outside the scanned folders and
+            // outside this assembly's references, so it is resolved by name and its script
+            // found through a throwaway instance — stamped like everything else, with not a
+            // vendor file touched.
+            StampForeignType("AnimationAsset", "KINEMATION", animation);
+        }
+
+        private static void StampForeignType(string typeName, string namespaceHint,
+            Texture2D icon)
+        {
+            if (icon == null)
+                return;
+            foreach (System.Reflection.Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                foreach (Type type in SafeTypes(assembly))
+                {
+                    if (type.Name != typeName || type.FullName == null
+                        || !type.FullName.Contains(namespaceHint)
+                        || !typeof(ScriptableObject).IsAssignableFrom(type))
+                        continue;
+                    var temp = ScriptableObject.CreateInstance(type);
+                    MonoScript script = MonoScript.FromScriptableObject(temp);
+                    UnityEngine.Object.DestroyImmediate(temp);
+                    if (script != null)
+                        Stamp(script, icon);
+                    return;
+                }
+            }
+        }
+
+        private static Type[] SafeTypes(System.Reflection.Assembly assembly)
+        {
+            try { return assembly.GetTypes(); }
+            catch (System.Reflection.ReflectionTypeLoadException error)
+            { return Array.FindAll(error.Types, type => type != null); }
         }
 
         /// <summary>Set the script's icon when it differs — what the Project window, the
@@ -256,6 +295,34 @@ namespace PowerOfFire.DrawToPlay.Editor
                 for (int x = 0; x < 64; x++)
                     if (Mathf.Abs(x - 32f) <= half)
                         t.SetPixel(x, y, magenta);
+            }
+        }
+
+        /// <summary>A route across ground with its two ends — the level.</summary>
+        private static void DrawLevel(Texture2D t)
+        {
+            var teal = new Color(0.24f, 0.64f, 0.60f);
+            var pale = new Color(0.55f, 0.86f, 0.82f);
+            Rect(t, 8, 10, 56, 54, teal);
+            Line(t, new Vector2(16, 18), new Vector2(30, 34), 2.2f, pale);
+            Line(t, new Vector2(30, 34), new Vector2(48, 46), 2.2f, pale);
+            Disc(t, 16, 18, 4.4f, pale);
+            Disc(t, 48, 46, 4.4f, pale);
+        }
+
+        /// <summary>Keyframe diamonds on a track — the clip.</summary>
+        private static void DrawAnimation(Texture2D t)
+        {
+            var pink = new Color(0.93f, 0.53f, 0.70f);
+            var pale = new Color(0.99f, 0.76f, 0.86f);
+            Line(t, new Vector2(6, 32), new Vector2(58, 32), 2.2f, pink);
+            for (int i = 0; i < 2; i++)
+            {
+                float cx = i == 0 ? 20f : 44f;
+                for (int y = 0; y < 64; y++)
+                    for (int x = 0; x < 64; x++)
+                        if (Mathf.Abs(x - cx) + Mathf.Abs(y - 32f) <= 9f)
+                            t.SetPixel(x, y, i == 0 ? pale : pink);
             }
         }
 
