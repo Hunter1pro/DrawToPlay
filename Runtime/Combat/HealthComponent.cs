@@ -31,8 +31,16 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     public sealed class HealthComponent : MonoBehaviour
     {
+        /// <summary>The attribute this component keeps the rules for (M23 attributes): the
+        /// NUMBER lives in <see cref="AttributeComponent"/> under this name — one value that
+        /// effects, modifiers and this facade all agree on — while the guard window, the
+        /// death latch and the destruction seam stay here, where health's domain rules
+        /// belong.</summary>
+        public const string AttributeName = "health";
+
         /// <summary>health.gd <c>max_hp</c>. HP is a float because damage-over-time drains
-        /// fractional amounts every tick.</summary>
+        /// fractional amounts every tick. This is the BASE of the health attribute — a
+        /// max-health modifier can raise the effective cap above it.</summary>
         public float maxHP = 3f;
 
         /// <summary>health.gd <c>team</c>. Strikes only damage the opposite team.</summary>
@@ -66,9 +74,10 @@ namespace PowerOfFire.DrawToPlay
         /// <see cref="damaged"/> handler cannot double-kill.</summary>
         public event System.Action died;
 
-        /// <summary>Current hit points. Allowed to go negative on an overkill, exactly as health.gd
-        /// leaves it: overkill amount is information a damage-number cue wants.</summary>
-        public float hp { get; private set; }
+        /// <summary>Current hit points — read from the backing attribute. Allowed to go
+        /// negative on an overkill, exactly as health.gd leaves it: overkill amount is
+        /// information a damage-number cue wants.</summary>
+        public float hp => Backing.Value(AttributeName);
 
         public bool isAlive => hp > 0f;
 
@@ -82,9 +91,29 @@ namespace PowerOfFire.DrawToPlay
 
         private bool m_Died;
 
+        private AttributeComponent m_Backing;
+
+        /// <summary>The number's home, added beside this facade when nobody authored one and
+        /// ensured LAZILY — tests and pooled actors touch health before Awake ever runs. An
+        /// authored seed for 'health' wins over maxHP: the component defers to data.</summary>
+        private AttributeComponent Backing
+        {
+            get
+            {
+                if (m_Backing == null)
+                {
+                    m_Backing = GetComponent<AttributeComponent>();
+                    if (m_Backing == null)
+                        m_Backing = gameObject.AddComponent<AttributeComponent>();
+                }
+                m_Backing.Ensure(AttributeName, maxHP);
+                return m_Backing;
+            }
+        }
+
         private void Awake()
         {
-            hp = maxHP;
+            _ = Backing;
         }
 
         /// <summary>Having health means being targetable, so a health pool enrolls its object
@@ -114,7 +143,7 @@ namespace PowerOfFire.DrawToPlay
                 return false;
 
             m_GraceUntil = Time.time + iFrames;
-            hp -= amount;
+            Backing.Consume(AttributeName, amount);
             damaged?.Invoke(amount, sourcePosition);
 
             if (hp <= 0f)
@@ -137,7 +166,7 @@ namespace PowerOfFire.DrawToPlay
             if (hp <= 0f)
                 return;
 
-            hp -= amount;
+            Backing.Consume(AttributeName, amount);
             if (hp <= 0f)
                 Die();
         }
@@ -149,7 +178,9 @@ namespace PowerOfFire.DrawToPlay
             if (hp <= 0f)
                 return;
 
-            hp = Mathf.Min(hp + amount, maxHP);
+            // Clamped by the ATTRIBUTE's effective cap, not maxHP: a max-health modifier
+            // raises what a heal may fill to — the thing the pre-attribute model could not say.
+            Backing.Restore(AttributeName, amount);
         }
 
         /// <summary>Restore to full and clear the death latch — for pooled/respawned entities.
@@ -157,7 +188,7 @@ namespace PowerOfFire.DrawToPlay
         /// re-enabled would otherwise be permanently un-killable.</summary>
         public void ResetHealth()
         {
-            hp = maxHP;
+            Backing.SetCurrent(AttributeName, Backing.Effective(AttributeName));
             m_Died = false;
             m_GraceUntil = 0f;
         }

@@ -370,6 +370,76 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void ModifierEffect_GrantsWhileAlive_RevertsOnExpiry_RecomputesOnStack()
+        {
+            // The GAS step: a Duration effect can carry a revertible MODIFIER instead of a
+            // delta — applied on application, resized when stacks change, gone on expiry.
+            EffectDef haste = MakeEffect("haste", magnitude: 2f);
+            haste.attribute.entryId = "attribute.speed";
+            haste.attribute.entryName = "speed";
+            haste.operation = EffectOperation.Modifier;
+            haste.duration = AbilityEffectDuration.Duration;
+            haste.seconds = 1f;
+            haste.maxStacks = 2;
+            haste.stacking = AbilityStacking.AddStacksRefreshDuration;
+
+            AbilityHost runner = MakeActor("runner");
+            var attributes = runner.gameObject.AddComponent<AttributeComponent>();
+            attributes.Ensure("speed", 10f);
+
+            runner.ApplyEffect(haste);
+            Assert.AreEqual(12f, attributes.Effective("speed"), 0.001f,
+                "one stack grants one additive step");
+
+            runner.ApplyEffect(haste);
+            Assert.AreEqual(14f, attributes.Effective("speed"), 0.001f,
+                "a second stack RECOMPUTES the grant — no drift from regranting on top");
+
+            runner.Tick(1.1f);
+            Assert.AreEqual(10f, attributes.Effective("speed"), 0.001f,
+                "expiry reverts the whole grant — the modifier contract");
+        }
+
+        [Test]
+        public void InstantModifier_IsRefused_NothingGranted()
+        {
+            // An instant modifier would be granted with no expiry to revert it — the host
+            // refuses loudly instead of leaking a permanent buff.
+            EffectDef trap = MakeEffect("trap", magnitude: 5f);
+            trap.attribute.entryId = "attribute.speed";
+            trap.attribute.entryName = "speed";
+            trap.operation = EffectOperation.Modifier;
+            trap.duration = AbilityEffectDuration.Instant;
+
+            AbilityHost actor = MakeActor("trapped");
+            var attributes = actor.gameObject.AddComponent<AttributeComponent>();
+            attributes.Ensure("speed", 10f);
+
+            UnityEngine.TestTools.LogAssert.Expect(LogType.Warning,
+                new System.Text.RegularExpressions.Regex("Instant Modifier"));
+            actor.ApplyEffect(trap);
+            Assert.AreEqual(10f, attributes.Effective("speed"), 0.001f);
+        }
+
+        [Test]
+        public void DeltaEffect_OnANonHealthAttribute_MovesThePool()
+        {
+            // A delta on any attribute the target carries lands directly on the component —
+            // health is only special for its rulekeeper.
+            EffectDef exhaust = MakeEffect("exhaust", magnitude: -3f);
+            exhaust.attribute.entryId = "attribute.stamina";
+            exhaust.attribute.entryName = "stamina";
+
+            AbilityHost actor = MakeActor("tired");
+            var attributes = actor.gameObject.AddComponent<AttributeComponent>();
+            attributes.Ensure("stamina", 10f);
+
+            actor.ApplyEffect(exhaust);
+            Assert.AreEqual(7f, attributes.Value("stamina"), 0.001f,
+                "negative consumed; the sign convention health uses holds everywhere");
+        }
+
+        [Test]
         public void ApplyEffectTask_FromBlackboard_LandsOnTheStruckActor()
         {
             EffectDef row = MakeEffect("strike-hit", magnitude: -1f);
@@ -495,6 +565,10 @@ namespace PowerOfFire.DrawToPlay.Tests
                 name = effectName,
                 magnitude = magnitude
             };
+            // The attribute is a PICKED row (M23 attributes) — the tests' effects land on
+            // health unless a test rewires them.
+            def.attribute.entryId = "attribute.health";
+            def.attribute.entryName = HealthComponent.AttributeName;
             m_Effects.entries.Add(def);
             return def;
         }

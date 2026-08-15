@@ -74,6 +74,10 @@ namespace PowerOfFire.DrawToPlay
             public int stacks;
             public float remaining;
             public float tickAccumulated;
+
+            /// <summary>The granted modifier's receipt, for Modifier-operation effects —
+            /// removed on expiry, re-granted when stacks change.</summary>
+            public AttributeComponent.ModifierHandle modifier;
         }
 
         /// <summary>The service, resolved lazily — a service resolved in Awake is a race
@@ -271,8 +275,15 @@ namespace PowerOfFire.DrawToPlay
 
         protected override void OnDisable()
         {
-            // A deactivated actor tears its run down like any pre-empted task would.
+            // A deactivated actor tears its run down like any pre-empted task would — the
+            // granted modifiers included, or a pooled actor would come back pre-buffed.
             Cancel();
+            AttributeComponent attributes = GetComponent<AttributeComponent>();
+            for (int i = 0; i < m_Statuses.Count; i++)
+            {
+                if (m_Statuses[i].modifier != null && attributes != null)
+                    attributes.RemoveModifier(m_Statuses[i].modifier);
+            }
             m_Statuses.Clear();
             m_PendingNext = null;
             base.OnDisable();
@@ -332,17 +343,43 @@ namespace PowerOfFire.DrawToPlay
 
             if (effect.duration == AbilityEffectDuration.Instant)
             {
+                if (effect.operation == EffectOperation.Modifier)
+                {
+                    // An instant modifier would be granted and never revoked — refuse loudly
+                    // rather than leak a permanent buff nobody can find.
+                    Debug.LogWarning("[Ability] effect '" + effect.name + "' is an Instant "
+                        + "Modifier — a grant with no expiry to revert it. Make it Duration "
+                        + "or Infinite, or use a Delta.", this);
+                    return;
+                }
                 ApplyMagnitude(effect, effect.magnitude, firstApplication: true);
             }
             else
             {
-                StackStatus(effect);
-                if (effect.tickInterval > 0f)
+                ActiveStatus status = StackStatus(effect);
+                if (effect.operation == EffectOperation.Modifier)
+                    ReGrant(status);
+                else if (effect.tickInterval > 0f)
                     ApplyMagnitude(effect, effect.magnitude * StacksOf(effect.name),
                         firstApplication: true);
             }
 
             ShowCue(effect, source);
+        }
+
+        /// <summary>The Modifier operation's grant, sized to the CURRENT stacks — the old
+        /// grant reverted first, so stacking recomputes instead of accumulating drift.</summary>
+        private void ReGrant(ActiveStatus status)
+        {
+            AttributeComponent attributes = GetComponent<AttributeComponent>();
+            if (status == null || attributes == null)
+                return;
+            attributes.RemoveModifier(status.modifier);
+            string attributeName = status.effect.attribute.entryName;
+            attributes.Ensure(attributeName, 0f);
+            status.modifier = attributes.AddModifier(attributeName,
+                status.effect.magnitude * status.stacks,
+                Mathf.Pow(status.effect.multiplier, status.stacks));
         }
 
         private void ShowCue(EffectDef effect, GameObject source)
@@ -370,7 +407,7 @@ namespace PowerOfFire.DrawToPlay
             cueFired?.Invoke(cue, effect);
         }
 
-        private void StackStatus(EffectDef effect)
+        private ActiveStatus StackStatus(EffectDef effect)
         {
             ActiveStatus held = null;
             for (int i = 0; i < m_Statuses.Count && held == null; i++)
@@ -381,11 +418,12 @@ namespace PowerOfFire.DrawToPlay
 
             if (held == null)
             {
-                m_Statuses.Add(new ActiveStatus
+                held = new ActiveStatus
                 {
                     effect = effect, stacks = 1, remaining = effect.seconds
-                });
-                return;
+                };
+                m_Statuses.Add(held);
+                return held;
             }
 
             switch (effect.stacking)
@@ -406,6 +444,7 @@ namespace PowerOfFire.DrawToPlay
                     held.remaining = effect.seconds;
                     break;
             }
+            return held;
         }
 
         private void TickStatuses(float deltaTime)
@@ -429,7 +468,16 @@ namespace PowerOfFire.DrawToPlay
 
                 if (status.effect.duration == AbilityEffectDuration.Duration
                     && status.remaining <= 0f)
+                {
+                    // The revert half of the Modifier contract: expiry takes the grant with it.
+                    if (status.modifier != null)
+                    {
+                        AttributeComponent attributes = GetComponent<AttributeComponent>();
+                        if (attributes != null)
+                            attributes.RemoveModifier(status.modifier);
+                    }
                     m_Statuses.RemoveAt(i);
+                }
             }
         }
 
@@ -443,7 +491,13 @@ namespace PowerOfFire.DrawToPlay
             if (Mathf.Approximately(magnitude, 0f))
                 return;
 
-            if (string.Equals(effect.attribute, "health", StringComparison.Ordinal))
+            string attributeName = effect.attribute.entryName;
+
+            // HEALTH ROUTES THROUGH ITS RULEKEEPER: the number lives in the attribute
+            // component either way, but the guard window and the death latch are health's
+            // domain rules and the facade is where they are enforced.
+            if (string.Equals(attributeName, HealthComponent.AttributeName,
+                StringComparison.Ordinal))
             {
                 var health = GetComponent<HealthComponent>();
                 if (health != null)
@@ -457,7 +511,20 @@ namespace PowerOfFire.DrawToPlay
                     return;
                 }
             }
-            attributeApplied?.Invoke(effect.attribute, magnitude, effect);
+
+            // Every other attribute lands on the component directly — negative consumes,
+            // positive restores, the same sign convention health uses.
+            AttributeComponent attributes = GetComponent<AttributeComponent>();
+            if (attributes != null && attributes.Has(attributeName))
+            {
+                if (magnitude > 0f)
+                    attributes.Restore(attributeName, magnitude);
+                else
+                    attributes.Consume(attributeName, -magnitude);
+                return;
+            }
+
+            attributeApplied?.Invoke(attributeName, magnitude, effect);
         }
     }
 }

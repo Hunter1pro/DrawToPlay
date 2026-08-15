@@ -2457,11 +2457,18 @@ namespace PowerOfFire.DrawToPlay.Editor
                             var (registry, entry) = RowInClosure(service, applies.effect.entryName);
                             if (entry is EffectDef effect)
                             {
+                                var attributeName = string.IsNullOrEmpty(effect.attribute.entryName)
+                                    ? "(no attribute)" : effect.attribute.entryName;
                                 var parts = new List<string>
                                 {
-                                    effect.attribute + " "
-                                        + (effect.magnitude >= 0f ? "+" : "")
-                                        + effect.magnitude.ToString("0.##"),
+                                    effect.operation == EffectOperation.Modifier
+                                        ? attributeName + " modifier "
+                                            + (effect.magnitude >= 0f ? "+" : "")
+                                            + effect.magnitude.ToString("0.##") + " ×"
+                                            + effect.multiplier.ToString("0.##")
+                                        : attributeName + " "
+                                            + (effect.magnitude >= 0f ? "+" : "")
+                                            + effect.magnitude.ToString("0.##"),
                                     effect.duration.ToString()
                                 };
                                 if (effect.duration != AbilityEffectDuration.Instant)

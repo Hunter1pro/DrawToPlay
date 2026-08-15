@@ -28,6 +28,21 @@ namespace PowerOfFire.DrawToPlay
         Source = 1
     }
 
+    /// <summary>What an effect DOES to its attribute (M23 attributes). Order serialized,
+    /// append only.</summary>
+    public enum EffectOperation
+    {
+        /// <summary>Move the CURRENT value — damage, healing, a stamina cost. Instant lands
+        /// once; Duration with a tick interval lands periodically.</summary>
+        Delta = 0,
+
+        /// <summary>Grant a revertible MODIFIER to the attribute's effective value for as
+        /// long as the effect lives — +2 max health, a 0.5× slow — removed cleanly on
+        /// expiry, stacks recomputed as they change. Duration/Infinite only: an instant
+        /// modifier would be granted and never revoked.</summary>
+        Modifier = 1
+    }
+
     /// <summary>What a re-applied Duration effect does to the copy already running — the four
     /// HT stacking modes. Order serialized, append only.</summary>
     public enum AbilityStacking
@@ -52,14 +67,19 @@ namespace PowerOfFire.DrawToPlay
     [Serializable]
     public sealed class EffectDef : StateTreeRegistryEntry
     {
-        [Tooltip("Which attribute the magnitude lands on. 'health' reaches the target's "
-            + "HealthComponent natively; other names are the game's business via "
-            + "AbilityHost.attributeApplied.")]
-        public string attribute = "health";
+        [Tooltip("Which attribute this lands on — a picked row of the attribute registry "
+            + "this registry depends on, never a typed name.")]
+        public StateTreeEntryRef<AttributeDef> attribute = new StateTreeEntryRef<AttributeDef>();
 
-        [Tooltip("The signed delta. Negative is damage, positive is healing — the HT "
-            + "convention, so no effect needs a 'kind of delta' field.")]
+        public EffectOperation operation = EffectOperation.Delta;
+
+        [Tooltip("Delta: the signed change — negative is damage/cost, positive restores (the "
+            + "HT convention). Modifier: the ADDITIVE half of the grant, per stack.")]
         public float magnitude;
+
+        [Tooltip("Modifier only: the MULTIPLICATIVE half, per stack — 0.5 halves the "
+            + "attribute while the effect lives, 1 leaves the scale alone.")]
+        public float multiplier = 1f;
 
         public AbilityEffectDuration duration = AbilityEffectDuration.Instant;
 

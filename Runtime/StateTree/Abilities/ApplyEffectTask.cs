@@ -69,10 +69,12 @@ namespace PowerOfFire.DrawToPlay
                 return StateTreeStatus.Success;
             }
 
-            // No host: Instant health still lands — a crate can be hurt — but a status has
-            // nowhere to live.
+            // No host: an Instant health delta still lands — a crate can be hurt — but a
+            // status has nowhere to live.
             if (row.duration == AbilityEffectDuration.Instant
-                && string.Equals(row.attribute, "health", System.StringComparison.Ordinal))
+                && row.operation == EffectOperation.Delta
+                && string.Equals(row.attribute.entryName, HealthComponent.AttributeName,
+                    System.StringComparison.Ordinal))
             {
                 var health = victim.GetComponent<HealthComponent>();
                 if (health != null)
