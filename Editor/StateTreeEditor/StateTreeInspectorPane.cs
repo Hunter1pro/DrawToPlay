@@ -2443,6 +2443,65 @@ namespace PowerOfFire.DrawToPlay.Editor
                             + "pick this tree as its Tree.", HelpBoxMessageType.Warning));
                     }
                 }
+
+                // The same recognition for the ATOMS: a state applying an effect row or
+                // showing a cue row says which, in the row's own words, with the way to its
+                // registry. Task-driven rather than role-driven, so a plain state using the
+                // same atoms is recognized identically.
+                for (var i = 0; i < m_Node.tasks.Count; ++i)
+                {
+                    switch (m_Node.tasks[i])
+                    {
+                        case ApplyEffectTask applies:
+                        {
+                            var (registry, entry) = RowInClosure(service, applies.effect.entryName);
+                            if (entry is EffectDef effect)
+                            {
+                                var parts = new List<string>
+                                {
+                                    effect.attribute + " "
+                                        + (effect.magnitude >= 0f ? "+" : "")
+                                        + effect.magnitude.ToString("0.##"),
+                                    effect.duration.ToString()
+                                };
+                                if (effect.duration != AbilityEffectDuration.Instant)
+                                    parts.Add(effect.seconds.ToString("0.##") + "s ×"
+                                        + Mathf.Max(1, effect.maxStacks));
+                                if (!string.IsNullOrEmpty(effect.cue.entryName))
+                                    parts.Add("cue '" + effect.cue.entryName + "'");
+                                m_Root.Add(RecognizedRow("⛃ Applies effect '" + effect.name
+                                    + "' — " + string.Join(" · ", parts) + " → "
+                                    + applies.target + ".", registry));
+                            }
+                            else if (!string.IsNullOrEmpty(applies.effect.entryName))
+                            {
+                                m_Root.Add(new HelpBox("Effect '" + applies.effect.entryName
+                                    + "' resolves to no row in the service's registries.",
+                                    HelpBoxMessageType.Warning));
+                            }
+                            break;
+                        }
+                        case ShowCueTask shows:
+                        {
+                            var (registry, entry) = RowInClosure(service, shows.cue.entryName);
+                            if (entry is CueDef cueRow)
+                            {
+                                m_Root.Add(RecognizedRow("⛃ Shows cue '" + cueRow.name + "' — "
+                                    + (cueRow.prefab != null ? cueRow.prefab.name : "(no prefab)")
+                                    + " · " + cueRow.secondsAlive.ToString("0.##") + "s"
+                                    + (cueRow.attachToTarget ? " · attached" : "") + ".",
+                                    registry));
+                            }
+                            else if (!string.IsNullOrEmpty(shows.cue.entryName))
+                            {
+                                m_Root.Add(new HelpBox("Cue '" + shows.cue.entryName
+                                    + "' resolves to no row in the service's registries.",
+                                    HelpBoxMessageType.Warning));
+                            }
+                            break;
+                        }
+                    }
+                }
             }
 
             if (m_Node == m_Tree.root)
@@ -2454,6 +2513,56 @@ namespace PowerOfFire.DrawToPlay.Editor
                     + $"'{entryId}'. Give the root tasks or transitions only if you want it to be a "
                     + "state in its own right.", HelpBoxMessageType.Info));
             }
+        }
+
+        /// <summary>A row plus the registry it lives in, found through the service's dependsOn
+        /// closure — the same reach the runtime lookups use, so what this recognizes is what
+        /// would resolve.</summary>
+        private static (StateTreeRegistryAsset registry, StateTreeRegistryEntry entry)
+            RowInClosure(ServiceDef service, string entryName)
+        {
+            if (service == null || service.registry == null || string.IsNullOrEmpty(entryName))
+                return (null, null);
+            var reachable = new List<StateTreeRegistryAsset>();
+            service.registry.CollectWithDependencies(reachable);
+            for (var i = 0; i < reachable.Count; ++i)
+            {
+                if (reachable[i] == service.registry)
+                    continue;
+                StateTreeRegistryEntry entry = reachable[i].FindByName(entryName);
+                if (entry != null)
+                    return (reachable[i], entry);
+            }
+            return (null, null);
+        }
+
+        /// <summary>One recognition line — the sentence plus the Row button to the registry
+        /// the fact is edited in. One shape for ability, effect and cue, on purpose.</summary>
+        private static VisualElement RecognizedRow(string sentence,
+            StateTreeRegistryAsset registry)
+        {
+            var box = new VisualElement();
+            box.style.flexDirection = FlexDirection.Row;
+            box.style.alignItems = Align.Center;
+            var who = new Label(sentence);
+            who.style.whiteSpace = WhiteSpace.Normal;
+            who.style.flexGrow = 1f;
+            who.style.marginLeft = 4f;
+            box.Add(who);
+            if (registry != null)
+            {
+                var open = new Button(() =>
+                {
+                    Selection.activeObject = registry;
+                    EditorGUIUtility.PingObject(registry);
+                })
+                { text = "Row" };
+                open.tooltip = "Open '" + registry.name + "' — the row's numbers are edited "
+                    + "there; this state only picks and places it.";
+                open.style.flexShrink = 0f;
+                box.Add(open);
+            }
+            return box;
         }
 
         /// <summary>Everything the runner would log as an error at play time, surfaced while it
