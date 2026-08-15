@@ -2088,7 +2088,8 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>The kind a node ANSWERS TO under its service's rules: its own role, or —
         /// plain states being transparent grouping — the nearest typed ancestor's, ending at
-        /// the tree kind itself (the root IS the ability).</summary>
+        /// <see cref="ServiceDef.TreeRootKind"/>. The root is the TOP, not the ability: what
+        /// may sit under it is a declared rule (root → ability, in the ability service).</summary>
         internal static string EffectiveRoleOf(StateTreeAsset tree, StateTreeNodeAsset node)
         {
             var current = node;
@@ -2099,7 +2100,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     return current.roleKind;
                 current = ParentOf(tree, current);
             }
-            return tree != null ? tree.treeKind ?? "" : "";
+            return ServiceDef.TreeRootKind;
         }
 
         /// <summary>The task type a kind's seed names, resolved over loaded assemblies by

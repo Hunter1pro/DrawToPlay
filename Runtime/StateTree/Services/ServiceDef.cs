@@ -22,6 +22,12 @@ namespace PowerOfFire.DrawToPlay
         fileName = "ServiceDef")]
     public sealed class ServiceDef : ScriptableObject
     {
+        /// <summary>The kind a TREE ROOT answers to in every service's nesting rules — a
+        /// well-known constant, so "what may sit at the top level" is a rule like any other:
+        /// the ability service declares root → ability → effect → cue, and Add Child on the
+        /// root creates an ability, never an effect (the review that put this here).</summary>
+        public const string TreeRootKind = "root";
+
         [Tooltip("What this service is called in diagnostics and pickers.")]
         public string serviceName = "";
 

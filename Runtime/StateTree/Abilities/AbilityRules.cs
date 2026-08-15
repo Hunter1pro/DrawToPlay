@@ -48,11 +48,30 @@ namespace PowerOfFire.DrawToPlay
         {
             if (service == null || tree == null || tree.root == null || problems == null)
                 return;
-            string rootKind = string.IsNullOrEmpty(service.treeKind)
-                ? AbilityDef.RootKind
-                : service.treeKind;
-            ValidateChildren(service, rootKind, tree.root,
+            ValidateChildren(service, ServiceDef.TreeRootKind, tree.root,
                 "tree '" + tree.name + "'", problems, 0);
+
+            // ONE TREE HAS ONE ABILITY — the review's standing decision. The rules allow an
+            // 'ability' state under the root like HT's root held many; this project's cut is
+            // one per tree, so a second one is a finding, not a silent catalog.
+            int abilityStates = CountRole(tree.root, AbilityDef.RootKind, 0);
+            if (abilityStates > 1)
+            {
+                problems.Add("tree '" + tree.name + "': " + abilityStates + " '"
+                    + AbilityDef.RootKind + "' states — one tree has ONE ability; split the "
+                    + "others into their own trees.");
+            }
+        }
+
+        private static int CountRole(StateTreeNodeAsset node, string kind, int depth)
+        {
+            if (node == null || depth > 64)
+                return 0;
+            int count = string.Equals(node.roleKind, kind, System.StringComparison.Ordinal)
+                ? 1 : 0;
+            for (int i = 0; i < node.children.Count; i++)
+                count += CountRole(node.children[i], kind, depth + 1);
+            return count;
         }
 
         private static void ValidateChildren(ServiceDef service, string effectiveKind,
