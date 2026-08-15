@@ -341,10 +341,20 @@ namespace PowerOfFire.DrawToPlay
         /// (Target) or at the source (Source) — and <see cref="cueFired"/> tells this
         /// actor's listeners either way: the effect happened HERE.
         /// </summary>
-        public void ApplyEffect(EffectDef effect, GameObject source = null)
+        public bool ApplyEffect(EffectDef effect, GameObject source = null)
         {
             if (effect == null)
-                return;
+                return false;
+
+            // THE APPLICATION GATE (the old TakeDamage guard window, as data): a row that
+            // lists a tag this actor holds does not land — no magnitude, no status, no cue.
+            // Statuses already running are untouched; the gate is at the door only.
+            var blocked = effect.blockedByTags;
+            for (int i = 0; blocked != null && i < blocked.Count; i++)
+            {
+                if (HasTag(blocked[i]))
+                    return false;
+            }
 
             if (effect.duration == AbilityEffectDuration.Instant)
             {
@@ -355,7 +365,7 @@ namespace PowerOfFire.DrawToPlay
                     Debug.LogWarning("[Ability] effect '" + effect.name + "' is an Instant "
                         + "Modifier — a grant with no expiry to revert it. Make it Duration "
                         + "or Infinite, or use a Delta.", this);
-                    return;
+                    return false;
                 }
                 ApplyMagnitude(effect, ScaledMagnitude(effect, source, service),
                     firstApplication: true);
@@ -372,6 +382,7 @@ namespace PowerOfFire.DrawToPlay
             }
 
             ShowCue(effect, source);
+            return true;
         }
 
         /// <summary>The Modifier operation's grant, sized to the CURRENT stacks — the old

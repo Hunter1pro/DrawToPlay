@@ -370,6 +370,118 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void BlockedByTags_GateApplication_AndExpiryReopensIt()
+        {
+            // The old i-frame window as DATA: a hit row refused while the target is Guarded.
+            EffectDef hit = MakeEffect("gated-hit", magnitude: -3f);
+            hit.attribute.entryId = "attribute.stamina";
+            hit.attribute.entryName = "stamina";
+            hit.blockedByTags.Add("Guarded");
+
+            EffectDef guard = MakeEffect("guard", magnitude: 0f);
+            guard.duration = AbilityEffectDuration.Duration;
+            guard.seconds = 0.35f;
+            guard.grantedTags.Add("Guarded");
+
+            AbilityHost victim = MakeActor("gated");
+            var vitals = victim.gameObject.AddComponent<AttributeComponent>();
+            vitals.Ensure("stamina", 10f);
+
+            Assert.IsTrue(victim.ApplyEffect(hit), "an unguarded target takes the hit");
+            Assert.AreEqual(7f, vitals.Value("stamina"), 0.001f);
+
+            victim.ApplyEffect(guard);
+            Assert.IsFalse(victim.ApplyEffect(hit), "refused at the door while Guarded");
+            Assert.AreEqual(7f, vitals.Value("stamina"), 0.001f,
+                "no magnitude landed through the gate");
+
+            victim.Tick(0.4f);
+            Assert.IsTrue(victim.ApplyEffect(hit), "the guard expired; the door is open");
+            Assert.AreEqual(4f, vitals.Value("stamina"), 0.001f);
+        }
+
+        [Test]
+        public void ABlockedApplication_ShowsNoCue()
+        {
+            var flash = new CueDef { id = "cue.flash2", name = "flash2", secondsAlive = 0.2f };
+            m_Cues.entries.Add(flash);
+
+            EffectDef hit = MakeEffect("cued-hit", magnitude: 0f);
+            hit.cue.entryName = "flash2";
+            hit.blockedByTags.Add("Guarded");
+
+            EffectDef guard = MakeEffect("guard2", magnitude: 0f);
+            guard.duration = AbilityEffectDuration.Duration;
+            guard.seconds = 1f;
+            guard.grantedTags.Add("Guarded");
+
+            AbilityHost victim = MakeActor("uncued");
+            victim.ApplyEffect(guard);
+            var cues = 0;
+            victim.cueFired += (_, _2) => cues++;
+            victim.ApplyEffect(hit);
+            Assert.AreEqual(0, cues, "a hit that did not land shows nothing");
+        }
+
+        [Test]
+        public void ARunningStatus_TicksThroughTheGate()
+        {
+            // The gate is at the DOOR only — a poison already inside keeps draining while
+            // the target guards (the TickDamage rule, kept).
+            EffectDef poison = MakeEffect("gate-poison", magnitude: -1f);
+            poison.attribute.entryId = "attribute.stamina";
+            poison.attribute.entryName = "stamina";
+            poison.duration = AbilityEffectDuration.Duration;
+            poison.seconds = 10f;
+            poison.tickInterval = 1f;
+            poison.blockedByTags.Add("Guarded");
+
+            EffectDef guard = MakeEffect("guard3", magnitude: 0f);
+            guard.duration = AbilityEffectDuration.Duration;
+            guard.seconds = 10f;
+            guard.grantedTags.Add("Guarded");
+
+            AbilityHost victim = MakeActor("poisoned3");
+            var vitals = victim.gameObject.AddComponent<AttributeComponent>();
+            vitals.Ensure("stamina", 10f);
+
+            victim.ApplyEffect(poison);   // lands -1 on application
+            victim.ApplyEffect(guard);
+            victim.Tick(1f);
+            Assert.AreEqual(8f, vitals.Value("stamina"), 0.001f,
+                "application -1, then one tick -1 THROUGH the guard");
+            Assert.IsFalse(victim.ApplyEffect(poison),
+                "but a fresh application is still refused at the door");
+        }
+
+        [Test]
+        public void HasTagCondition_ReadsTheOwnersStatusTags()
+        {
+            EffectDef venom = MakeEffect("cond-venom", magnitude: 0f);
+            venom.duration = AbilityEffectDuration.Duration;
+            venom.seconds = 1f;
+            venom.grantedTags.Add("Poisoned");
+
+            AbilityHost owner = MakeActor("conditioned");
+            var condition = ScriptableObject.CreateInstance<HasTagCondition>();
+            condition.tag = "Poisoned";
+            m_Assets.Add(condition);
+            typeof(HasTagCondition)
+                .GetField("m_Owner", System.Reflection.BindingFlags.NonPublic
+                    | System.Reflection.BindingFlags.Instance)
+                .SetValue(condition, owner);
+
+            Assert.IsFalse(condition.Evaluate(null), "no status, no tag");
+            owner.ApplyEffect(venom);
+            Assert.IsTrue(condition.Evaluate(null), "the status holds the tag");
+            condition.absent = true;
+            Assert.IsFalse(condition.Evaluate(null));
+            owner.Tick(1.1f);
+            condition.absent = false;
+            Assert.IsFalse(condition.Evaluate(null), "expiry took the tag with it");
+        }
+
+        [Test]
         public void ScaledEffect_HitsAtTheSourcesLevel()
         {
             // The ScalableFloat half of progression: the row's magnitude times its picked
