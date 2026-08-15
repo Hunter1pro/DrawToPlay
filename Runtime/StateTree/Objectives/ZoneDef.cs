@@ -15,25 +15,23 @@ namespace PowerOfFire.DrawToPlay
     [Serializable]
     public sealed class ZoneDef : StateTreeRegistryEntry
     {
-        [Tooltip("The zone's title on screen while its stack is asked.")]
-        public string displayName = "";
-
-        [Tooltip("The stack, IN ORDER — picked objective rows. The list is the chain: "
-            + "completing one asks the next, and per-row nextOnComplete is ignored inside "
-            + "a stack. Add the next task by appending a row.")]
-        public List<StateTreeEntryRef<ObjectiveDef>> stack =
-            new List<StateTreeEntryRef<ObjectiveDef>>();
+        [Tooltip("The zone itself — ONE ASSET holding its objectives as its own rows, in "
+            + "order, fully editable in the registry dashboard. This row is only the "
+            + "identity: what the placer picks and what the world tag says.")]
+        public ZoneAsset asset;
 
         public override string Describe()
         {
-            if (stack.Count == 0)
-                return "empty zone — never competes";
-            var line = new System.Text.StringBuilder("stack: ");
-            for (int i = 0; i < stack.Count; i++)
+            if (asset == null)
+                return "no zone asset — never competes";
+            if (asset.entries.Count == 0)
+                return "'" + asset.name + "' is empty — never competes";
+            var line = new System.Text.StringBuilder("'" + asset.name + "': ");
+            for (int i = 0; i < asset.entries.Count; i++)
             {
                 if (i > 0)
                     line.Append(" → ");
-                line.Append(stack[i] != null ? stack[i].entryName : "?");
+                line.Append(asset.entries[i] != null ? asset.entries[i].name : "?");
             }
             return line.ToString();
         }

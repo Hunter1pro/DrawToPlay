@@ -111,8 +111,9 @@ namespace PowerOfFire.DrawToPlay
             }
 
             ZoneDef zoneRow = service.activeZoneRow;
-            m_Zone.text = zoneRow != null
-                ? (string.IsNullOrEmpty(zoneRow.displayName) ? zoneRow.name : zoneRow.displayName)
+            m_Zone.text = zoneRow != null && zoneRow.asset != null
+                ? (string.IsNullOrEmpty(zoneRow.asset.displayName)
+                    ? zoneRow.asset.name : zoneRow.asset.displayName)
                 : "";
             m_Name.style.color = current.accentColor;
             m_Arrow.style.color = current.accentColor;

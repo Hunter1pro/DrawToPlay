@@ -100,21 +100,21 @@ namespace PowerOfFire.DrawToPlay.Tests
             return row;
         }
 
-        /// <summary>A container row: the stack is the picked order — appending IS the
-        /// authoring gesture.</summary>
+        /// <summary>One asset per zone: its ROWS are the stack — appending IS the
+        /// authoring gesture. The catalog row is only the identity.</summary>
         private ZoneDef MakeZone(string zoneName, params ObjectiveDef[] stack)
         {
+            var asset = ScriptableObject.CreateInstance<ZoneAsset>();
+            asset.name = "Zone_" + zoneName;
+            asset.displayName = zoneName;
+            m_Assets.Add(asset);
+            for (int i = 0; i < stack.Length; i++)
+                asset.entries.Add(stack[i]);
+
             var zone = new ZoneDef
             {
-                id = "zone." + zoneName, name = zoneName, displayName = zoneName
+                id = "zone." + zoneName, name = zoneName, asset = asset
             };
-            for (int i = 0; i < stack.Length; i++)
-            {
-                zone.stack.Add(new StateTreeEntryRef<ObjectiveDef>
-                {
-                    entryId = stack[i].id, entryName = stack[i].name
-                });
-            }
             m_Zones.entries.Add(zone);
             return zone;
         }

@@ -99,12 +99,12 @@ namespace PowerOfFire.DrawToPlay
             return null;
         }
 
-        private ObjectiveDef StackRowAt(ZoneDef zone, int index)
+        private static ObjectiveDef StackRowAt(ZoneDef zone, int index)
         {
-            if (zone == null || index < 0 || index >= zone.stack.Count
-                || zone.stack[index] == null)
+            if (zone == null || zone.asset == null
+                || index < 0 || index >= zone.asset.entries.Count)
                 return null;
-            return Find(zone.stack[index].entryName);
+            return zone.asset.entries[index];
         }
 
         public ObjectiveRegistry catalog =>
@@ -171,7 +171,8 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; zones != null && i < zones.entries.Count; i++)
             {
                 ZoneDef zone = zones.entries[i];
-                if (zone == null || string.IsNullOrEmpty(zone.id) || zone.stack.Count == 0)
+                if (zone == null || string.IsNullOrEmpty(zone.id)
+                    || zone.asset == null || zone.asset.entries.Count == 0)
                     continue;
                 if (!m_ZoneIndex.ContainsKey(zone.id))
                     m_ZoneIndex.Add(zone.id, 0);
@@ -199,7 +200,7 @@ namespace PowerOfFire.DrawToPlay
             foreach (KeyValuePair<string, int> pair in m_ZoneIndex)
             {
                 ZoneDef zone = FindZoneById(pair.Key);
-                if (zone == null || pair.Value >= zone.stack.Count)
+                if (zone == null || zone.asset == null || pair.Value >= zone.asset.entries.Count)
                     continue;   // this zone's stack is done — it stopped competing
                 WorldObjectBehaviour volume = Nearest(pair.Key, player.transform.position);
                 if (volume == null)
@@ -352,14 +353,15 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < state.zoneNames.Count; i++)
             {
                 ZoneDef zone = FindZoneById(state.zoneNames[i]);
-                if (zone == null)
+                if (zone == null || zone.asset == null)
                     continue;
                 var cursorName = i < state.zoneCursors.Count ? state.zoneCursors[i] : "";
-                var index = zone.stack.Count;   // "" = the stack was done
-                for (int j = 0; j < zone.stack.Count && !string.IsNullOrEmpty(cursorName); j++)
+                var index = zone.asset.entries.Count;   // "" = the stack was done
+                for (int j = 0; j < zone.asset.entries.Count
+                    && !string.IsNullOrEmpty(cursorName); j++)
                 {
-                    if (zone.stack[j] != null && string.Equals(zone.stack[j].entryName,
-                            cursorName, StringComparison.Ordinal))
+                    if (zone.asset.entries[j] != null && string.Equals(
+                            zone.asset.entries[j].name, cursorName, StringComparison.Ordinal))
                     {
                         index = j;
                         break;
