@@ -16,6 +16,7 @@ namespace PowerOfFire.DrawToPlay
     public sealed class ObjectiveWidgetView : UiViewBehaviour
     {
         private Label m_Name;
+        private Label m_Zone;
         private Label m_Arrow;
         private VisualElement m_Root;
 
@@ -30,10 +31,21 @@ namespace PowerOfFire.DrawToPlay
             m_Root = GetComponent<UIDocument>().rootVisualElement;
             m_Root.pickingMode = PickingMode.Ignore;
 
+            m_Zone = new Label("");
+            m_Zone.pickingMode = PickingMode.Ignore;
+            m_Zone.style.position = Position.Absolute;
+            m_Zone.style.top = 4f;
+            m_Zone.style.left = 0f;
+            m_Zone.style.right = 0f;
+            m_Zone.style.unityTextAlign = TextAnchor.UpperCenter;
+            m_Zone.style.fontSize = 11f;
+            m_Zone.style.color = new Color(1f, 1f, 1f, 0.55f);
+            m_Root.Add(m_Zone);
+
             m_Name = new Label("");
             m_Name.pickingMode = PickingMode.Ignore;
             m_Name.style.position = Position.Absolute;
-            m_Name.style.top = 8f;
+            m_Name.style.top = 20f;
             m_Name.style.left = 0f;
             m_Name.style.right = 0f;
             m_Name.style.unityTextAlign = TextAnchor.UpperCenter;
@@ -93,10 +105,15 @@ namespace PowerOfFire.DrawToPlay
             if (current == null)
             {
                 m_Name.text = "";
+                m_Zone.text = "";
                 m_Arrow.style.display = DisplayStyle.None;
                 return;
             }
 
+            ZoneDef zoneRow = service.activeZoneRow;
+            m_Zone.text = zoneRow != null
+                ? (string.IsNullOrEmpty(zoneRow.displayName) ? zoneRow.name : zoneRow.displayName)
+                : "";
             m_Name.style.color = current.accentColor;
             m_Arrow.style.color = current.accentColor;
             m_Arrow.text = string.IsNullOrEmpty(current.arrowGlyph)

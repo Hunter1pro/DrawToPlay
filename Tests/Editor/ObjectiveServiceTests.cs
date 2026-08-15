@@ -20,6 +20,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         private StateTreeContextHost m_Level;
         private ObjectiveService m_Service;
         private ObjectiveRegistry m_Registry;
+        private ZoneRegistry m_Zones;
         private WorldService m_World;
         private StateTreeContextHost m_Player;
 
@@ -28,6 +29,10 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             m_Registry = ScriptableObject.CreateInstance<ObjectiveRegistry>();
             m_Assets.Add(m_Registry);
+            m_Zones = ScriptableObject.CreateInstance<ZoneRegistry>();
+            m_Assets.Add(m_Zones);
+            m_Registry.dependsOn.Add(m_Zones);
+            m_Zones.dependsOn.Add(m_Registry);
 
             var def = ScriptableObject.CreateInstance<ServiceDef>();
             def.serviceName = "objectives";
@@ -95,6 +100,25 @@ namespace PowerOfFire.DrawToPlay.Tests
             return row;
         }
 
+        /// <summary>A container row: the stack is the picked order — appending IS the
+        /// authoring gesture.</summary>
+        private ZoneDef MakeZone(string zoneName, params ObjectiveDef[] stack)
+        {
+            var zone = new ZoneDef
+            {
+                id = "zone." + zoneName, name = zoneName, displayName = zoneName
+            };
+            for (int i = 0; i < stack.Length; i++)
+            {
+                zone.stack.Add(new StateTreeEntryRef<ObjectiveDef>
+                {
+                    entryId = stack[i].id, entryName = stack[i].name
+                });
+            }
+            m_Zones.entries.Add(zone);
+            return zone;
+        }
+
         private WorldObjectBehaviour MakeCitizen(string citizenName, Vector3 position,
             params string[] tags)
         {
@@ -115,15 +139,12 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             // Two zones, two stacks (the HT distance-zone switch, row-shaped).
             ObjectiveDef a1 = MakeObjective("a1", ObjectiveKind.Dialog);
-            a1.zone = "zone.a";
             a1.target.entryName = "keeper";
-            a1.nextOnComplete.entryName = "a2";
             ObjectiveDef a2 = MakeObjective("a2", ObjectiveKind.EnemyKill);
-            a2.zone = "zone.a";
-
             ObjectiveDef b1 = MakeObjective("b1", ObjectiveKind.Dialog);
-            b1.zone = "zone.b";
             b1.target.entryName = "scout";
+            MakeZone("a", a1, a2);   // the stack IS the chain — no wiring
+            MakeZone("b", b1);
 
             MakeCitizen("VolumeA", new Vector3(-5f, 0f, 0f), "zone.a");
             MakeCitizen("VolumeB", new Vector3(5f, 0f, 0f), "zone.b");
@@ -151,8 +172,8 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             ObjectiveDef linear = MakeObjective("linear", ObjectiveKind.EnemyKill);
             ObjectiveDef zoned = MakeObjective("zoned", ObjectiveKind.Dialog);
-            zoned.zone = "zone.only";
             zoned.target.entryName = "keeper";
+            MakeZone("only", zoned);
 
             MakeCitizen("Volume", new Vector3(2f, 0f, 0f), "zone.only");
             m_Player.transform.position = Vector3.zero;
@@ -172,15 +193,13 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void SaveState_RoundTrips_CursorsDoneStacksAndTheLinearLine()
         {
             ObjectiveDef a1 = MakeObjective("a1", ObjectiveKind.Dialog);
-            a1.zone = "zone.a";
             a1.target.entryName = "keeper";
-            a1.nextOnComplete.entryName = "a2";
             ObjectiveDef a2 = MakeObjective("a2", ObjectiveKind.EnemyKill);
-            a2.zone = "zone.a";
             ObjectiveDef b1 = MakeObjective("b1", ObjectiveKind.Dialog);
-            b1.zone = "zone.b";
             b1.target.entryName = "scout";
             ObjectiveDef linear = MakeObjective("linear", ObjectiveKind.EnemyKill);
+            MakeZone("a", a1, a2);
+            MakeZone("b", b1);
 
             MakeCitizen("VolumeA", new Vector3(-5f, 0f, 0f), "zone.a");
             m_Player.transform.position = new Vector3(-4f, 0f, 0f);

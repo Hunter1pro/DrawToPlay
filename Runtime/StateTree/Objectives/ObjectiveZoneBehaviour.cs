@@ -15,12 +15,19 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("What 'arrived' means here, on the ground plane.")]
         public float radius = 1.5f;
 
+        [Tooltip("WHICH zone this volume is — picked from the zone registry. The manifest "
+            + "sets it from the placement's entry (the placer pattern); a hand-placed "
+            + "volume picks it here. The row's ID becomes this citizen's tag.")]
+        public StateTreeEntryRef<ZoneDef> zone = new StateTreeEntryRef<ZoneDef>();
+
         protected override void OnEnable()
         {
-            // Tags are fixed at registration — declare the base identity before base
-            // registers this citizen. Placement rows add the objective-facing tag.
+            // Tags are fixed at registration — declare the identity before base registers
+            // this citizen: the base 'zone' tag, and the picked row's ID (renames free).
             if (!tags.Contains("zone"))
                 tags.Add("zone");
+            if (!string.IsNullOrEmpty(zone.entryId) && !tags.Contains(zone.entryId))
+                tags.Add(zone.entryId);
             base.OnEnable();
         }
     }

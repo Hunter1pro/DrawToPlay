@@ -53,11 +53,11 @@ namespace PowerOfFire.DrawToPlay
         private bool m_AutoStarted;
         private readonly List<WorldObjectBehaviour> m_Buffer = new List<WorldObjectBehaviour>();
 
-        /// <summary>Each zone's own place in its stack — the row it would ask for when it
-        /// is the nearest, or null once its stack is done. Progress is PER ZONE: switching
-        /// away and back resumes where that zone stood (the HT model).</summary>
-        private readonly Dictionary<string, ObjectiveDef> m_ZoneCursor =
-            new Dictionary<string, ObjectiveDef>(StringComparer.Ordinal);
+        /// <summary>Each zone's place in its ORDERED stack (by the zone row's id) —
+        /// resumed when the zone is nearest again, done when it runs past the end.
+        /// Progress is PER ZONE: switching away and back resumes (the HT model).</summary>
+        private readonly Dictionary<string, int> m_ZoneIndex =
+            new Dictionary<string, int>(StringComparer.Ordinal);
         private bool m_ZonesIndexed;
         private string m_ActiveZone = "";
 
@@ -65,8 +65,47 @@ namespace PowerOfFire.DrawToPlay
         /// falling back resumes it instead of losing it.</summary>
         private ObjectiveDef m_LinearCursor;
 
-        /// <summary>The zone whose stack is currently asked for, empty for the linear line.</summary>
+        /// <summary>The id of the zone whose stack is asked for, empty for the linear line.</summary>
         public string activeZone => m_ActiveZone;
+
+        /// <summary>The asking zone's row — the widget's title line. Null on the linear line.</summary>
+        public ZoneDef activeZoneRow => FindZoneById(m_ActiveZone);
+
+        /// <summary>The zone catalog: the first ZoneRegistry the objective registry lists
+        /// in dependsOn — the same provenance chain every picked reference uses.</summary>
+        private ZoneRegistry Zones()
+        {
+            ObjectiveRegistry registry = catalog;
+            var depends = registry != null ? registry.dependsOn : null;
+            for (int i = 0; depends != null && i < depends.Count; i++)
+            {
+                if (depends[i] is ZoneRegistry zones)
+                    return zones;
+            }
+            return null;
+        }
+
+        private ZoneDef FindZoneById(string zoneId)
+        {
+            ZoneRegistry zones = Zones();
+            if (zones == null || string.IsNullOrEmpty(zoneId))
+                return null;
+            for (int i = 0; i < zones.entries.Count; i++)
+            {
+                if (zones.entries[i] != null
+                    && string.Equals(zones.entries[i].id, zoneId, StringComparison.Ordinal))
+                    return zones.entries[i];
+            }
+            return null;
+        }
+
+        private ObjectiveDef StackRowAt(ZoneDef zone, int index)
+        {
+            if (zone == null || index < 0 || index >= zone.stack.Count
+                || zone.stack[index] == null)
+                return null;
+            return Find(zone.stack[index].entryName);
+        }
 
         public ObjectiveRegistry catalog =>
             definition != null ? definition.registry as ObjectiveRegistry : null;
@@ -83,7 +122,7 @@ namespace PowerOfFire.DrawToPlay
         {
             current = objective;
             progress = 0;
-            if (objective != null && string.IsNullOrEmpty(objective.zone))
+            if (objective != null)
                 m_LinearCursor = objective;
             changed?.Invoke();
         }
@@ -99,41 +138,43 @@ namespace PowerOfFire.DrawToPlay
             current = null;
             progress = 0;
             completedObjective?.Invoke(done);
-            ObjectiveDef next = Find(done.nextOnComplete.entryName);
-            if (!string.IsNullOrEmpty(done.zone))
-                m_ZoneCursor[done.zone] = next;
+            // The asking zone owns the completion when the finished row IS its cursor —
+            // then the stack's ORDER is the chain. Everything else is the linear line,
+            // where nextOnComplete still speaks.
+            ZoneDef zone = FindZoneById(m_ActiveZone);
+            if (zone != null && m_ZoneIndex.TryGetValue(m_ActiveZone, out int index)
+                && ReferenceEquals(StackRowAt(zone, index), done))
+            {
+                m_ZoneIndex[m_ActiveZone] = index + 1;
+                current = StackRowAt(zone, index + 1);
+            }
             else
+            {
+                ObjectiveDef next = Find(done.nextOnComplete.entryName);
                 m_LinearCursor = next;
-            current = next;
+                current = next;
+            }
             changed?.Invoke();
         }
 
-        /// <summary>Every zone's ENTRY row: the row of that zone no other row in the zone
-        /// chains to. Built once from the catalog — authoring is chains plus a zone name,
-        /// no container nesting (zones are volumes, never hierarchies).</summary>
+        /// <summary>Every declared zone starts at the top of its stack. The container row
+        /// IS the authoring surface: adding the next task to a zone is appending to its
+        /// list — no chain wiring, no membership fields.</summary>
         private void IndexZones()
         {
             if (m_ZonesIndexed)
                 return;
-            ObjectiveRegistry registry = catalog;
-            if (registry == null)
+            ZoneRegistry zones = Zones();
+            if (catalog == null)
                 return;
             m_ZonesIndexed = true;
-            var chainedTo = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < registry.entries.Count; i++)
+            for (int i = 0; zones != null && i < zones.entries.Count; i++)
             {
-                ObjectiveDef row = registry.entries[i];
-                if (row != null && !string.IsNullOrEmpty(row.nextOnComplete.entryName))
-                    chainedTo.Add(row.nextOnComplete.entryName);
-            }
-            for (int i = 0; i < registry.entries.Count; i++)
-            {
-                ObjectiveDef row = registry.entries[i];
-                if (row == null || string.IsNullOrEmpty(row.zone)
-                    || chainedTo.Contains(row.name))
+                ZoneDef zone = zones.entries[i];
+                if (zone == null || string.IsNullOrEmpty(zone.id) || zone.stack.Count == 0)
                     continue;
-                if (!m_ZoneCursor.ContainsKey(row.zone))
-                    m_ZoneCursor.Add(row.zone, row);
+                if (!m_ZoneIndex.ContainsKey(zone.id))
+                    m_ZoneIndex.Add(zone.id, 0);
             }
         }
 
@@ -146,7 +187,7 @@ namespace PowerOfFire.DrawToPlay
         private void OrchestrateZones()
         {
             IndexZones();
-            if (m_ZoneCursor.Count == 0)
+            if (m_ZoneIndex.Count == 0)
                 return;
             StateTreeContextHost player =
                 StateTreeContextHost.Resolve(gameObject, StateTreeContextKind.Player);
@@ -155,9 +196,10 @@ namespace PowerOfFire.DrawToPlay
 
             string bestZone = null;
             var bestDistance = float.MaxValue;
-            foreach (KeyValuePair<string, ObjectiveDef> pair in m_ZoneCursor)
+            foreach (KeyValuePair<string, int> pair in m_ZoneIndex)
             {
-                if (pair.Value == null)
+                ZoneDef zone = FindZoneById(pair.Key);
+                if (zone == null || pair.Value >= zone.stack.Count)
                     continue;   // this zone's stack is done — it stopped competing
                 WorldObjectBehaviour volume = Nearest(pair.Key, player.transform.position);
                 if (volume == null)
@@ -178,7 +220,7 @@ namespace PowerOfFire.DrawToPlay
                 if (!string.IsNullOrEmpty(m_ActiveZone))
                 {
                     m_ActiveZone = "";
-                    if (current == null || !string.IsNullOrEmpty(current.zone))
+                    if (!ReferenceEquals(current, m_LinearCursor))
                     {
                         current = m_LinearCursor;
                         progress = 0;
@@ -188,12 +230,12 @@ namespace PowerOfFire.DrawToPlay
                 return;
             }
 
+            ObjectiveDef cursor = StackRowAt(FindZoneById(bestZone), m_ZoneIndex[bestZone]);
             if (string.Equals(bestZone, m_ActiveZone, StringComparison.Ordinal)
-                && current != null && string.Equals(current.zone, bestZone, StringComparison.Ordinal))
+                && ReferenceEquals(cursor, current))
                 return;
 
             m_ActiveZone = bestZone;
-            ObjectiveDef cursor = m_ZoneCursor[bestZone];
             if (!ReferenceEquals(cursor, current))
             {
                 current = cursor;
@@ -287,10 +329,11 @@ namespace PowerOfFire.DrawToPlay
         {
             IndexZones();
             var state = new SaveState { hasState = true };
-            foreach (KeyValuePair<string, ObjectiveDef> pair in m_ZoneCursor)
+            foreach (KeyValuePair<string, int> pair in m_ZoneIndex)
             {
+                ObjectiveDef cursor = StackRowAt(FindZoneById(pair.Key), pair.Value);
                 state.zoneNames.Add(pair.Key);
-                state.zoneCursors.Add(pair.Value != null ? pair.Value.name : "");
+                state.zoneCursors.Add(cursor != null ? cursor.name : "");
             }
             state.linearCursor = m_LinearCursor != null ? m_LinearCursor.name : "";
             state.currentName = current != null ? current.name : "";
@@ -308,9 +351,21 @@ namespace PowerOfFire.DrawToPlay
             m_AutoStarted = true;
             for (int i = 0; i < state.zoneNames.Count; i++)
             {
+                ZoneDef zone = FindZoneById(state.zoneNames[i]);
+                if (zone == null)
+                    continue;
                 var cursorName = i < state.zoneCursors.Count ? state.zoneCursors[i] : "";
-                m_ZoneCursor[state.zoneNames[i]] =
-                    string.IsNullOrEmpty(cursorName) ? null : Find(cursorName);
+                var index = zone.stack.Count;   // "" = the stack was done
+                for (int j = 0; j < zone.stack.Count && !string.IsNullOrEmpty(cursorName); j++)
+                {
+                    if (zone.stack[j] != null && string.Equals(zone.stack[j].entryName,
+                            cursorName, StringComparison.Ordinal))
+                    {
+                        index = j;
+                        break;
+                    }
+                }
+                m_ZoneIndex[state.zoneNames[i]] = index;
             }
             m_LinearCursor = Find(state.linearCursor);
             current = Find(state.currentName);

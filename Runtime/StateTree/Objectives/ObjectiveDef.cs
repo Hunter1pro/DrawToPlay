@@ -59,8 +59,8 @@ namespace PowerOfFire.DrawToPlay
             + "radius wins).")]
         public float radius = 1.5f;
 
-        [Tooltip("The chain: completing this activates that — a quest line as wires "
-            + "between rows, the nextOnFinish pattern.")]
+        [Tooltip("The LINEAR line's chain: completing this activates that. Ignored while "
+            + "a zone stack asks the row — there, the stack's ORDER is the chain.")]
         public StateTreeEntryRef<ObjectiveDef> nextOnComplete = new StateTreeEntryRef<ObjectiveDef>();
 
         [Tooltip("The arrow's glyph for this row — empty keeps the default pointer. The "
@@ -70,13 +70,9 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("The accent this row wears — the objective line and the arrow tint.")]
         public Color accentColor = new Color(0.95f, 0.92f, 0.75f);
 
-        [Tooltip("The ZONE whose stack this row belongs to — a world tag carried by a "
-            + "placed zone volume. Rows sharing it form that zone's stack (entered at the "
-            + "row no other row in the zone chains TO); the service activates the NEAREST "
-            + "zone that still has work, so walking changes what is asked (the HT "
-            + "distance-zone switch). Empty = the linear line, active when no zone "
-            + "competes.")]
-        public string zone = "";
+        // Zone membership lives on the ZONE now (ZoneDef.stack, the container row):
+        // a row joins a zone by being picked into its ordered stack — one authored
+        // source, no string agreeing with a list by spelling.
 
         public override string Describe()
         {
