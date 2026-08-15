@@ -1,0 +1,98 @@
+using UnityEngine;
+
+namespace PowerOfFire.DrawToPlay
+{
+    /// <summary>
+    /// The ability domain's SERVICE half (M23): mounted on the scope its
+    /// <see cref="ServiceDef"/> names, it answers "which row is that?" and "may this host
+    /// start it?" — the reads every actor shares. Per-actor state (the active ability, its
+    /// executor, cooldowns, statuses) lives on each actor's <see cref="AbilityHost"/>; this
+    /// class deliberately owns none of it, which is the split both HT generations converged
+    /// on (a per-actor host + shared catalog) and the opposite of the per-objective
+    /// container-of-132-registrations the Unity side paid for.
+    /// </summary>
+    [AddComponentMenu("Draw To Play/Services/Ability Service")]
+    public sealed class AbilityService : StateTreeServiceBehaviour
+    {
+        [Tooltip("The declaration this service runs: scope, the ability registry, and the "
+            + "nesting rules its rows obey.")]
+        public ServiceDef definition;
+
+        /// <summary>The catalog, through the def — null when the def is missing or names a
+        /// registry of some other kind.</summary>
+        public AbilityRegistry abilities =>
+            definition != null ? definition.registry as AbilityRegistry : null;
+
+        protected override void OnEnable()
+        {
+            base.OnEnable();
+            if (definition == null)
+                Debug.LogError("[AbilityService] no ServiceDef assigned — no ability can "
+                    + "resolve.", this);
+            else if (abilities == null)
+                Debug.LogError("[AbilityService] the ServiceDef's registry is not an "
+                    + "AbilityRegistry.", this);
+        }
+
+        /// <summary>A row by name, or null with the caller left to complain — the caller
+        /// knows what it was doing; this method does not.</summary>
+        public AbilityDef Find(string abilityName)
+        {
+            AbilityRegistry registry = abilities;
+            return registry != null && !string.IsNullOrEmpty(abilityName)
+                ? registry.FindByName(abilityName) as AbilityDef
+                : null;
+        }
+
+        /// <summary>
+        /// The activation GATE — the four-tag policy's read side. Refused when the def is on
+        /// cooldown for this host, when it is already the active ability, or when the active
+        /// ability's block tags name any of its ability tags. An active ability the incoming
+        /// one CANCELS (its cancel tags name the active's ability tags) does not refuse — the
+        /// host tears the active one down as part of activating.
+        /// </summary>
+        public bool CanActivate(AbilityHost host, AbilityDef def)
+        {
+            if (host == null || def == null)
+                return false;
+            if (!host.CooldownReady(def))
+                return false;
+
+            AbilityDef active = host.active;
+            if (active == null)
+                return true;
+            if (active == def)
+                return false;
+            if (Overlaps(active.blockTags, def.abilityTags))
+                return false;
+            // One active ability per host — the FSM reading both HT generations used. An
+            // incoming ability that neither cancels nor is blocked still WAITS its turn.
+            return Overlaps(def.cancelTags, active.abilityTags);
+        }
+
+        /// <summary>Whether activating <paramref name="def"/> must cancel the host's active
+        /// ability first.</summary>
+        public bool Cancels(AbilityDef def, AbilityDef active)
+        {
+            return def != null && active != null && Overlaps(def.cancelTags, active.abilityTags);
+        }
+
+        private static bool Overlaps(System.Collections.Generic.List<string> a,
+            System.Collections.Generic.List<string> b)
+        {
+            if (a == null || b == null)
+                return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (string.IsNullOrEmpty(a[i]))
+                    continue;
+                for (int j = 0; j < b.Count; j++)
+                {
+                    if (string.Equals(a[i], b[j], System.StringComparison.Ordinal))
+                        return true;
+                }
+            }
+            return false;
+        }
+    }
+}
