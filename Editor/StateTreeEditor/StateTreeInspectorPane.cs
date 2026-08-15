@@ -2384,6 +2384,65 @@ namespace PowerOfFire.DrawToPlay.Editor
                         + string.Join(", ", allowed) + "]. Re-pick the role or move the "
                         + "state.", HelpBoxMessageType.Error));
                 }
+
+                // RECOGNITION (M23 review): an ⟨ability⟩ state is not an anonymous container —
+                // it IS a row of the catalog, and the inspector says WHICH: identity, tags,
+                // cooldown, continuation, and the way to the row. A claimed tree no row names
+                // is warned about the other way: an ability the catalog cannot reach.
+                if (m_Node.roleKind == AbilityDef.RootKind
+                    && service.registry is AbilityRegistry abilities)
+                {
+                    AbilityDef row = null;
+                    for (var i = 0; i < abilities.entries.Count && row == null; ++i)
+                    {
+                        if (abilities.entries[i] != null && abilities.entries[i].tree == m_Tree)
+                            row = abilities.entries[i];
+                    }
+
+                    if (row != null)
+                    {
+                        var parts = new List<string>();
+                        if (row.abilityTags.Count > 0)
+                            parts.Add("tags [" + string.Join(", ", row.abilityTags) + "]");
+                        if (row.blockTags.Count > 0)
+                            parts.Add("blocks [" + string.Join(", ", row.blockTags) + "]");
+                        if (row.cancelTags.Count > 0)
+                            parts.Add("cancels [" + string.Join(", ", row.cancelTags) + "]");
+                        if (row.cooldownSeconds > 0f)
+                            parts.Add("cooldown " + row.cooldownSeconds.ToString("0.##") + "s");
+                        if (!string.IsNullOrEmpty(row.nextOnFinish.entryName))
+                            parts.Add("then '" + row.nextOnFinish.entryName + "'");
+
+                        var box = new VisualElement();
+                        box.style.flexDirection = FlexDirection.Row;
+                        box.style.alignItems = Align.Center;
+                        var who = new Label("⛃ This is ability '" + row.name + "'"
+                            + (parts.Count > 0 ? " — " + string.Join(" · ", parts) : "")
+                            + ".");
+                        who.style.whiteSpace = WhiteSpace.Normal;
+                        who.style.flexGrow = 1f;
+                        who.style.marginLeft = 4f;
+                        box.Add(who);
+                        var open = new Button(() =>
+                        {
+                            Selection.activeObject = abilities;
+                            EditorGUIUtility.PingObject(abilities);
+                        })
+                        { text = "Row" };
+                        open.tooltip = "Open '" + abilities.name + "' — the catalog this "
+                            + "ability lives in. Tags, cooldown and the continuation are "
+                            + "edited THERE; this tree is what the row runs.";
+                        open.style.flexShrink = 0f;
+                        box.Add(open);
+                        m_Root.Add(box);
+                    }
+                    else
+                    {
+                        m_Root.Add(new HelpBox("No row of '" + abilities.name + "' names this "
+                            + "tree — the catalog cannot reach this ability. Add a row and "
+                            + "pick this tree as its Tree.", HelpBoxMessageType.Warning));
+                    }
+                }
             }
 
             if (m_Node == m_Tree.root)
