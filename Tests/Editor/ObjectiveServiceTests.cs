@@ -111,6 +111,64 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void Zones_TheNearestWithWorkWins_AndEachStackKeepsItsPlace()
+        {
+            // Two zones, two stacks (the HT distance-zone switch, row-shaped).
+            ObjectiveDef a1 = MakeObjective("a1", ObjectiveKind.Dialog);
+            a1.zone = "zone.a";
+            a1.target.entryName = "keeper";
+            a1.nextOnComplete.entryName = "a2";
+            ObjectiveDef a2 = MakeObjective("a2", ObjectiveKind.EnemyKill);
+            a2.zone = "zone.a";
+
+            ObjectiveDef b1 = MakeObjective("b1", ObjectiveKind.Dialog);
+            b1.zone = "zone.b";
+            b1.target.entryName = "scout";
+
+            MakeCitizen("VolumeA", new Vector3(-5f, 0f, 0f), "zone.a");
+            MakeCitizen("VolumeB", new Vector3(5f, 0f, 0f), "zone.b");
+
+            m_Player.transform.position = new Vector3(-4f, 0f, 0f);
+            m_Service.OrchestrateNow();
+            Assert.AreSame(a1, m_Service.current, "the nearest zone's stack is asked");
+            Assert.AreEqual("zone.a", m_Service.activeZone);
+
+            m_Service.ReportDialogFinished("keeper");
+            Assert.AreSame(a2, m_Service.current, "completing advances THIS stack");
+
+            m_Player.transform.position = new Vector3(4f, 0f, 0f);
+            m_Service.OrchestrateNow();
+            Assert.AreSame(b1, m_Service.current, "walking switched the stack");
+
+            m_Player.transform.position = new Vector3(-4f, 0f, 0f);
+            m_Service.OrchestrateNow();
+            Assert.AreSame(a2, m_Service.current,
+                "back in zone A, its stack resumes where it stood — not from the top");
+        }
+
+        [Test]
+        public void ADoneZone_StopsCompeting_AndTheLinearLineIsTheFallback()
+        {
+            ObjectiveDef linear = MakeObjective("linear", ObjectiveKind.EnemyKill);
+            ObjectiveDef zoned = MakeObjective("zoned", ObjectiveKind.Dialog);
+            zoned.zone = "zone.only";
+            zoned.target.entryName = "keeper";
+
+            MakeCitizen("Volume", new Vector3(2f, 0f, 0f), "zone.only");
+            m_Player.transform.position = Vector3.zero;
+
+            m_Service.Activate(linear);
+            m_Service.OrchestrateNow();
+            Assert.AreSame(zoned, m_Service.current,
+                "a zone with work outranks the linear line");
+
+            m_Service.ReportDialogFinished("keeper");
+            m_Service.OrchestrateNow();
+            Assert.AreSame(linear, m_Service.current,
+                "the zone finished and stopped competing — the linear line resumed its place");
+        }
+
+        [Test]
         public void TheChain_ActivatesTheNextRow_OnComplete()
         {
             ObjectiveDef talk = MakeObjective("talk", ObjectiveKind.Dialog);

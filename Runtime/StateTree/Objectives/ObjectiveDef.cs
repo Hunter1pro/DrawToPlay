@@ -63,6 +63,14 @@ namespace PowerOfFire.DrawToPlay
             + "between rows, the nextOnFinish pattern.")]
         public StateTreeEntryRef<ObjectiveDef> nextOnComplete = new StateTreeEntryRef<ObjectiveDef>();
 
+        [Tooltip("The ZONE whose stack this row belongs to — a world tag carried by a "
+            + "placed zone volume. Rows sharing it form that zone's stack (entered at the "
+            + "row no other row in the zone chains TO); the service activates the NEAREST "
+            + "zone that still has work, so walking changes what is asked (the HT "
+            + "distance-zone switch). Empty = the linear line, active when no zone "
+            + "competes.")]
+        public string zone = "";
+
         public override string Describe()
         {
             var what = kind switch

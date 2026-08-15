@@ -39,6 +39,21 @@ namespace PowerOfFire.DrawToPlay
         private bool m_AutoStarted;
         private readonly List<WorldObjectBehaviour> m_Buffer = new List<WorldObjectBehaviour>();
 
+        /// <summary>Each zone's own place in its stack — the row it would ask for when it
+        /// is the nearest, or null once its stack is done. Progress is PER ZONE: switching
+        /// away and back resumes where that zone stood (the HT model).</summary>
+        private readonly Dictionary<string, ObjectiveDef> m_ZoneCursor =
+            new Dictionary<string, ObjectiveDef>(StringComparer.Ordinal);
+        private bool m_ZonesIndexed;
+        private string m_ActiveZone = "";
+
+        /// <summary>The zoneless line's own place — held while a zone has the screen, so
+        /// falling back resumes it instead of losing it.</summary>
+        private ObjectiveDef m_LinearCursor;
+
+        /// <summary>The zone whose stack is currently asked for, empty for the linear line.</summary>
+        public string activeZone => m_ActiveZone;
+
         public ObjectiveRegistry catalog =>
             definition != null ? definition.registry as ObjectiveRegistry : null;
 
@@ -54,11 +69,14 @@ namespace PowerOfFire.DrawToPlay
         {
             current = objective;
             progress = 0;
+            if (objective != null && string.IsNullOrEmpty(objective.zone))
+                m_LinearCursor = objective;
             changed?.Invoke();
         }
 
         /// <summary>Complete the CURRENT objective and let the chain speak: its
-        /// nextOnComplete activates, or the line ends with nothing current.</summary>
+        /// nextOnComplete advances THIS stack (the zone's cursor when the row belongs to
+        /// one), and the orchestrator re-picks — a finished zone stops competing.</summary>
         public void Complete()
         {
             ObjectiveDef done = current;
@@ -68,8 +86,106 @@ namespace PowerOfFire.DrawToPlay
             progress = 0;
             completedObjective?.Invoke(done);
             ObjectiveDef next = Find(done.nextOnComplete.entryName);
+            if (!string.IsNullOrEmpty(done.zone))
+                m_ZoneCursor[done.zone] = next;
+            else
+                m_LinearCursor = next;
             current = next;
             changed?.Invoke();
+        }
+
+        /// <summary>Every zone's ENTRY row: the row of that zone no other row in the zone
+        /// chains to. Built once from the catalog — authoring is chains plus a zone name,
+        /// no container nesting (zones are volumes, never hierarchies).</summary>
+        private void IndexZones()
+        {
+            if (m_ZonesIndexed)
+                return;
+            ObjectiveRegistry registry = catalog;
+            if (registry == null)
+                return;
+            m_ZonesIndexed = true;
+            var chainedTo = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < registry.entries.Count; i++)
+            {
+                ObjectiveDef row = registry.entries[i];
+                if (row != null && !string.IsNullOrEmpty(row.nextOnComplete.entryName))
+                    chainedTo.Add(row.nextOnComplete.entryName);
+            }
+            for (int i = 0; i < registry.entries.Count; i++)
+            {
+                ObjectiveDef row = registry.entries[i];
+                if (row == null || string.IsNullOrEmpty(row.zone)
+                    || chainedTo.Contains(row.name))
+                    continue;
+                if (!m_ZoneCursor.ContainsKey(row.zone))
+                    m_ZoneCursor.Add(row.zone, row);
+            }
+        }
+
+        /// <summary>
+        /// THE DISTANCE-ZONE SWITCH (the HT orchestrator, row-shaped): among zones that
+        /// still have work, the NEAREST placed volume to the player wins, and its stack's
+        /// cursor becomes current — walking changes what is asked. No competing zone (none
+        /// placed, all done) falls back to the linear line, which keeps its own place.
+        /// </summary>
+        private void OrchestrateZones()
+        {
+            IndexZones();
+            if (m_ZoneCursor.Count == 0)
+                return;
+            StateTreeContextHost player =
+                StateTreeContextHost.Resolve(gameObject, StateTreeContextKind.Player);
+            if (player == null)
+                return;
+
+            string bestZone = null;
+            var bestDistance = float.MaxValue;
+            foreach (KeyValuePair<string, ObjectiveDef> pair in m_ZoneCursor)
+            {
+                if (pair.Value == null)
+                    continue;   // this zone's stack is done — it stopped competing
+                WorldObjectBehaviour volume = Nearest(pair.Key, player.transform.position);
+                if (volume == null)
+                    continue;   // no volume placed in THIS level — not a candidate here
+                Vector3 offset = volume.transform.position - player.transform.position;
+                offset.y = 0f;
+                float distance = offset.sqrMagnitude;
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    bestZone = pair.Key;
+                }
+            }
+
+            if (bestZone == null)
+            {
+                // Nothing competes: the linear line resumes exactly where it stood.
+                if (!string.IsNullOrEmpty(m_ActiveZone))
+                {
+                    m_ActiveZone = "";
+                    if (current == null || !string.IsNullOrEmpty(current.zone))
+                    {
+                        current = m_LinearCursor;
+                        progress = 0;
+                        changed?.Invoke();
+                    }
+                }
+                return;
+            }
+
+            if (string.Equals(bestZone, m_ActiveZone, StringComparison.Ordinal)
+                && current != null && string.Equals(current.zone, bestZone, StringComparison.Ordinal))
+                return;
+
+            m_ActiveZone = bestZone;
+            ObjectiveDef cursor = m_ZoneCursor[bestZone];
+            if (!ReferenceEquals(cursor, current))
+            {
+                current = cursor;
+                progress = 0;
+                changed?.Invoke();
+            }
         }
 
         // ---- the report surface: the game's facts arrive here -------------------------
@@ -133,14 +249,23 @@ namespace PowerOfFire.DrawToPlay
                     if (row != null)
                     {
                         m_AutoStarted = true;
+                        m_LinearCursor = row;
                         if (current == null)
                             Activate(row);
                     }
                 }
             }
 
+            OrchestrateZones();
+
             if (current != null && current.kind == ObjectiveKind.MoveTo)
                 CheckArrival();
+        }
+
+        /// <summary>The orchestrator's step, callable without a frame — tests drive it.</summary>
+        public void OrchestrateNow()
+        {
+            OrchestrateZones();
         }
 
         /// <summary>The MoveTo watcher: nearest zone carrying the row's tag, arrived when
