@@ -210,6 +210,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             EditorApplication.update += OnEditorUpdate;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
             Undo.undoRedoPerformed += OnUndoRedoPerformed;
+            EditorApplication.projectChanged += OnProjectChanged;
         }
 
         private void OnDisable()
@@ -217,6 +218,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             EditorApplication.update -= OnEditorUpdate;
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+            EditorApplication.projectChanged -= OnProjectChanged;
 
             m_Probe.changed -= OnRunnerStateChanged;
             m_Probe.Clear();
@@ -463,12 +465,35 @@ namespace PowerOfFire.DrawToPlay.Editor
             RebuildInspector();
         }
 
+        /// <summary>What the view currently SHOWS — compared against the asset on project
+        /// changes, because an external rewrite (a demo builder's Verify) destroys and
+        /// recreates every sub-asset while this window keeps drawing the corpses. Our own
+        /// batched saves never destroy nodes, so a destroyed entry here (or a changed count)
+        /// is precisely the external-rewrite signature and the only projectChanged that may
+        /// rebuild — rebuilding on every save would eat the focus the batching protects.</summary>
+        private List<StateTreeNodeAsset> m_ViewNodes = new List<StateTreeNodeAsset>();
+
+        private void OnProjectChanged()
+        {
+            if (m_Tree == null || m_TreeView == null)
+                return;
+
+            var stale = false;
+            for (var i = 0; i < m_ViewNodes.Count && !stale; ++i)
+                stale = m_ViewNodes[i] == null;
+            if (!stale)
+                stale = StateTreeEditorOps.CollectNodes(m_Tree).Count != m_ViewNodes.Count;
+            if (stale)
+                RebuildAll();
+        }
+
         private void RebuildTree()
         {
             if (m_TreeView == null)
                 return;
 
             var nodes = StateTreeEditorOps.CollectNodes(m_Tree);
+            m_ViewNodes = nodes;
             RebuildRowIds(nodes);
 
             m_RowOrder.Clear();
