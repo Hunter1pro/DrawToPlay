@@ -1834,33 +1834,44 @@ namespace PowerOfFire.DrawToPlay.Editor
             void Fill()
             {
                 foldout.contentContainer.Clear();
+                AssetWireScan.Index index = AssetWireScan.Get();
                 List<AssetWireScan.WireUse> uses =
-                    AssetWireScan.UsersOfAsset(AssetWireScan.Get(), m_Tree);
-                foldout.text = $"Used by · {display} ({uses.Count})";
+                    AssetWireScan.UsersOfAsset(index, m_Tree);
+                // THE CHAIN, not the first hop (review: the push tree's list stopped at
+                // "row 'push'" when the question was who USES the ability): a use held by
+                // a registry row expands into that row's own users, indented.
+                var lines = new List<AssetWireScan.ChainLine>();
+                AssetWireScan.CollectChain(index, uses, lines, 0,
+                    new HashSet<string>(StringComparer.Ordinal));
+                foldout.text = $"Used by · {display} ({lines.Count})";
 
                 var note = Hint(uses.Count == 0
                     ? "Nothing in assets references this tree — no registry row runs it, no "
                     + "placement spawns it, no prefab carries it, no tree imports it. (Scene "
                     + "objects are not scanned.)"
                     : "Everywhere this tree is referenced, from a scan of registries, trees "
-                    + "and prefabs. Ping opens the asset holding the wire.");
+                    + "and prefabs — a use held by a registry row is followed through to "
+                    + "the row's own users (↳). Ping opens the asset holding the wire.");
                 note.style.marginBottom = 4f;
                 foldout.Add(note);
 
-                foreach (AssetWireScan.WireUse use in uses)
+                foreach (AssetWireScan.ChainLine line in lines)
                 {
                     var row = new VisualElement();
                     row.style.flexDirection = FlexDirection.Row;
                     row.style.alignItems = Align.Center;
                     row.style.minHeight = k_RowMinHeight;
+                    row.style.marginLeft = line.depth * 14f;
 
-                    var text = new Label(use.description);
+                    var text = new Label(line.depth > 0
+                        ? "↳ " + line.description
+                        : line.description);
                     text.style.flexGrow = 1f;
                     text.style.whiteSpace = WhiteSpace.Normal;
                     text.style.opacity = 0.8f;
                     row.Add(text);
 
-                    UnityEngine.Object ping = use.context;
+                    UnityEngine.Object ping = line.context;
                     var open = new Button(() => EditorGUIUtility.PingObject(ping))
                     {
                         text = "Ping"

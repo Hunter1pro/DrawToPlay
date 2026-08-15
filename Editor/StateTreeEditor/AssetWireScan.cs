@@ -21,11 +21,52 @@ namespace PowerOfFire.DrawToPlay.Editor
     internal static class AssetWireScan
     {
         /// <summary>One place something is used: the asset to ping and the sentence saying
-        /// where inside it.</summary>
+        /// where inside it. When the reference is held BY a registry row, the row rides
+        /// along — the chain's next question ("and who uses that row?") needs it.</summary>
         internal struct WireUse
         {
             public UnityEngine.Object context;
             public string description;
+            public StateTreeRegistryEntry viaRow;
+        }
+
+        /// <summary>One line of an expanded usage chain: the use, at its distance from the
+        /// asked-about thing — depth 0 is direct, deeper is "…and who uses that".</summary>
+        internal struct ChainLine
+        {
+            public UnityEngine.Object context;
+            public string description;
+            public int depth;
+        }
+
+        /// <summary>
+        /// FOLLOW THE WIRES THROUGH THE ROWS (review: the push tree's user list stopped at
+        /// "row 'push'" — but the question was who USES the ability): every use held by a
+        /// registry row expands into that row's own users, indented one step, until the
+        /// chain leaves the registries or repeats itself.
+        /// </summary>
+        internal static void CollectChain(Index index, List<WireUse> uses,
+            List<ChainLine> into, int depth, HashSet<string> visitedRows)
+        {
+            if (uses == null || depth > 6)
+                return;
+            for (int i = 0; i < uses.Count; i++)
+            {
+                WireUse use = uses[i];
+                into.Add(new ChainLine
+                {
+                    context = use.context,
+                    description = use.description,
+                    depth = depth
+                });
+                StateTreeRegistryEntry via = use.viaRow;
+                if (via == null)
+                    continue;
+                var key = !string.IsNullOrEmpty(via.id) ? via.id : "name:" + via.name;
+                if (!visitedRows.Add(key))
+                    continue;
+                CollectChain(index, UsersOfRow(index, via), into, depth + 1, visitedRows);
+            }
         }
 
         internal sealed class Index
@@ -43,6 +84,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             /// (dependsOn), row→tree (an ability's tree), host→tree, and the rest.</summary>
             public readonly Dictionary<UnityEngine.Object, List<WireUse>> assetUses =
                 new Dictionary<UnityEngine.Object, List<WireUse>>();
+
+            /// <summary>Which registry ASSET owns each row — keyed by the row's id and by
+            /// "name:&lt;name&gt;", so both wire flavors resolve. The map's roll-up: a use
+            /// of a row is an edge to the registry that holds it.</summary>
+            public readonly Dictionary<string, UnityEngine.Object> rowOwners =
+                new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
 
             internal void AddRowUse(string id, string name, WireUse use)
             {
@@ -82,6 +129,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         static AssetWireScan()
         {
             EditorApplication.projectChanged += () => s_Dirty = true;
+        }
+
+        /// <summary>Force the next <see cref="Get"/> to rescan — the map window's Rescan.</summary>
+        internal static void Invalidate()
+        {
+            s_Dirty = true;
         }
 
         /// <summary>The current map — rebuilt lazily after any project change.</summary>
@@ -156,11 +209,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (int i = 0; i < registry.Count; i++)
             {
                 StateTreeRegistryEntry row = registry.EntryAt(i);
-                if (row != null)
-                {
-                    ScanValue(row, registry,
-                        registry.name + " · row '" + row.name + "'", index, 0);
-                }
+                if (row == null)
+                    continue;
+                if (!string.IsNullOrEmpty(row.id) && !index.rowOwners.ContainsKey(row.id))
+                    index.rowOwners.Add(row.id, registry);
+                if (!string.IsNullOrEmpty(row.name)
+                    && !index.rowOwners.ContainsKey("name:" + row.name))
+                    index.rowOwners.Add("name:" + row.name, registry);
+                ScanValue(row, registry,
+                    registry.name + " · row '" + row.name + "'", index, 0, row);
             }
             IReadOnlyList<StateTreeRegistryAsset> depends = registry.dependsOn;
             for (int i = 0; depends != null && i < depends.Count; i++)
@@ -257,7 +314,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// — bounded, and only into this project's own namespace so Unity types stay shut.
         /// </summary>
         private static void ScanValue(object owner, UnityEngine.Object context, string label,
-            Index index, int depth)
+            Index index, int depth, StateTreeRegistryEntry viaRow = null)
         {
             if (owner == null || depth > 4)
                 return;
@@ -287,7 +344,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                             index.AddRowUse(reference.EntryId, reference.EntryName, new WireUse
                             {
                                 context = context,
-                                description = label + " · " + fields[i].Name
+                                description = label + " · " + fields[i].Name,
+                                viaRow = viaRow
                             });
                         }
                         continue;
@@ -299,7 +357,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                             index.AddRowUse(wire.entryId, wire.stringValue, new WireUse
                             {
                                 context = context,
-                                description = label + " · argument '" + wire.name + "'"
+                                description = label + " · argument '" + wire.name + "'",
+                                viaRow = viaRow
                             });
                         }
                         continue;
@@ -310,7 +369,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                             index.AddAssetUse(asset, new WireUse
                             {
                                 context = context,
-                                description = label + " · " + fields[i].Name
+                                description = label + " · " + fields[i].Name,
+                                viaRow = viaRow
                             });
                         }
                         continue;
@@ -320,19 +380,23 @@ namespace PowerOfFire.DrawToPlay.Editor
 
                     case IList list:
                         for (int j = 0; j < list.Count; j++)
-                            ScanElement(list[j], context, label, fields[i].Name, index, depth);
+                        {
+                            ScanElement(list[j], context, label, fields[i].Name, index,
+                                depth, viaRow);
+                        }
                         continue;
 
                     default:
                         if (IsToolsetClass(value))
-                            ScanValue(value, context, label, index, depth + 1);
+                            ScanValue(value, context, label, index, depth + 1, viaRow);
                         continue;
                 }
             }
         }
 
         private static void ScanElement(object element, UnityEngine.Object context,
-            string label, string fieldName, Index index, int depth)
+            string label, string fieldName, Index index, int depth,
+            StateTreeRegistryEntry viaRow)
         {
             switch (element)
             {
@@ -345,7 +409,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                         index.AddRowUse(reference.EntryId, reference.EntryName, new WireUse
                         {
                             context = context,
-                            description = label + " · " + fieldName
+                            description = label + " · " + fieldName,
+                            viaRow = viaRow
                         });
                     }
                     return;
@@ -355,7 +420,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                         index.AddRowUse(wire.entryId, wire.stringValue, new WireUse
                         {
                             context = context,
-                            description = label + " · argument '" + wire.name + "'"
+                            description = label + " · argument '" + wire.name + "'",
+                            viaRow = viaRow
                         });
                     }
                     return;
@@ -365,13 +431,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                         index.AddAssetUse(asset, new WireUse
                         {
                             context = context,
-                            description = label + " · " + fieldName
+                            description = label + " · " + fieldName,
+                            viaRow = viaRow
                         });
                     }
                     return;
                 default:
                     if (IsToolsetClass(element))
-                        ScanValue(element, context, label + " · " + fieldName, index, depth + 1);
+                    {
+                        ScanValue(element, context, label + " · " + fieldName, index,
+                            depth + 1, viaRow);
+                    }
                     return;
             }
         }

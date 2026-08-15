@@ -147,6 +147,83 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void AChain_FollowsThroughTheHoldingRow_ToTheRealConsumer()
+        {
+            // The review case: the push tree's user list stopped at "row 'push'" — the
+            // chain must continue to whoever activates that row.
+            var tree = Make<StateTreeAsset>("PushTree");
+
+            var abilities = Make<AbilityRegistry>("Abilities");
+            var push = new AbilityDef { id = "ability.push", name = "push", tree = tree };
+            abilities.entries.Add(push);
+
+            var player = Make<StateTreeAsset>("PlayerTree");
+            var root = Make<StateTreeNodeAsset>("root");
+            root.nodeId = "pushing";
+            player.root = root;
+            var activate = Make<ActivateAbilityTask>("activate");
+            activate.ability.entryId = "ability.push";
+            root.tasks.Add(activate);
+
+            var index = new AssetWireScan.Index();
+            AssetWireScan.ScanRegistry(abilities, index);
+            AssetWireScan.ScanTree(player, index);
+
+            var lines = new List<AssetWireScan.ChainLine>();
+            AssetWireScan.CollectChain(index,
+                AssetWireScan.UsersOfAsset(index, tree), lines, 0,
+                new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal));
+
+            Assert.AreEqual(2, lines.Count, "the row hop AND the consumer behind it");
+            Assert.AreEqual(0, lines[0].depth);
+            StringAssert.Contains("row 'push'", lines[0].description);
+            Assert.AreEqual(1, lines[1].depth);
+            StringAssert.Contains("PlayerTree", lines[1].description);
+            StringAssert.Contains("ActivateAbilityTask", lines[1].description);
+        }
+
+        [Test]
+        public void TheMap_RollsRowWiresUp_ToAssetEdges_BothDirections()
+        {
+            // The map's granularity: PlayerTree → (ability row 'push') → Abilities registry
+            // is ONE asset edge each way, remembering how many wires it stands for.
+            var pushTree = Make<StateTreeAsset>("PushTree");
+            var abilities = Make<AbilityRegistry>("Abilities");
+            var push = new AbilityDef { id = "ability.push", name = "push", tree = pushTree };
+            abilities.entries.Add(push);
+
+            var player = Make<StateTreeAsset>("PlayerTree");
+            var root = Make<StateTreeNodeAsset>("root");
+            root.nodeId = "pushing";
+            player.root = root;
+            var activate = Make<ActivateAbilityTask>("activate");
+            activate.ability.entryId = "ability.push";
+            root.tasks.Add(activate);
+
+            var index = new AssetWireScan.Index();
+            AssetWireScan.ScanRegistry(abilities, index);
+            AssetWireScan.ScanTree(player, index);
+
+            List<AssetWireGraph.GraphEdge> intoRegistry =
+                AssetWireGraph.IncomingOf(index, abilities);
+            Assert.AreEqual(1, intoRegistry.Count);
+            Assert.AreSame(player, intoRegistry[0].other,
+                "the row wire rolled up: the registry's referencer is the TREE");
+
+            List<AssetWireGraph.GraphEdge> fromPlayer =
+                AssetWireGraph.OutgoingOf(index, player);
+            Assert.AreEqual(1, fromPlayer.Count);
+            Assert.AreSame(abilities, fromPlayer[0].other,
+                "forward: the tree's reference resolves to the row's OWNING registry");
+
+            List<AssetWireGraph.GraphEdge> fromRegistry =
+                AssetWireGraph.OutgoingOf(index, abilities);
+            Assert.AreEqual(1, fromRegistry.Count);
+            Assert.AreSame(pushTree, fromRegistry[0].other,
+                "and the registry's own outgoing edge is the row's tree");
+        }
+
+        [Test]
         public void AnArgumentsEntryWire_IsAUse_OfThePickedRow()
         {
             var ridge = new LevelDef { id = "level.ridge", name = "ridge" };
