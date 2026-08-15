@@ -1923,9 +1923,32 @@ namespace PowerOfFire.DrawToPlay.Editor
             var declaration = key.isWired
                 ? StateTreeKeyResolver.Find(m_Tree, null, key.keyId)
                 : null;
-            var stale = key.isWired && declaration == null;
+            // A wire may also name one of THIS tree's declared parameters — the argument
+            // surface seeds the blackboard by name, so the wire semantics are identical.
+            GraphTaskParameter parameter = key.isWired && declaration == null
+                ? TreeParameterById(key.keyId)
+                : null;
+            var stale = key.isWired && declaration == null && parameter == null;
 
-            if (declaration != null)
+            if (parameter != null)
+            {
+                var standIn = new TextField(ObjectNames.NicifyVariableName(fieldName))
+                {
+                    value = parameter.name,
+                    isReadOnly = true
+                };
+                standIn.AddToClassList(TextField.alignedFieldUssClassName);
+                standIn.style.flexGrow = 1f;
+                standIn.style.flexShrink = 1f;
+                standIn.style.minHeight = k_ControlMinHeight;
+                ApplyOverrideStyle(standIn, false);
+                standIn.tooltip = $"'{fieldName}' is wired to the tree's declared PARAMETER "
+                    + $"'{parameter.name}' ({parameter.kind}) by id — the caller's argument, "
+                    + "seeded onto the blackboard under this name before anything ticks. "
+                    + "Renaming the parameter renames every wired use with it.";
+                row.Add(standIn);
+            }
+            else if (declaration != null)
             {
                 var standIn = new TextField(ObjectNames.NicifyVariableName(fieldName))
                 {
@@ -2089,8 +2112,42 @@ namespace PowerOfFire.DrawToPlay.Editor
                         fieldName);
             }
 
+            // THIS TREE'S PARAMETERS — the argument surface is also a wire target: a task
+            // reading what the caller supplies should follow the declaration's renames, not
+            // hold matching text and hope.
+            var declaredParameters = m_Tree != null ? m_Tree.parameters : null;
+            var anyParameters = false;
+            for (var i = 0; declaredParameters != null && i < declaredParameters.Count; ++i)
+            {
+                GraphTaskParameter parameter = declaredParameters[i];
+                if (parameter == null || string.IsNullOrEmpty(parameter.id)
+                    || string.IsNullOrEmpty(parameter.name))
+                    continue;
+                if (!anyParameters)
+                {
+                    anyParameters = true;
+                    if (matching.Count > 0 || others.Count > 0)
+                        menu.AddSeparator(string.Empty);
+                }
+                var wireId = parameter.id;
+                var wireName = parameter.name;
+                menu.AddItem(new GUIContent(
+                    (wireName + "  · parameter (" + parameter.kind + ")")
+                        .Replace('/', k_MenuSeparatorStandIn)),
+                    string.Equals(wireId, linkedId, StringComparison.Ordinal),
+                    () =>
+                    {
+                        var group = StateTreeEditorOps.BeginUndoGroup(k_LinkKeyUndo);
+                        StateTreeEditorOps.WireKeyField(target, fieldName, wireId, wireName,
+                            k_LinkKeyUndo);
+                        StateTreeEditorOps.EndUndoGroup(group);
+                        RebuildPane();
+                    });
+            }
+
             var text = key.text;
-            if (!string.IsNullOrEmpty(text) && !VisibleKeyNameExists(text))
+            if (!string.IsNullOrEmpty(text) && !VisibleKeyNameExists(text)
+                && TreeParameterByName(text) == null)
             {
                 menu.AddSeparator(string.Empty);
                 menu.AddItem(new GUIContent(
@@ -2166,6 +2223,30 @@ namespace PowerOfFire.DrawToPlay.Editor
                     declaration = entry
                 });
             }
+        }
+
+        private GraphTaskParameter TreeParameterById(string id)
+        {
+            var declared = m_Tree != null ? m_Tree.parameters : null;
+            for (var i = 0; declared != null && i < declared.Count; ++i)
+            {
+                if (declared[i] != null
+                    && string.Equals(declared[i].id, id, StringComparison.Ordinal))
+                    return declared[i];
+            }
+            return null;
+        }
+
+        private GraphTaskParameter TreeParameterByName(string parameterName)
+        {
+            var declared = m_Tree != null ? m_Tree.parameters : null;
+            for (var i = 0; declared != null && i < declared.Count; ++i)
+            {
+                if (declared[i] != null && string.Equals(declared[i].name, parameterName,
+                        StringComparison.Ordinal))
+                    return declared[i];
+            }
+            return null;
         }
 
         private void LinkFieldKey(UnityEngine.Object target, string fieldName,

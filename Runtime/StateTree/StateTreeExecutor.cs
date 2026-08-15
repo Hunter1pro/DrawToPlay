@@ -1124,15 +1124,39 @@ namespace PowerOfFire.DrawToPlay
 
                 StateTreeKeyDeclaration declaration =
                     StateTreeKeyResolver.Find(m_ActiveData, owner, key.keyId);
-                if (declaration == null || string.IsNullOrEmpty(declaration.name))
+                if (declaration != null && !string.IsNullOrEmpty(declaration.name))
                 {
-                    Debug.LogError(logLabel + ": key field '" + fields[i].Name + "' on state '"
-                        + nodeId + "' resolves no declaration (id '" + key.keyId
-                        + "') — the field's own text runs.", logContext);
+                    key.BindResolved(declaration.name);
                     continue;
                 }
-                key.BindResolved(declaration.name);
+
+                // A key wire may also name a declared PARAMETER — the caller's argument
+                // surface seeds the blackboard under the parameter's name, so a field wired
+                // to the declaration follows its renames exactly like a key wire does.
+                GraphTaskParameter parameter = FindParameterById(key.keyId);
+                if (parameter != null && !string.IsNullOrEmpty(parameter.name))
+                {
+                    key.BindResolved(parameter.name);
+                    continue;
+                }
+
+                Debug.LogError(logLabel + ": key field '" + fields[i].Name + "' on state '"
+                    + nodeId + "' resolves no declaration (id '" + key.keyId
+                    + "', neither a key nor a parameter) — the field's own text runs.",
+                    logContext);
             }
+        }
+
+        private GraphTaskParameter FindParameterById(string id)
+        {
+            var declared = m_ActiveData != null ? m_ActiveData.parameters : null;
+            for (int i = 0; declared != null && i < declared.Count; i++)
+            {
+                if (declared[i] != null
+                    && string.Equals(declared[i].id, id, System.StringComparison.Ordinal))
+                    return declared[i];
+            }
+            return null;
         }
 
         /// <summary>

@@ -648,13 +648,22 @@ namespace PowerOfFire.DrawToPlay.Editor
         internal static void WireKeyField(UnityEngine.Object target, string fieldName,
             StateTreeKeyDeclaration declaration, string undoName)
         {
+            if (declaration != null)
+                WireKeyField(target, fieldName, declaration.id, declaration.name, undoName);
+        }
+
+        /// <summary>The raw wire — id and name from either kind of declaration (a key, or a
+        /// tree PARAMETER: both seed the blackboard by name and rename by id).</summary>
+        internal static void WireKeyField(UnityEngine.Object target, string fieldName,
+            string wireId, string wireName, string undoName)
+        {
             StateTreeKeyField key = GetKeyField(target, fieldName);
-            if (key == null || declaration == null)
+            if (key == null || string.IsNullOrEmpty(wireId))
                 return;
 
             Undo.RecordObject(target, undoName);
-            key.keyId = declaration.id;
-            key.text = declaration.name ?? string.Empty;
+            key.keyId = wireId;
+            key.text = wireName ?? string.Empty;
             EditorUtility.SetDirty(target);
         }
 

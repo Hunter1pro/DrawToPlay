@@ -40,15 +40,19 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreeAsset tree = TreeFor(property.serializedObject.targetObject);
 
             // The display half of the rename rule: a wired field shows (and keeps) the
-            // declaration's CURRENT name.
+            // declaration's CURRENT name — a key's, or a tree PARAMETER's (both seed the
+            // blackboard by name and wire by id).
             if (wired && tree != null)
             {
                 StateTreeKeyDeclaration declaration =
                     FindDeclaration(tree, idProperty.stringValue);
-                if (declaration != null && !string.Equals(declaration.name,
+                var current = declaration != null
+                    ? declaration.name
+                    : FindParameter(tree, idProperty.stringValue)?.name;
+                if (!string.IsNullOrEmpty(current) && !string.Equals(current,
                         textProperty.stringValue, System.StringComparison.Ordinal))
                 {
-                    textProperty.stringValue = declaration.name;
+                    textProperty.stringValue = current;
                     property.serializedObject.ApplyModifiedPropertiesWithoutUndo();
                 }
             }
@@ -140,6 +144,33 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             AddEntries(true);
+
+            // The tree's declared PARAMETERS wire the same way — the caller's arguments,
+            // seeded onto the blackboard under their names.
+            if (tree != null && tree.parameters != null && tree.parameters.Count > 0)
+            {
+                if (declarations.Count > 0)
+                    menu.AddSeparator(string.Empty);
+                foreach (GraphTaskParameter parameter in tree.parameters)
+                {
+                    if (parameter == null || string.IsNullOrEmpty(parameter.id)
+                        || string.IsNullOrEmpty(parameter.name))
+                        continue;
+                    var wireId = parameter.id;
+                    var wireName = parameter.name;
+                    menu.AddItem(new GUIContent(
+                        (wireName + "  · parameter (" + parameter.kind + ")")
+                            .Replace('/', '∕')),
+                        string.Equals(wireId, currentId, System.StringComparison.Ordinal),
+                        () =>
+                        {
+                            textProperty.stringValue = wireName;
+                            idProperty.stringValue = wireId;
+                            property.serializedObject.ApplyModifiedProperties();
+                            Build(container, property);
+                        });
+                }
+            }
 
             // A TAG field's vocabulary is also the world's tag registries: the GLOBAL ones
             // the tree carries, plus every LEVEL's own (a level can mint unique tags —
@@ -259,6 +290,18 @@ namespace PowerOfFire.DrawToPlay.Editor
             return string.IsNullOrEmpty(path)
                 ? null
                 : AssetDatabase.LoadMainAssetAtPath(path) as StateTreeAsset;
+        }
+
+        private static GraphTaskParameter FindParameter(StateTreeAsset tree, string id)
+        {
+            var declared = tree != null ? tree.parameters : null;
+            for (int i = 0; declared != null && i < declared.Count; ++i)
+            {
+                if (declared[i] != null
+                    && string.Equals(declared[i].id, id, System.StringComparison.Ordinal))
+                    return declared[i];
+            }
+            return null;
         }
 
         private static StateTreeKeyDeclaration FindDeclaration(StateTreeAsset tree, string keyId)

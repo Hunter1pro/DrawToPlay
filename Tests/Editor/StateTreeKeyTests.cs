@@ -82,6 +82,46 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void ParameterWiredField_RunsUnderTheArgumentsName_AndFollowsRenames()
+        {
+            // A key field may wire to a declared PARAMETER: the argument seeds the
+            // blackboard under its name, and the wired reader follows that name by id —
+            // instead of holding matching text and hoping (the M14 rule on arguments).
+            var set = ScriptableObject.CreateInstance<SetBlackboardTask>();
+            set.key.text = "stale-text";
+            set.kind = SetBlackboardTask.ValueKind.Float;
+            set.floatValue = 9f;
+            m_Assets.Add(set);
+
+            StateTreeAsset tree = MakeTree(MakeLeaf("write", set));
+            var parameter = new GraphTaskParameter
+            {
+                id = System.Guid.NewGuid().ToString("N"),
+                name = "level",
+                kind = GraphTaskParameterKind.Float,
+                floatValue = 3f
+            };
+            tree.parameters.Add(parameter);
+            set.key.keyId = parameter.id;
+
+            StateTreeRunner runner = MakeRunner(tree);
+            runner.StartTree();
+            runner.TickTree(0.1f);
+            Assert.AreEqual(9f, runner.context.blackboard["level"],
+                "the wire resolved to the parameter's name — the task and the seeded "
+                + "argument share ONE blackboard slot");
+            Assert.AreEqual("stale-text", set.key.text,
+                "the authored asset was never touched");
+
+            runner.StopTree();
+            parameter.name = "grade";
+            runner.StartTree();
+            runner.TickTree(0.1f);
+            Assert.AreEqual(9f, runner.context.blackboard["grade"],
+                "renaming the parameter re-pointed the wired reader on the next run");
+        }
+
+        [Test]
         public void Resolution_SearchesUses_ThenMountChain_NearestWins()
         {
             // A shared vocabulary tree, imported horizontally.
