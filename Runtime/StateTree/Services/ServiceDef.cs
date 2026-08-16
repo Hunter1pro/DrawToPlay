@@ -31,6 +31,11 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("What this service is called in diagnostics and pickers.")]
         public string serviceName = "";
 
+        [Tooltip("The service class that RUNS this def (§4g) — how tools know which "
+            + "action vocabulary the request rows may pick from, and validation knows "
+            + "an action the service never declared.")]
+        public string serviceTypeName = "";
+
         [Tooltip("Which context scope the service mounts on — where its state lives and dies. "
             + "A level service resets with the level; a root service survives travel.")]
         public StateTreeContextKind scope = StateTreeContextKind.Level;
@@ -177,6 +182,24 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("Def-level serving (§4g): the UI beats after the action, in order — "
             + "what a flow state's task list said, as rows on the def.")]
         public List<UiReaction> reactions = new List<UiReaction>();
+    }
+
+    /// <summary>A service's DOMAIN ACTION, declared (§4g) — the UiVerbContract twin for
+    /// the OnRequest hook: what a request row's 'action' may say, readable by tools (the
+    /// def inspector's action picker, FlowRules) without reading a switch statement.</summary>
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = true)]
+    public sealed class ServiceActionContractAttribute : Attribute
+    {
+        public readonly string action;
+
+        /// <summary>What the request VALUE means to this action — "item name", "slot name".</summary>
+        public readonly string valueHint;
+
+        public ServiceActionContractAttribute(string action, string valueHint = "")
+        {
+            this.action = action;
+            this.valueHint = valueHint;
+        }
     }
 
     /// <summary>One UI beat of a def-served request (§4g): call a VERB on a shown row's

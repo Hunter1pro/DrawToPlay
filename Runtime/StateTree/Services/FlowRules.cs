@@ -51,6 +51,12 @@ namespace PowerOfFire.DrawToPlay
                         Debug.LogError("[Flows] '" + def.serviceName + "': request '"
                             + row.key + "' has no state, no action, and no reactions — "
                             + "serving it does nothing.", context);
+                    else if (!string.IsNullOrEmpty(row.action)
+                        && !DeclaresAction(def.serviceTypeName, row.action))
+                        Debug.LogError("[Flows] '" + def.serviceName + "': request '"
+                            + row.key + "' asks action '" + row.action + "', which "
+                            + def.serviceTypeName + " does not declare "
+                            + "([ServiceActionContract]).", context);
                     continue;
                 }
                 if (def.flows == null)
@@ -95,6 +101,42 @@ namespace PowerOfFire.DrawToPlay
                         + "it.", context);
                 }
             }
+        }
+
+        /// <summary>Whether the named service class declares this action — quiet TRUE when
+        /// the type cannot be resolved (an unset serviceTypeName is not a finding; a wrong
+        /// action against a KNOWN vocabulary is).</summary>
+        private static bool DeclaresAction(string serviceTypeName, string action)
+        {
+            if (string.IsNullOrEmpty(serviceTypeName))
+                return true;
+            System.Type type = FindServiceType(serviceTypeName);
+            if (type == null)
+                return true;
+            var contracts = (ServiceActionContractAttribute[])type.GetCustomAttributes(
+                typeof(ServiceActionContractAttribute), true);
+            for (int i = 0; i < contracts.Length; i++)
+            {
+                if (string.Equals(contracts[i].action, action, System.StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        private static System.Type FindServiceType(string typeName)
+        {
+            var assemblies = System.AppDomain.CurrentDomain.GetAssemblies();
+            for (int i = 0; i < assemblies.Length; i++)
+            {
+                System.Type direct = assemblies[i].GetType(typeName);
+                if (direct != null)
+                    return direct;
+                System.Type qualified = assemblies[i].GetType(
+                    "PowerOfFire.DrawToPlay." + typeName);
+                if (qualified != null)
+                    return qualified;
+            }
+            return null;
         }
 
         private static StateTreeNodeAsset FindNode(StateTreeNodeAsset node, string nodeId)

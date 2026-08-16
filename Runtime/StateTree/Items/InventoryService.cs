@@ -19,6 +19,10 @@ namespace PowerOfFire.DrawToPlay
     /// which was the milestone's bet.
     /// </summary>
     [AddComponentMenu("Draw To Play/Services/Inventory Service")]
+    [ServiceActionContract("use", "value = item name")]
+    [ServiceActionContract("wear", "value = item name")]
+    [ServiceActionContract("takeoff", "value = slot name")]
+    [ServiceActionContract("refresh")]
     public sealed class InventoryService : StateTreeServiceBehaviour
     {
         [Tooltip("The declaration this service runs: scope and the item registry (whose "
