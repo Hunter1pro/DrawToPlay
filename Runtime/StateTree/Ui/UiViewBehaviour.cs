@@ -3,6 +3,25 @@ using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
 {
+    /// <summary>A view's VERB, declared (§4g) — the TaskOutputContract twin for skins:
+    /// what <see cref="UiViewBehaviour.Call"/> answers to, readable by tools (the def
+    /// inspector's screen surface, reaction pickers) without running the view.</summary>
+    [System.AttributeUsage(System.AttributeTargets.Class, AllowMultiple = true,
+        Inherited = true)]
+    public sealed class UiVerbContractAttribute : System.Attribute
+    {
+        public readonly string verb;
+
+        /// <summary>What the argument or payload means — "item name", "ItemUseResult".</summary>
+        public readonly string argumentHint;
+
+        public UiVerbContractAttribute(string verb, string argumentHint = "")
+        {
+            this.verb = verb;
+            this.argumentHint = argumentHint;
+        }
+    }
+
     /// <summary>
     /// A view that reads its row's ARGUMENTS — the receiving end of the UI parameter
     /// channel. When the service shows a row it merges the row's declared parameters with

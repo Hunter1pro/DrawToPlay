@@ -15,6 +15,11 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     [AddComponentMenu("Draw To Play/UI/Inventory Widget")]
     [RequireComponent(typeof(UIDocument))]
+    [UiVerbContract("toggle")]
+    [UiVerbContract("open")]
+    [UiVerbContract("close")]
+    [UiVerbContract("flash", "item name")]
+    [UiVerbContract("announce", "ItemUseResult payload")]
     public sealed class InventoryWidgetView : UiViewBehaviour
     {
         // ---- the request vocabulary: the whole surface between this skin and the flows --

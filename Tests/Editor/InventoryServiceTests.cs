@@ -362,6 +362,34 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void DefServedRequest_RunsTheDomainHook_AndConsumes()
+        {
+            // §4g: no state tree anywhere — the def row IS the handler. Pending key →
+            // domain hook (use + announce) → consume, in one tick.
+            m_Vitals.Consume(AttributeNames.Health, 3f);
+            m_Service.Add(m_Player.Context, "ration", 2);
+            m_Service.definition.requests.Add(new ServiceRequest
+            {
+                key = "test.use", action = "use", namesRowOf = m_Items,
+                description = "serve directly"
+            });
+
+            m_Root.Context.blackboard["test.use"] = "ration";
+            m_Service.TickFlows(0.02f);
+
+            Assert.AreEqual(1, m_Service.Count(m_Player.Context, "ration"),
+                "the domain verb ran");
+            Assert.AreEqual(4f, m_Vitals.Value(AttributeNames.Health), 0.001f);
+            Assert.IsFalse(m_Root.Context.blackboard.ContainsKey("test.use"),
+                "and the request was consumed");
+
+            var payload = m_Root.Context.blackboard[ItemUseResult.Key] as ItemUseResult;
+            Assert.IsNotNull(payload, "the announcement landed as its contract class");
+            Assert.IsTrue(payload.used);
+            Assert.AreSame(m_Service.Row("ration"), payload.item);
+        }
+
+        [Test]
         public void UseItemTask_DeclaresItsContract_ForTheTypedOffer()
         {
             // §4e: a runtime-built output is DECLARED by attribute, so the route editor can

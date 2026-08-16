@@ -130,14 +130,23 @@ namespace PowerOfFire.DrawToPlay
             TickFlows(Time.deltaTime);
         }
 
-        /// <summary>One frame of the flow tree — public so EditMode tests own the clock
-        /// (the AbilityHost contract). The first call starts the tree.</summary>
+        /// <summary>One frame of the subsystem's declared behavior — public so EditMode
+        /// tests own the clock (the AbilityHost contract). The first call validates the
+        /// def, starts the flow tree if one is declared, and shows the declared spawns;
+        /// every call serves pending requests (def-level and tree alike).</summary>
         public void TickFlows(float deltaTime)
         {
             if (!m_FlowsStarted)
             {
                 m_FlowsStarted = true;
-                StartFlows();
+                ServiceDef def = FlowSource;
+                if (def != null)
+                {
+                    m_FlowsDef = def;
+                    FlowRules.Validate(def, this);
+                    StartFlows();
+                    ShowSpawns(def);
+                }
             }
             ServePendingRequests();
             m_Flows?.TickTree(deltaTime);
@@ -177,32 +186,42 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>
-        /// THE DERIVED ENTRY (§4c): a pending declared request, seen while no request state
-        /// is active, enters its declared state — what five hand-authored interrupts used
-        /// to say, read from the def instead. Declaration order is priority.
+        /// THE DERIVED ENTRY (§4c/§4g), declaration order = priority. A row WITHOUT a
+        /// stateId is def-served (§4g): single-frame, independent — every pending one runs
+        /// now (domain hook, reactions, consume). A row WITH one enters its flow state —
+        /// one per tick, none while a request state is active, exactly as the interrupt
+        /// wiring behaved.
         /// </summary>
         private void ServePendingRequests()
         {
             ServiceDef def = m_FlowsDef;
-            if (def == null || m_Flows == null || !m_Flows.isRunning)
+            var board = Board();
+            if (def == null || board == null)
+                return;
+
+            for (int i = 0; i < def.requests.Count; i++)
+            {
+                ServiceRequest row = def.requests[i];
+                if (row != null && string.IsNullOrEmpty(row.stateId)
+                    && !string.IsNullOrEmpty(row.key) && board.ContainsKey(row.key))
+                    ServeDirect(row, board);
+            }
+
+            if (m_Flows == null || !m_Flows.isRunning)
                 return;
             string active = m_Flows.activeNodeId;
             for (int i = 0; i < def.requests.Count; i++)
             {
-                // Mid-flow, nothing is served: pending keys wait for the return to idle,
-                // exactly as the interrupt wiring behaved.
                 ServiceRequest row = def.requests[i];
-                if (row != null && string.Equals(row.stateId, active, StringComparison.Ordinal))
-                    return;
+                if (row != null && !string.IsNullOrEmpty(row.stateId)
+                    && string.Equals(row.stateId, active, StringComparison.Ordinal))
+                    return;   // mid-flow: tree rows wait for the return to idle
             }
-            var board = m_Flows.context != null ? m_Flows.context.blackboard : null;
-            if (board == null)
-                return;
             for (int i = 0; i < def.requests.Count; i++)
             {
                 ServiceRequest row = def.requests[i];
-                if (row == null || string.IsNullOrEmpty(row.key)
-                    || !board.ContainsKey(row.key))
+                if (row == null || string.IsNullOrEmpty(row.stateId)
+                    || string.IsNullOrEmpty(row.key) || !board.ContainsKey(row.key))
                     continue;
                 if (!m_Flows.RequestTransition(row.stateId))
                 {
@@ -213,6 +232,108 @@ namespace PowerOfFire.DrawToPlay
                 }
                 return;
             }
+        }
+
+        /// <summary>A def-served request (§4g): the domain hook, then the declared UI
+        /// beats, then the consume — what a flow state's frame did, without a tree.</summary>
+        private void ServeDirect(ServiceRequest row,
+            System.Collections.Generic.Dictionary<string, object> board)
+        {
+            string value = board.TryGetValue(row.key, out object held) && held is string text
+                ? text
+                : "";
+            OnRequest(row, value);
+            RunReactions(row, value);
+            board.Remove(row.key);
+        }
+
+        /// <summary>
+        /// THE DOMAIN HOOK (§4g): what a request's <see cref="ServiceRequest.action"/>
+        /// MEANS is the service's to say — rules stay code, the mapping stays rows. Land
+        /// announcements from here via <see cref="Announce"/>. Base does nothing (a pure
+        /// UI request has no domain half).
+        /// </summary>
+        protected virtual void OnRequest(ServiceRequest request, string value)
+        {
+        }
+
+        /// <summary>The declared UI beats of a def-served request — the UiCallTask, read
+        /// from rows: verb on the shown row's views, the request's value as argument, a
+        /// named key's held object as the PAYLOAD (an announcement travels whole).</summary>
+        private void RunReactions(ServiceRequest row, string value)
+        {
+            if (row.reactions == null || row.reactions.Count == 0)
+                return;
+            UiService ui = StateTreeContextHost.FindService<UiService>(gameObject);
+            if (ui == null)
+                return;
+            var board = Board();
+            for (int i = 0; i < row.reactions.Count; i++)
+            {
+                UiReaction reaction = row.reactions[i];
+                if (reaction == null || string.IsNullOrEmpty(reaction.verb))
+                    continue;
+                GameObject view = ui.ShownView(reaction.ui.entryName);
+                if (view == null)
+                    continue;
+                string argument = reaction.valueArgument ? value : "";
+                object payload = null;
+                if (!string.IsNullOrEmpty(reaction.argumentKey) && board != null
+                    && board.TryGetValue(reaction.argumentKey, out object heldArg)
+                    && heldArg != null)
+                {
+                    if (heldArg is string textArg)
+                        argument = textArg;
+                    else
+                        payload = heldArg;
+                }
+                UiViewBehaviour[] views = view.GetComponentsInChildren<UiViewBehaviour>(true);
+                for (int j = 0; j < views.Length; j++)
+                    views[j].Call(reaction.verb, argument, payload);
+            }
+        }
+
+        /// <summary>The declared spawns (§4g), shown once at first Update: mounting the
+        /// service with its def IS the whole subsystem, screen included.</summary>
+        private void ShowSpawns(ServiceDef def)
+        {
+            if (def.spawns == null || def.spawns.Count == 0)
+                return;
+            UiService ui = StateTreeContextHost.FindService<UiService>(gameObject);
+            if (ui == null)
+            {
+                Debug.LogWarning("StateTreeService '" + GetType().Name + "' declares spawns "
+                    + "but no UiService is reachable — its screen stays unshown.", this);
+                return;
+            }
+            for (int i = 0; i < def.spawns.Count; i++)
+            {
+                var spawn = def.spawns[i];
+                if (spawn == null || string.IsNullOrEmpty(spawn.entryName))
+                    continue;
+                UiDef row = ui.Find(spawn.entryName);
+                if (row == null)
+                    Debug.LogError("StateTreeService '" + GetType().Name + "' spawns UI row '"
+                        + spawn.entryName + "', which the UI registry does not have.", this);
+                else
+                    ui.Show(row);
+            }
+        }
+
+        /// <summary>Land an announcement (§4g) on the scope's board — the outbound half
+        /// of the API, written by the domain hook.</summary>
+        protected void Announce(string key, object payload)
+        {
+            var board = Board();
+            if (board != null && !string.IsNullOrEmpty(key))
+                board[key] = payload;
+        }
+
+        private System.Collections.Generic.Dictionary<string, object> Board()
+        {
+            return m_ConnectedTo != null && m_ConnectedTo.Context != null
+                ? m_ConnectedTo.Context.blackboard
+                : null;
         }
 
         /// <summary>THE DERIVED CONSUME (§4c): leaving a request state clears its key —
@@ -267,9 +388,7 @@ namespace PowerOfFire.DrawToPlay
                 m_Flows = null;
                 return;
             }
-            m_FlowsDef = def;
             m_Flows.activeNodeChanged += OnFlowNodeChanged;
-            FlowRules.Validate(def, this);
         }
 
         private void StopFlows()

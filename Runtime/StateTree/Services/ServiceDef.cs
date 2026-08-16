@@ -53,12 +53,28 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>
         /// THE REQUEST API (§4c) — what this subsystem answers to, declared where the
         /// subsystem is declared. One row per request: the blackboard key that asks, the
-        /// flow state that serves, the sentence that explains. The service runner derives
-        /// the plumbing FROM these rows — entry when the key appears, consume when the
-        /// state exits — so the flow tree authors only what a request MEANS. Declaration
-        /// order is priority when several requests are pending.
+        /// sentence that explains, and HOW it is served — a flow state (<c>stateId</c>,
+        /// for handlers that wait) or def-level handling (§4g: <c>action</c> +
+        /// <c>reactions</c>, for the single-frame verb-plus-beats shape). The runner
+        /// derives all plumbing from these rows: entry when the key appears, consume when
+        /// served. Declaration order is priority when several requests are pending.
         /// </summary>
         public List<ServiceRequest> requests = new List<ServiceRequest>();
+
+        /// <summary>
+        /// WHAT THIS SUBSYSTEM SPAWNS (§4g) — the UI rows it owns, shown by the service
+        /// itself at first Update. A subsystem that declares its screen here is whole the
+        /// moment its service mounts: no session tree involvement, no setup step.
+        /// </summary>
+        public List<StateTreeEntryRef<UiDef>> spawns = new List<StateTreeEntryRef<UiDef>>();
+
+        /// <summary>
+        /// WHAT THIS SUBSYSTEM ANNOUNCES (§4g) — the keys it writes for OTHERS, with the
+        /// payload contract each carries. Declared on the def (not parasitic on a flow
+        /// tree's key list), because the announcement outlives any particular serving
+        /// mechanism.
+        /// </summary>
+        public List<ServiceAnnouncement> announcements = new List<ServiceAnnouncement>();
 
         /// <summary>The declared request for a key, or null.</summary>
         public ServiceRequest RequestFor(string key)
@@ -141,7 +157,8 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("The blackboard key that triggers this request — the name callers write.")]
         public string key = "";
 
-        [Tooltip("The nodeId of the flow state that serves it.")]
+        [Tooltip("The nodeId of the flow state that serves it — for a handler that WAITS "
+            + "(§4g). Empty = served at def level through 'action' and 'reactions'.")]
         public string stateId = "";
 
         [Tooltip("What asking this DOES — shown wherever the API is offered.")]
@@ -151,6 +168,52 @@ namespace PowerOfFire.DrawToPlay
             + "'a string' becomes 'an item of M21Items'. Typed callers are validated "
             + "against it; tools can offer rows instead of free text.")]
         public StateTreeRegistryAsset namesRowOf;
+
+        [Tooltip("Def-level serving (§4g): the DOMAIN verb the service interprets for "
+            + "this request — 'use', 'wear', 'takeoff'. Empty = no domain action, "
+            + "reactions only (a pure UI request like toggle).")]
+        public string action = "";
+
+        [Tooltip("Def-level serving (§4g): the UI beats after the action, in order — "
+            + "what a flow state's task list said, as rows on the def.")]
+        public List<UiReaction> reactions = new List<UiReaction>();
+    }
+
+    /// <summary>One UI beat of a def-served request (§4g): call a VERB on a shown row's
+    /// views — the UiCallTask, as a row. The argument is the request's value, or a
+    /// blackboard key's held value (an announcement's payload travels whole this way).</summary>
+    [Serializable]
+    public sealed class UiReaction
+    {
+        [Tooltip("The UI row whose views are called.")]
+        public StateTreeEntryRef<UiDef> ui = new StateTreeEntryRef<UiDef>();
+
+        [Tooltip("The verb, in the view's vocabulary — 'toggle', 'flash', 'pulse', …")]
+        public string verb = "";
+
+        [Tooltip("Pass the request's VALUE as the verb's argument.")]
+        public bool valueArgument = true;
+
+        [Tooltip("Optional: a blackboard key whose held value rides along — a string "
+            + "becomes the argument, anything richer the PAYLOAD (an announcement's "
+            + "contract object, handed to the skin whole).")]
+        public string argumentKey = "";
+    }
+
+    /// <summary>One announced key (§4g): what the subsystem WRITES for others, with its
+    /// payload contract — the outbound half of the API, beside the requests.</summary>
+    [Serializable]
+    public sealed class ServiceAnnouncement
+    {
+        [Tooltip("The blackboard key the subsystem writes.")]
+        public string key = "";
+
+        [Tooltip("The payload's type name for contract keys — 'ItemUseResult'. Empty = "
+            + "a plain value.")]
+        public string payloadTypeName = "";
+
+        [Tooltip("What landing here MEANS — shown wherever the API is offered.")]
+        public string description = "";
     }
 
     /// <summary>One kind's birth gift: the task a rule-typed state starts with.</summary>

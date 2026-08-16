@@ -108,12 +108,31 @@ namespace PowerOfFire.DrawToPlay.Editor
                 }
             }
 
-            List<StateTreeKeyDeclaration> announcements = Announcements(def);
-            if (announcements.Count > 0)
-            {
+            List<StateTreeKeyDeclaration> flowAnnouncements = Announcements(def);
+            var anyAnnounced = def.announcements.Count > 0 || flowAnnouncements.Count > 0;
+            if (anyAnnounced)
                 fold.Add(Header("Announcements — what it writes for others"));
-                for (var i = 0; i < announcements.Count; i++)
-                    fold.Add(AnnouncementRow(announcements[i]));
+            for (var i = 0; i < def.announcements.Count; i++)
+            {
+                ServiceAnnouncement announced = def.announcements[i];
+                if (announced == null || string.IsNullOrEmpty(announced.key))
+                    continue;
+                var suffix = string.IsNullOrEmpty(announced.payloadTypeName)
+                    ? ""
+                    : " : " + announced.payloadTypeName;
+                fold.Add(AnnouncementRow(announced.key + suffix, announced.description,
+                    announced.key));
+            }
+            for (var i = 0; i < flowAnnouncements.Count; i++)
+            {
+                StateTreeKeyDeclaration declared = flowAnnouncements[i];
+                var suffix = !string.IsNullOrEmpty(declared.payloadTypeName)
+                    ? " : " + declared.payloadTypeName
+                    : declared.namesRowOf != null
+                        ? " — row of " + declared.namesRowOf.name
+                        : " (" + declared.kind + ")";
+                fold.Add(AnnouncementRow(declared.name + suffix, declared.description,
+                    declared.name));
             }
 
             return fold;
@@ -149,15 +168,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             return row;
         }
 
-        private VisualElement AnnouncementRow(StateTreeKeyDeclaration declared)
+        private VisualElement AnnouncementRow(string title, string description, string keyName)
         {
-            var suffix = !string.IsNullOrEmpty(declared.payloadTypeName)
-                ? " : " + declared.payloadTypeName
-                : declared.namesRowOf != null
-                    ? " — row of " + declared.namesRowOf.name
-                    : " (" + declared.kind + ")";
-            var row = ApiRow(declared.name + suffix, declared.description);
-            var react = new Button(() => ShowReactMenu(declared)) { text = "react ▸" };
+            var row = ApiRow(title, description);
+            var react = new Button(() => ShowReactMenu(keyName)) { text = "react ▸" };
             react.tooltip = "Create a reaction state in the target tree: an interrupt on "
                 + "this key from the picked state, the consume at the end — the middle is "
                 + "yours to fill.";
@@ -214,7 +228,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             EditorGUIUtility.PingObject(tree);
         }
 
-        private void ShowReactMenu(StateTreeKeyDeclaration declared)
+        private void ShowReactMenu(string keyName)
         {
             StateTreeAsset tree = TargetTree();
             if (tree == null)
@@ -224,7 +238,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 StateTreeNodeAsset watch = state;
                 menu.AddItem(new GUIContent("watch from " + StateLabel(state)), false,
-                    () => AddReaction(tree, watch, declared.name));
+                    () => AddReaction(tree, watch, keyName));
             }
             menu.ShowAsContext();
         }

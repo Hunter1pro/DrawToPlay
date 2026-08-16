@@ -29,33 +29,7 @@ namespace PowerOfFire.DrawToPlay
             if (inventory == null)
                 return StateTreeStatus.Failure;
 
-            StateTreeContextHost player = StateTreeContextHost.Resolve(context.owner,
-                StateTreeContextKind.Player);
-            if (player == null || player.Context == null)
-            {
-                widget.Redraw(null, null);
-                return StateTreeStatus.Success;
-            }
-
-            var lines = new List<BagSlotLine>();
-            EquipmentSlotRegistry slots = inventory.Slots();
-            for (int i = 0; slots != null && i < slots.entries.Count; i++)
-            {
-                EquipmentSlotDef slot = slots.entries[i];
-                if (slot == null)
-                    continue;
-                string wornName = inventory.EquippedIn(slot.id);
-                ItemDef worn = string.IsNullOrEmpty(wornName) ? null : inventory.Row(wornName);
-                lines.Add(new BagSlotLine(
-                    slot.id,
-                    slot.name,
-                    string.IsNullOrEmpty(slot.displayName) ? slot.name : slot.displayName,
-                    wornName,
-                    worn == null ? "" : (string.IsNullOrEmpty(worn.displayName)
-                        ? worn.name : worn.displayName)));
-            }
-
-            widget.Redraw(inventory.Stacks(player.Context), lines);
+            inventory.RedrawInto(widget);
             return StateTreeStatus.Success;
         }
 

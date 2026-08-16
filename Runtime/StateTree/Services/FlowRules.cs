@@ -13,10 +13,10 @@ namespace PowerOfFire.DrawToPlay
     {
         public static void Validate(ServiceDef def, Object context)
         {
-            if (def == null || def.flows == null)
+            if (def == null)
                 return;
 
-            if (!string.IsNullOrEmpty(def.treeKind)
+            if (def.flows != null && !string.IsNullOrEmpty(def.treeKind)
                 && !string.Equals(def.flows.treeKind, def.treeKind, System.StringComparison.Ordinal))
             {
                 Debug.LogError("[Flows] '" + def.serviceName + "': its flows tree '"
@@ -29,18 +29,36 @@ namespace PowerOfFire.DrawToPlay
                 ServiceRequest row = def.requests[i];
                 if (row == null)
                     continue;
-                if (string.IsNullOrEmpty(row.key) || string.IsNullOrEmpty(row.stateId))
+                if (string.IsNullOrEmpty(row.key))
                 {
                     Debug.LogError("[Flows] '" + def.serviceName + "': request row " + i
-                        + " is missing its key or its state.", context);
+                        + " is missing its key.", context);
                     continue;
                 }
                 for (int j = 0; j < i; j++)
                 {
                     if (def.requests[j] != null && def.requests[j].key == row.key)
                         Debug.LogError("[Flows] '" + def.serviceName + "': request key '"
-                            + row.key + "' is declared twice — which state serves it is "
+                            + row.key + "' is declared twice — which row serves it is "
                             + "undefined.", context);
+                }
+                // §4g: a row without a state is def-served — it must SAY something
+                // (a domain action, reactions, or both), or asking it does nothing.
+                if (string.IsNullOrEmpty(row.stateId))
+                {
+                    if (string.IsNullOrEmpty(row.action)
+                        && (row.reactions == null || row.reactions.Count == 0))
+                        Debug.LogError("[Flows] '" + def.serviceName + "': request '"
+                            + row.key + "' has no state, no action, and no reactions — "
+                            + "serving it does nothing.", context);
+                    continue;
+                }
+                if (def.flows == null)
+                {
+                    Debug.LogError("[Flows] '" + def.serviceName + "': request '" + row.key
+                        + "' names state '" + row.stateId + "' but the def declares no "
+                        + "flows tree.", context);
+                    continue;
                 }
                 // §4d: when both the request row and the flows tree's declaration type the
                 // same key, they must type it the SAME — two authorities disagreeing about

@@ -46,9 +46,106 @@ namespace PowerOfFire.DrawToPlay
         public ItemRegistry registry =>
             definition != null ? definition.registry as ItemRegistry : null;
 
-        /// <summary>The def's flow tree (the bag's request-serving states) runs with this
-        /// service — the base does the running; this line says whose flows they are.</summary>
+        /// <summary>The def's declared behavior (requests, spawns, announcements — and a
+        /// flow tree if one is ever needed) runs with this service — the base does the
+        /// running; this line says whose declaration it is.</summary>
         protected override ServiceDef FlowSource => definition;
+
+        /// <summary>
+        /// THE DOMAIN HOOK (§4g): what the def's request rows MEAN. Every one of the
+        /// bag's handlers is single-frame — verb, beats, consume — so no state tree
+        /// serves them; the def rows say the beats, this switch says the verbs, and every
+        /// served request ends with the skin redrawn to the truth.
+        /// </summary>
+        protected override void OnRequest(ServiceRequest request, string value)
+        {
+            switch (request.action)
+            {
+                case "use":
+                {
+                    ItemDef row = Row(value);
+                    bool used = Use(value);
+                    // The announcement (§4d): the whole story as one contract object —
+                    // whoever cares reads the class, and the class is where it grows.
+                    Announce(ItemUseResult.Key, new ItemUseResult
+                    {
+                        item = row, itemName = value ?? "", used = used
+                    });
+                    break;
+                }
+                case "wear":
+                    Equip(value);
+                    break;
+                case "takeoff":
+                {
+                    // Typed request values name ROWS; the domain speaks ids — resolved
+                    // here at the boundary, an id passing through untouched.
+                    EquipmentSlotRegistry slots = Slots();
+                    var named = slots != null
+                        ? slots.FindByName(value) as EquipmentSlotDef
+                        : null;
+                    Unequip(named != null ? named.id : value);
+                    break;
+                }
+            }
+            RedrawSpawnedBags();
+        }
+
+        /// <summary>Build the read model and hand it to a bag skin — the one place domain
+        /// and skin meet, shared by the def-served path and the RedrawBagTask atom.</summary>
+        public void RedrawInto(InventoryWidgetView widget)
+        {
+            if (widget == null)
+                return;
+            StateTreeContextHost player = StateTreeContextHost.Resolve(gameObject,
+                StateTreeContextKind.Player);
+            if (player == null || player.Context == null)
+            {
+                widget.Redraw(null, null);
+                return;
+            }
+            var lines = new List<BagSlotLine>();
+            EquipmentSlotRegistry slots = Slots();
+            for (int i = 0; slots != null && i < slots.entries.Count; i++)
+            {
+                EquipmentSlotDef slot = slots.entries[i];
+                if (slot == null)
+                    continue;
+                string wornName = EquippedIn(slot.id);
+                ItemDef worn = string.IsNullOrEmpty(wornName) ? null : Row(wornName);
+                lines.Add(new BagSlotLine(
+                    slot.id,
+                    slot.name,
+                    string.IsNullOrEmpty(slot.displayName) ? slot.name : slot.displayName,
+                    wornName,
+                    worn == null ? "" : (string.IsNullOrEmpty(worn.displayName)
+                        ? worn.name : worn.displayName)));
+            }
+            widget.Redraw(Stacks(player.Context), lines);
+        }
+
+        /// <summary>Every skin this def declares it spawns, redrawn to the present.</summary>
+        private void RedrawSpawnedBags()
+        {
+            ServiceDef def = definition;
+            if (def == null || def.spawns == null)
+                return;
+            UiService ui = StateTreeContextHost.FindService<UiService>(gameObject);
+            if (ui == null)
+                return;
+            for (int i = 0; i < def.spawns.Count; i++)
+            {
+                var spawn = def.spawns[i];
+                if (spawn == null || string.IsNullOrEmpty(spawn.entryName))
+                    continue;
+                GameObject view = ui.ShownView(spawn.entryName);
+                InventoryWidgetView widget = view != null
+                    ? view.GetComponentInChildren<InventoryWidgetView>(true)
+                    : null;
+                if (widget != null)
+                    RedrawInto(widget);
+            }
+        }
 
         protected override void OnEnable()
         {
