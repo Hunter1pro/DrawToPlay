@@ -190,9 +190,33 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     builder = builder.WithDefaultValue(authoredDefault);
 
                 PortChoices.TryOffer(builder,
-                    EntryChoicesFor(owner, field) ?? RequestChoicesFor(field));
+                    EntryChoicesFor(owner, field)
+                    ?? RequestChoicesFor(field)
+                    ?? ExtraChoicesFor(field));
                 builder.Build();
             }
+        }
+
+        /// <summary>
+        /// A GAME'S OWN OFFERS — the seam for choices this assembly cannot know about,
+        /// because the vocabulary is the game's (a demo's dialog results, a project's
+        /// quest flags). A game registers a source; the first one that answers a field
+        /// wins, and a field nobody claims stays the text box it always was.
+        /// </summary>
+        public static event Func<FieldInfo, List<string>> extraChoices;
+
+        private static List<string> ExtraChoicesFor(FieldInfo field)
+        {
+            Func<FieldInfo, List<string>> sources = extraChoices;
+            if (sources == null)
+                return null;
+            foreach (Delegate source in sources.GetInvocationList())
+            {
+                var offered = ((Func<FieldInfo, List<string>>)source)(field);
+                if (offered != null && offered.Count > 0)
+                    return offered;
+            }
+            return null;
         }
 
         /// <summary>
