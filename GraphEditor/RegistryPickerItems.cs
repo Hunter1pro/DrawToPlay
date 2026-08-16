@@ -50,11 +50,31 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     reachable.Add(scope.registries[i]);
             }
 
+            var offeredUnset = false;
             for (int i = 0; i < choices.Count; i++)
             {
                 string choice = choices[i];
                 if (string.IsNullOrEmpty(choice))
-                    continue;   // the "unset" row is reached by clearing, not by picking
+                {
+                    // UNSET IS A CHOICE, and on a dropdown pin it is the only one the
+                    // author cannot type: the picker owns the click, so a pin that offered
+                    // no way back to empty was a one-way door. Empty MEANS something on
+                    // several fields — a Dialog Result with no Equals asks whether the key
+                    // was recorded at all — so it is offered first, named rather than blank.
+                    if (offeredUnset)
+                        continue;
+                    offeredUnset = true;
+                    items.Add(new StateTreePickerItem
+                    {
+                        displayName = "(none)",
+                        category = string.Empty,
+                        description = "Leave unset — for a comparison, any recorded value.",
+                        identity = string.Empty,
+                        persistKey = "(none)",
+                        payload = string.Empty
+                    });
+                    continue;
+                }
 
                 items.Add(Describe(choice, reachable));
             }
