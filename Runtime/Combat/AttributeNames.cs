@@ -12,5 +12,11 @@ namespace PowerOfFire.DrawToPlay
     {
         /// <summary>The survival pool.</summary>
         public const string Health = "health";
+
+        /// <summary>How fast this actor moves, in metres per second — the number a MODE
+        /// changes (M26: a boat is not a fast pair of legs, it is a different speed on the
+        /// same body). An actor without it moves at its locomotion service's default, so
+        /// the attribute is an override, not a requirement.</summary>
+        public const string MoveSpeed = "moveSpeed";
     }
 }

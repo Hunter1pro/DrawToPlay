@@ -104,6 +104,8 @@ namespace PowerOfFire.DrawToPlay
         {
             if (string.IsNullOrEmpty(tag))
                 return false;
+            if (m_Standing.ContainsKey(tag))
+                return true;
             if (active != null && active.activationTags != null
                 && active.activationTags.Contains(tag))
                 return true;
@@ -115,6 +117,43 @@ namespace PowerOfFire.DrawToPlay
             }
             return false;
         }
+
+        /// <summary>
+        /// A STANDING TAG (M26) — held until it is taken back, rather than for the length
+        /// of an ability or a status.
+        ///
+        /// The tag vocabulary was born from abilities: an activation tags you while it
+        /// runs, a status while it lasts. A MODE is neither — being afloat is true for as
+        /// long as a state is entered, which no effect can express — and the alternative
+        /// was a mode-shaped flag every gate would have to learn separately. Granted here,
+        /// it gates through the machinery that already exists: an ability blocked by
+        /// 'Aboard' is refused at sea and nothing in the ability knows what a boat is.
+        ///
+        /// Reference-counted, because two things may hold the same tag for different
+        /// reasons and neither may revoke the other's.
+        /// </summary>
+        public void AddTag(string tag)
+        {
+            if (string.IsNullOrEmpty(tag))
+                return;
+            m_Standing.TryGetValue(tag, out int held);
+            m_Standing[tag] = held + 1;
+        }
+
+        /// <summary>Give back one hold of a standing tag; the tag lifts when the last
+        /// holder does.</summary>
+        public void RemoveTag(string tag)
+        {
+            if (string.IsNullOrEmpty(tag) || !m_Standing.TryGetValue(tag, out int held))
+                return;
+            if (held <= 1)
+                m_Standing.Remove(tag);
+            else
+                m_Standing[tag] = held - 1;
+        }
+
+        private readonly Dictionary<string, int> m_Standing =
+            new Dictionary<string, int>(StringComparer.Ordinal);
 
         /// <summary>Stack count of the named Duration effect, 0 when it is not running.</summary>
         public int StacksOf(string effectName)
