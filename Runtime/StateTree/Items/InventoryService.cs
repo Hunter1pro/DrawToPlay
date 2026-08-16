@@ -400,21 +400,17 @@ namespace PowerOfFire.DrawToPlay
         // ---- resolution ----------------------------------------------------------------
 
         /// <summary>OPTIONAL, because the player is a spawned citizen: absent between
-        /// levels is a normal state, not a wiring error.</summary>
+        /// levels is a normal state, not a wiring error. A replaced player refills on the
+        /// next ask — the injector treats a dead host as an empty slot.</summary>
         [InjectHost(StateTreeContextKind.Player, optional: true)]
         private StateTreeContextHost m_Player;
 
-        /// <summary>The player's host through INJECTION (the wiring law), with the
-        /// replaced-body guard: after a level swap the old host is a Unity-dead object the
-        /// injector would skip as "already filled" — cleared to real null first, so the
-        /// re-ask can land the new one. Null while no player exists.</summary>
+        /// <summary>Injected, re-asked at the point of use (the OutpostNpc form) — the
+        /// player arrives with a level, not with this service.</summary>
         private StateTreeContextHost PlayerHost()
         {
             if (m_Player == null)
-            {
-                m_Player = null;   // a dead host boxes non-null; clear it for the injector
                 StateTreeServiceInjector.Inject(this, gameObject, true);
-            }
             return m_Player;
         }
 

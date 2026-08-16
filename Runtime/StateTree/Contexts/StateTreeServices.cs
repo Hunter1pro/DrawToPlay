@@ -118,7 +118,7 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < fields.Length; i++)
             {
                 FieldInfo field = fields[i];
-                if (field.GetValue(target) != null)
+                if (Holds(field.GetValue(target)))
                     continue;
 
                 object service = StateTreeContextHost.FindService(field.FieldType, owner);
@@ -202,13 +202,23 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Bind every [InjectHost] field from the owner — the address lives on the
         /// attribute, because these scopes are design constants, not per-instance data.</summary>
+        /// <summary>Whether a field actually HOLDS something. Unity's two nulls meet here:
+        /// a destroyed host or service is null to every caller but still boxes a non-null
+        /// reference — treating that corpse as "filled" would make every replaced scope
+        /// (the spawned player between levels) stick stale forever. A dead Unity object is
+        /// an empty slot, refillable.</summary>
+        private static bool Holds(object value)
+        {
+            return value is UnityEngine.Object unityValue ? unityValue != null : value != null;
+        }
+
         private static void BindHostRefs(object target, GameObject owner, bool quiet)
         {
             FieldInfo[] fields = HostRefFields(target.GetType());
             for (int i = 0; i < fields.Length; i++)
             {
                 FieldInfo field = fields[i];
-                if (field.GetValue(target) != null)
+                if (Holds(field.GetValue(target)))
                     continue;
 
                 var address = (InjectHostAttribute)Attribute.GetCustomAttribute(field,
