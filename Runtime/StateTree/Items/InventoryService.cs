@@ -46,6 +46,10 @@ namespace PowerOfFire.DrawToPlay
         public ItemRegistry registry =>
             definition != null ? definition.registry as ItemRegistry : null;
 
+        /// <summary>The def's flow tree (the bag's request-serving states) runs with this
+        /// service — the base does the running; this line says whose flows they are.</summary>
+        protected override ServiceDef FlowSource => definition;
+
         protected override void OnEnable()
         {
             base.OnEnable();

@@ -292,8 +292,9 @@ namespace PowerOfFire.DrawToPlay
 
         // ---- what the toolset checks for itself ---------------------------------------
 
-        private void Update()
+        protected override void Update()
         {
+            base.Update();   // the base ticks the def's flow tree — hiding it would stop them
             if (!m_AutoStarted)
             {
                 if (string.IsNullOrEmpty(startingObjective.entryName))

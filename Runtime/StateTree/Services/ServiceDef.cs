@@ -45,6 +45,12 @@ namespace PowerOfFire.DrawToPlay
             + "tree is a validation finding, not a runtime surprise. Empty = unchecked.")]
         public string treeKind = "";
 
+        [Tooltip("The subsystem's OWN flow tree (the UI wiring brief §4b), run by the "
+            + "service on its scope for as long as it lives. Its declared keys are the "
+            + "subsystem's request API: anything that writes one triggers the matching flow "
+            + "state, no matter who wrote it. Empty = the service has no flows.")]
+        public StateTreeAsset flows;
+
         /// <summary>
         /// What may nest under what, per KIND — declared rows a service's validators and
         /// pickers read. The ability service no longer nests data (its structure went typed:

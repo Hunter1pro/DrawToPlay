@@ -65,6 +65,7 @@ namespace PowerOfFire.DrawToPlay
 
         protected virtual void OnDisable()
         {
+            StopFlows();
             Disconnect();
         }
 
@@ -106,6 +107,77 @@ namespace PowerOfFire.DrawToPlay
                 return;
             m_ConnectedTo.UnregisterService(this);
             m_ConnectedTo = null;
+        }
+
+        // ---- the subsystem's OWN flows (the UI wiring brief §4b) -----------------------
+
+        /// <summary>The declaration whose <see cref="ServiceDef.flows"/> tree this service
+        /// runs, or null. A declared service overrides this returning its def — one line —
+        /// and the base does the rest: the tree starts on the first Update (when services
+        /// are valid), ticks with the service, and is Cancelled down with it.</summary>
+        protected virtual ServiceDef FlowSource => null;
+
+        private StateTreeExecutor m_Flows;
+        private bool m_FlowsStarted;
+
+        /// <summary>Virtual so a subclass with its own Update stays honest: override, call
+        /// base, then do your work — a hidden (non-override) Update would silently stop the
+        /// subsystem's flows.</summary>
+        protected virtual void Update()
+        {
+            TickFlows(Time.deltaTime);
+        }
+
+        /// <summary>One frame of the flow tree — public so EditMode tests own the clock
+        /// (the AbilityHost contract). The first call starts the tree.</summary>
+        public void TickFlows(float deltaTime)
+        {
+            if (!m_FlowsStarted)
+            {
+                m_FlowsStarted = true;
+                StartFlows();
+            }
+            m_Flows?.TickTree(deltaTime);
+        }
+
+        /// <summary>Whether the flow tree is up — a wired def and a started run.</summary>
+        public bool flowsRunning => m_Flows != null && m_Flows.isRunning;
+
+        private void StartFlows()
+        {
+            ServiceDef def = FlowSource;
+            if (def == null || def.flows == null)
+                return;
+            StateTreeContextHost host = m_ConnectedTo;
+            if (host == null)
+            {
+                Debug.LogWarning("StateTreeService '" + GetType().Name + "' on '" + name
+                    + "' has flows but no connected host — they will not run.", this);
+                return;
+            }
+            m_Flows = new StateTreeExecutor
+            {
+                data = def.flows,
+                owner = host.gameObject,
+                // THE SHARED BOARD, explicitly: the executor would otherwise mint its own
+                // context, and a flow tree reading a different blackboard than the one the
+                // skins' requests land on would simply never fire.
+                context = host.Context,
+                logLabel = "Service '" + (string.IsNullOrEmpty(def.serviceName)
+                    ? GetType().Name : def.serviceName) + "' flows",
+                logContext = this
+            };
+            m_Flows.StartTree();
+            if (!m_Flows.isRunning)
+                m_Flows = null;
+        }
+
+        private void StopFlows()
+        {
+            if (m_Flows != null)
+                m_Flows.StopTree();
+            m_Flows = null;
+            m_FlowsStarted = false;
         }
     }
 }

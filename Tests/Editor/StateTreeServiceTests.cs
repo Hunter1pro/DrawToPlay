@@ -278,5 +278,88 @@ namespace PowerOfFire.DrawToPlay.Tests
             runner.context = new StateTreeContext(go);
             return runner;
         }
+
+        // ------------------------------------------------------------------ def flows
+
+        [Test]
+        public void DefFlows_RunWithTheService_AndServeARequestKey()
+        {
+            // The §4b contract: a ServiceDef may declare a FLOW TREE; the service runs it
+            // on its scope, sharing the scope's blackboard — so a request key written by
+            // ANYONE (a skin, a tutorial, this test) is served by the subsystem itself.
+            var wants = ScriptableObject.CreateInstance<HasBlackboardKeyCondition>();
+            wants.key = new StateTreeKeyField("test.request");
+            m_Assets.Add(wants);
+
+            var receipt = ScriptableObject.CreateInstance<SetBlackboardTask>();
+            receipt.key = new StateTreeKeyField("test.served");
+            receipt.kind = SetBlackboardTask.ValueKind.Float;
+            receipt.floatValue = 1f;
+            m_Assets.Add(receipt);
+
+            var consume = ScriptableObject.CreateInstance<SetBlackboardTask>();
+            consume.key = new StateTreeKeyField("test.request");
+            consume.kind = SetBlackboardTask.ValueKind.Clear;
+            m_Assets.Add(consume);
+
+            var idle = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
+            idle.name = "idle";
+            idle.nodeId = "idle";
+            idle.completeWhen = StateTreeCompleteWhen.Never;
+            idle.transitions.Add(new StateTreeTransition
+            {
+                targetNodeId = "serve", condition = wants, checkWhileRunning = true
+            });
+            m_Assets.Add(idle);
+
+            var serve = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
+            serve.name = "serve";
+            serve.nodeId = "serve";
+            serve.tasks.Add(receipt);
+            serve.tasks.Add(consume);
+            serve.transitions.Add(new StateTreeTransition { targetNodeId = "idle" });
+            m_Assets.Add(serve);
+
+            var flowsRoot = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
+            flowsRoot.name = "root";
+            flowsRoot.nodeId = "root";
+            flowsRoot.children.Add(idle);
+            flowsRoot.children.Add(serve);
+            m_Assets.Add(flowsRoot);
+
+            var flows = ScriptableObject.CreateInstance<StateTreeAsset>();
+            flows.treeName = "TestFlows";
+            flows.root = flowsRoot;
+            m_Assets.Add(flows);
+
+            var def = ScriptableObject.CreateInstance<ServiceDef>();
+            def.serviceName = "flow-test";
+            def.scope = StateTreeContextKind.Root;
+            def.flows = flows;
+            m_Assets.Add(def);
+
+            var rootGo = new GameObject("FlowRoot");
+            rootGo.hideFlags = HideFlags.HideAndDontSave;
+            m_Objects.Add(rootGo);
+            var host = rootGo.AddComponent<StateTreeContextHost>();
+            host.kind = StateTreeContextKind.Root;
+            host.autoStart = false;
+            host.Register();
+            m_Hosts.Add(host);
+
+            var service = rootGo.AddComponent<InventoryService>();
+            service.definition = def;
+            service.Connect();
+
+            host.Context.blackboard["test.request"] = "1";
+            for (int i = 0; i < 3; i++)
+                service.TickFlows(0.02f);
+
+            Assert.IsTrue(service.flowsRunning, "the def's tree runs with the service");
+            Assert.IsTrue(host.Context.blackboard.ContainsKey("test.served"),
+                "the request was served on the SCOPE's blackboard — the shared board");
+            Assert.IsFalse(host.Context.blackboard.ContainsKey("test.request"),
+                "and consumed by the flow itself");
+        }
     }
 }
