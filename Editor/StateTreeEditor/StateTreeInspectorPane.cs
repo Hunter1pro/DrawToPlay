@@ -3009,10 +3009,26 @@ namespace PowerOfFire.DrawToPlay.Editor
                     + "Nothing is written.";
             }
 
-            // An EMPTY list is not evidence: a graph that has not been re-baked declares nothing
-            // either, and calling every route on it stale would be noise the author cannot act on.
-            // Only a source that publishes SOMETHING can say a name is not one of them.
             var outputs = StateTreeEditorOps.CollectTaskOutputs(task);
+
+            // A plain C# task's outputs ARE fully knowable (§4e review): no [TaskOutput]
+            // field and no declared contract means it publishes NOTHING, and a route from
+            // it is dead wiring, not a name awaiting a match. Graphs stay exempt — an
+            // un-baked file declares nothing YET — and an undeclared runtime source is
+            // nudged toward the attribute rather than accused.
+            if (outputs.Count == 0 && !(task is GraphTaskAsset) && !(task is RunGraphTask))
+            {
+                return task is IStateTreeOutputSource
+                    ? $"{TaskBoxLabel(task)} builds its outputs at run time but DECLARES none "
+                        + "— this route is matched blind. Add [TaskOutputContract] on the "
+                        + "task so routes can be picked and checked."
+                    : $"'{route.outputName}' is routed out of {TaskBoxLabel(task)}, which "
+                        + "publishes nothing — no [TaskOutput] field, no contract. This "
+                        + "route can never fire.";
+            }
+
+            // An EMPTY list on a graph is not evidence — see above. Only a source that
+            // publishes SOMETHING can say a name is not one of them.
             if (outputs.Count > 0 && !PublishesOutput(outputs, route.outputName))
             {
                 return $"'{route.outputName}' is routed out of {TaskBoxLabel(task)}, which does not "
@@ -4603,7 +4619,18 @@ namespace PowerOfFire.DrawToPlay.Editor
             // neither end offers the rename. The field unlocks the moment the wire is undone by a
             // deliberate gesture — unlink the reading field, remove the route, re-aim the output.
             var transition = StateTreeEditorOps.TransitionAt(m_Node, transitionIndex);
-            if (RouteKeyWired(transition, route))
+            if (!string.IsNullOrEmpty(route.keyId))
+            {
+                // Picked from the typed offer (§4e): this IS a wire, and it looks like one —
+                // locked in place, renames following the declaration, undone only through
+                // the ▤ menu's explicit unwire.
+                ApplyOverrideStyle(key, false);
+                key.isReadOnly = true;
+                key.tooltip = $"Wired to the declared key '{resolved}' — picked, so renaming "
+                    + "the declaration follows automatically. To type a free name instead, "
+                    + "unwire from the ▤ menu.";
+            }
+            else if (RouteKeyWired(transition, route))
             {
                 ApplyOverrideStyle(key, false);
                 key.tooltip = $"Wired: field(s) on '{transition.targetNodeId}' read "
@@ -6390,6 +6417,16 @@ namespace PowerOfFire.DrawToPlay.Editor
                 }
                 if (offered == 0)
                     menu.AddDisabledItem(new GUIContent("no compatible declared keys"));
+                if (!string.IsNullOrEmpty(route.keyId))
+                {
+                    menu.AddSeparator("");
+                    menu.AddItem(new GUIContent("Unwire (free text)"), false, () =>
+                    {
+                        CommitRoute(transitionIndex, routeIndex,
+                            entry => entry.keyId = string.Empty);
+                        RebuildPane();
+                    });
+                }
                 menu.ShowAsContext();
             };
             return pick;
