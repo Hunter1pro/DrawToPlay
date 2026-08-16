@@ -145,6 +145,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (description != row.description)
                     Commit(() => row.description = description);
 
+                bool exposed = EditorGUILayout.Toggle(new GUIContent("Exposed",
+                    "Part of the public API — offered to other systems in the Subsystem "
+                    + "APIs window. Clear it for a request the subsystem's own skin sends "
+                    + "itself."), row.exposed);
+                if (exposed != row.exposed)
+                    Commit(() => row.exposed = exposed);
+
                 var registry = (StateTreeRegistryAsset)EditorGUILayout.ObjectField(
                     new GUIContent("Names Row Of", "The value names a row of this "
                         + "registry — typed callers are validated against it."),

@@ -22,7 +22,6 @@ namespace PowerOfFire.DrawToPlay
     [ServiceActionContract(UseAction, "value = item name")]
     [ServiceActionContract(WearAction, "value = item name")]
     [ServiceActionContract(TakeoffAction, "value = slot name")]
-    [ServiceActionContract(RefreshAction)]
     public sealed class InventoryService : StateTreeServiceBehaviour
     {
         // The action vocabulary as SYMBOLS — the attribute above, the switch below, and
@@ -30,7 +29,6 @@ namespace PowerOfFire.DrawToPlay
         public const string UseAction = "use";
         public const string WearAction = "wear";
         public const string TakeoffAction = "takeoff";
-        public const string RefreshAction = "refresh";
 
         [Tooltip("The declaration this service runs: scope and the item registry (whose "
             + "dependsOn names the effect and slot registries its rows pick from).")]
@@ -165,6 +163,20 @@ namespace PowerOfFire.DrawToPlay
             else if (registry == null)
                 Debug.LogError("[Inventory] the ServiceDef's registry is not an ItemRegistry.",
                     this);
+
+            // THE SUBSYSTEM REDRAWS ITSELF: it already raises these on every mutation —
+            // its own verbs, a pickup through the graph atoms, a save restore — so nobody
+            // outside needs to ask it to refresh. A request for that was an errand the
+            // subsystem was making other systems run on its behalf.
+            changed += RedrawSpawnedBags;
+            equipmentChanged += RedrawSpawnedBags;
+        }
+
+        protected override void OnDisable()
+        {
+            changed -= RedrawSpawnedBags;
+            equipmentChanged -= RedrawSpawnedBags;
+            base.OnDisable();
         }
 
         // ---- the carried counts: the API the example service had, kept verbatim --------

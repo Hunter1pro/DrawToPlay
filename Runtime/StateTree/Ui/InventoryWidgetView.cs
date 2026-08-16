@@ -35,9 +35,6 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Value = the slot row's id.</summary>
         public const string TakeoffKey = "ui.bag.takeoff";
 
-        /// <summary>Written by whoever observes an outside change (a pickup on the floor)
-        /// so the refresh FLOW redraws an open bag.</summary>
-        public const string RefreshKey = "ui.bag.refresh";
 
         [Tooltip("Edge length of one item cell in the grid.")]
         public float cellSize = 64f;
