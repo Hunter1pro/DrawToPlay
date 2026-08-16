@@ -77,6 +77,16 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Value for String.</summary>
         public string stringValue;
+
+        /// <summary>
+        /// A CONTRACT PAYLOAD (§4d): a whole typed object — an ItemUseResult, a struck
+        /// citizen — published as ONE output and landed under one key, so a growing
+        /// contract grows the class, never the number of keys or the downstream wiring.
+        /// When set it wins over the scalar slots at the landing site; the scalars stay
+        /// filled as the degraded view for readers that only speak Float/String. Runtime
+        /// only — a payload is produced by a run, never serialized with the asset.
+        /// </summary>
+        [NonSerialized] public object objectValue;
     }
 
     /// <summary>

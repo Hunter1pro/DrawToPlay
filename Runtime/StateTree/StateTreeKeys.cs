@@ -43,6 +43,17 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>What this key MEANS — shown wherever the key is offered.</summary>
         public string description = "";
+
+        /// <summary>String kind, optional (§4d): the value NAMES A ROW of this registry —
+        /// "a string" becomes "an item of M21Items", so tools can offer rows and validators
+        /// can refuse names that exist nowhere. Null = a free string, as before.</summary>
+        public StateTreeRegistryAsset namesRowOf;
+
+        /// <summary>Object kind, optional (§4d): the payload's type name — the CONTRACT a
+        /// routed result landing here must honour (checked at the landing site, loudly).
+        /// A state can then hand a whole result class forward under one key: the contract
+        /// grows by growing the class, never by adding keys or rewiring readers.</summary>
+        public string payloadTypeName = "";
     }
 
     /// <summary>

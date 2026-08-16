@@ -199,6 +199,7 @@ namespace PowerOfFire.DrawToPlay
             m_ActiveData = data.DeepCopy();
             m_NodeIndex.Clear();
             m_ParentIndex.Clear();
+            m_PayloadWarned.Clear();
             BuildIndex(m_ActiveData.root);
 
             if (context == null)
@@ -925,11 +926,52 @@ namespace PowerOfFire.DrawToPlay
                 int found = IndexOfOutput(m_CaptureScratch, route.output);
                 if (found < 0)
                     continue;
-                TaskOutputValue value = m_CaptureScratch[found];
-                context.blackboard[key] =
-                    BoxedValue(value.kind, value.floatValue, value.stringValue);
+                PublishOutput(key, m_CaptureScratch[found]);
             }
         }
+
+        /// <summary>
+        /// The ONE landing site for a routed output (§4d): a contract payload
+        /// (<see cref="TaskOutputValue.objectValue"/>) wins over the scalar slots, and a key
+        /// whose DECLARATION names a payload type is checked against what actually arrived —
+        /// once per key per run, because a mismatched contract repeats every activation.
+        /// </summary>
+        private void PublishOutput(string key, TaskOutputValue value)
+        {
+            object boxed = value.objectValue != null
+                ? value.objectValue
+                : BoxedValue(value.kind, value.floatValue, value.stringValue);
+
+            StateTreeKeyDeclaration declared = DeclaredKey(key);
+            if (declared != null && !string.IsNullOrEmpty(declared.payloadTypeName)
+                && boxed != null && m_PayloadWarned.Add(key))
+            {
+                Type actual = boxed.GetType();
+                if (!string.Equals(actual.Name, declared.payloadTypeName, StringComparison.Ordinal)
+                    && !string.Equals(actual.FullName, declared.payloadTypeName,
+                        StringComparison.Ordinal))
+                {
+                    Debug.LogWarning(logLabel + ": key '" + key + "' declares payload '"
+                        + declared.payloadTypeName + "' but received '" + actual.Name
+                        + "' — the contract and the sender disagree.", logContext);
+                }
+            }
+            context.blackboard[key] = boxed;
+        }
+
+        private StateTreeKeyDeclaration DeclaredKey(string keyName)
+        {
+            var keys = m_ActiveData != null ? m_ActiveData.keys : null;
+            for (int i = 0; keys != null && i < keys.Count; i++)
+            {
+                if (keys[i] != null && string.Equals(keys[i].name, keyName,
+                    StringComparison.Ordinal))
+                    return keys[i];
+            }
+            return null;
+        }
+
+        private readonly HashSet<string> m_PayloadWarned = new HashSet<string>();
 
         /// <summary>Reads every <c>[TaskOutput]</c> field of a task into
         /// <paramref name="into"/>.</summary>
@@ -1049,9 +1091,7 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 }
 
-                TaskOutputValue value = values[found];
-                context.blackboard[route.ResolvedKey()] =
-                    BoxedValue(value.kind, value.floatValue, value.stringValue);
+                PublishOutput(route.ResolvedKey(), values[found]);
             }
         }
 

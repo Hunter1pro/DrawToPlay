@@ -204,8 +204,9 @@ namespace PowerOfFire.DrawToPlay
             });
             if (worn)
             {
-                string slotId = slot.slotId;
-                line.Add(Verb("take off", () => Request(TakeoffKey, slotId)));
+                // The typed request value is the slot ROW NAME (§4d): pickable, checkable.
+                string slotName = slot.slotName;
+                line.Add(Verb("take off", () => Request(TakeoffKey, slotName)));
             }
             return line;
         }
@@ -291,9 +292,9 @@ namespace PowerOfFire.DrawToPlay
                 cell.Add(Verb("use", () => Request(UseKey, itemName)));
             else if (!string.IsNullOrEmpty(stack.definition.slot.entryId))
             {
-                string slotId = stack.definition.slot.entryId;
-                cell.Add(WornIn(slotId, itemName)
-                    ? Verb("worn ✓", () => Request(TakeoffKey, slotId))
+                string slotName = stack.definition.slot.entryName;
+                cell.Add(WornIn(stack.definition.slot.entryId, itemName)
+                    ? Verb("worn ✓", () => Request(TakeoffKey, slotName))
                     : Verb("wear", () => Request(WearKey, itemName)));
             }
             return cell;

@@ -26,10 +26,14 @@ namespace PowerOfFire.DrawToPlay
             if (inventory == null)
                 return StateTreeStatus.Failure;
 
-            string slotId = ItemTaskName.Resolve(context, slotKey, slot.entryId);
-            if (string.IsNullOrEmpty(slotId))
+            string slotRef = ItemTaskName.Resolve(context, slotKey, slot.entryId);
+            if (string.IsNullOrEmpty(slotRef))
                 return StateTreeStatus.Failure;
-            inventory.Unequip(slotId);
+            // Typed request values name ROWS (§4d); the domain speaks ids — a name
+            // resolves through the slot catalog, and an id passes through untouched.
+            EquipmentSlotRegistry slots = inventory.Slots();
+            var named = slots != null ? slots.FindByName(slotRef) as EquipmentSlotDef : null;
+            inventory.Unequip(named != null ? named.id : slotRef);
             return StateTreeStatus.Success;
         }
     }

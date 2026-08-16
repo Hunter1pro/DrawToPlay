@@ -314,6 +314,54 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void Request_TypedValues_AreValidatedAgainstTheRegistry()
+        {
+            // §4d: a request row that names a registry refuses values that name no row —
+            // the typo is refused at the door, not discovered as a button doing nothing.
+            m_Service.definition.requests.Add(new ServiceRequest
+            {
+                key = "test.use", stateId = "any", namesRowOf = m_Items
+            });
+
+            m_Service.Request("test.use", "ration");
+            Assert.AreEqual("ration", m_Root.Context.blackboard["test.use"],
+                "a value naming a real row writes");
+
+            UnityEngine.TestTools.LogAssert.Expect(LogType.Error,
+                new System.Text.RegularExpressions.Regex("names none of them"));
+            m_Service.Request("test.use", "raton");
+            Assert.AreEqual("ration", m_Root.Context.blackboard["test.use"],
+                "the typo was refused — the board still holds the last good value");
+        }
+
+        [Test]
+        public void UseItemTask_PublishesTheResultContract()
+        {
+            // §4d's highlighted want: the verb hands its WHOLE story forward as one typed
+            // payload — item def included — so a growing contract grows the class, never
+            // the key count or the downstream wiring.
+            m_Service.Add(m_Player.Context, "ration", 1);
+            var use = ScriptableObject.CreateInstance<UseItemTask>();
+            m_Assets.Add(use);
+            use.item.entryName = "ration";
+
+            use.OnEnter(m_Root.Context);
+            Assert.AreEqual(StateTreeStatus.Success, use.OnTick(m_Root.Context, 0f));
+
+            var outputs = new List<TaskOutputValue>();
+            Assert.IsTrue(((IStateTreeOutputSource)use).TryCollectOutputs(outputs));
+            Assert.AreEqual("result", outputs[0].name);
+            var result = outputs[0].objectValue as ItemUseResult;
+            Assert.IsNotNull(result, "the payload rides the output channel whole");
+            Assert.AreEqual("ration", result.itemName);
+            Assert.IsTrue(result.used);
+            Assert.AreSame(m_Service.Row("ration"), result.item,
+                "the contract carries the DEFINITION, not a name to re-resolve");
+            Assert.AreEqual("ration", outputs[0].stringValue,
+                "with the name in the string slot as the degraded scalar view");
+        }
+
+        [Test]
         public void ForgetWornOnPlayerChange_DropsRecordsWithoutReverting()
         {
             // The level-swap moment: the OLD body's modifiers die with its components, so

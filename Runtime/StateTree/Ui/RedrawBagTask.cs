@@ -48,6 +48,7 @@ namespace PowerOfFire.DrawToPlay
                 ItemDef worn = string.IsNullOrEmpty(wornName) ? null : inventory.Row(wornName);
                 lines.Add(new BagSlotLine(
                     slot.id,
+                    slot.name,
                     string.IsNullOrEmpty(slot.displayName) ? slot.name : slot.displayName,
                     wornName,
                     worn == null ? "" : (string.IsNullOrEmpty(worn.displayName)

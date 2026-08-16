@@ -152,12 +152,23 @@ namespace PowerOfFire.DrawToPlay
         public void Request(string key, string value = "1")
         {
             ServiceDef def = FlowSource;
-            if (def == null || def.RequestFor(key) == null)
+            ServiceRequest row = def != null ? def.RequestFor(key) : null;
+            if (row == null)
             {
                 Debug.LogError("StateTreeService '" + GetType().Name + "': '" + key
                     + "' is not a declared request of '"
                     + (def != null ? def.serviceName : "(no def)")
                     + "' — see the def's requests list.", this);
+                return;
+            }
+            // The TYPED value (§4d): a request whose row names a registry refuses a value
+            // that names no row — the button that would do nothing forever, refused at the
+            // door with a name in the message.
+            if (row.namesRowOf != null && row.namesRowOf.FindByName(value) == null)
+            {
+                Debug.LogError("StateTreeService '" + GetType().Name + "': request '" + key
+                    + "' takes a row of '" + row.namesRowOf.name + "', and '" + value
+                    + "' names none of them.", this);
                 return;
             }
             StateTreeContextHost host = m_ConnectedTo;

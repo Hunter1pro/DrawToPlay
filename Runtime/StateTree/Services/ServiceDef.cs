@@ -146,6 +146,11 @@ namespace PowerOfFire.DrawToPlay
 
         [Tooltip("What asking this DOES — shown wherever the API is offered.")]
         public string description = "";
+
+        [Tooltip("Optional (§4d): the request's value NAMES A ROW of this registry — "
+            + "'a string' becomes 'an item of M21Items'. Typed callers are validated "
+            + "against it; tools can offer rows instead of free text.")]
+        public StateTreeRegistryAsset namesRowOf;
     }
 
     /// <summary>One kind's birth gift: the task a rule-typed state starts with.</summary>

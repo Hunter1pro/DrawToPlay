@@ -42,6 +42,25 @@ namespace PowerOfFire.DrawToPlay
                             + row.key + "' is declared twice — which state serves it is "
                             + "undefined.", context);
                 }
+                // §4d: when both the request row and the flows tree's declaration type the
+                // same key, they must type it the SAME — two authorities disagreeing about
+                // what a value names is a picker offering rows a validator then refuses.
+                if (row.namesRowOf != null)
+                {
+                    for (int k = 0; k < def.flows.keys.Count; k++)
+                    {
+                        StateTreeKeyDeclaration declared = def.flows.keys[k];
+                        if (declared == null || declared.name != row.key
+                            || declared.namesRowOf == null)
+                            continue;
+                        if (declared.namesRowOf != row.namesRowOf)
+                            Debug.LogError("[Flows] '" + def.serviceName + "': request '"
+                                + row.key + "' names rows of '" + row.namesRowOf.name
+                                + "' but the flow tree's declaration says '"
+                                + declared.namesRowOf.name + "'.", context);
+                    }
+                }
+
                 StateTreeNodeAsset state = FindNode(def.flows.root, row.stateId);
                 if (state == null)
                 {
