@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
@@ -118,6 +119,7 @@ namespace PowerOfFire.DrawToPlay
         protected virtual ServiceDef FlowSource => null;
 
         private StateTreeExecutor m_Flows;
+        private ServiceDef m_FlowsDef;
         private bool m_FlowsStarted;
 
         /// <summary>Virtual so a subclass with its own Update stays honest: override, call
@@ -137,7 +139,88 @@ namespace PowerOfFire.DrawToPlay
                 m_FlowsStarted = true;
                 StartFlows();
             }
+            ServePendingRequests();
             m_Flows?.TickTree(deltaTime);
+        }
+
+        /// <summary>
+        /// Ask this subsystem for one of its DECLARED requests (§4c) — the typed door for
+        /// C# callers, validated against the def's rows so a typo is a loud finding, not a
+        /// key nobody ever reads. Data-side callers (skins, tree tasks) write the same key
+        /// on the scope's blackboard directly; both roads meet in the same flow state.
+        /// </summary>
+        public void Request(string key, string value = "1")
+        {
+            ServiceDef def = FlowSource;
+            if (def == null || def.RequestFor(key) == null)
+            {
+                Debug.LogError("StateTreeService '" + GetType().Name + "': '" + key
+                    + "' is not a declared request of '"
+                    + (def != null ? def.serviceName : "(no def)")
+                    + "' — see the def's requests list.", this);
+                return;
+            }
+            StateTreeContextHost host = m_ConnectedTo;
+            if (host != null && host.Context != null)
+                host.Context.blackboard[key] = value ?? "";
+        }
+
+        /// <summary>
+        /// THE DERIVED ENTRY (§4c): a pending declared request, seen while no request state
+        /// is active, enters its declared state — what five hand-authored interrupts used
+        /// to say, read from the def instead. Declaration order is priority.
+        /// </summary>
+        private void ServePendingRequests()
+        {
+            ServiceDef def = m_FlowsDef;
+            if (def == null || m_Flows == null || !m_Flows.isRunning)
+                return;
+            string active = m_Flows.activeNodeId;
+            for (int i = 0; i < def.requests.Count; i++)
+            {
+                // Mid-flow, nothing is served: pending keys wait for the return to idle,
+                // exactly as the interrupt wiring behaved.
+                ServiceRequest row = def.requests[i];
+                if (row != null && string.Equals(row.stateId, active, StringComparison.Ordinal))
+                    return;
+            }
+            var board = m_Flows.context != null ? m_Flows.context.blackboard : null;
+            if (board == null)
+                return;
+            for (int i = 0; i < def.requests.Count; i++)
+            {
+                ServiceRequest row = def.requests[i];
+                if (row == null || string.IsNullOrEmpty(row.key)
+                    || !board.ContainsKey(row.key))
+                    continue;
+                if (!m_Flows.RequestTransition(row.stateId))
+                {
+                    Debug.LogError("StateTreeService '" + GetType().Name + "': request '"
+                        + row.key + "' declares state '" + row.stateId
+                        + "', which the flows tree does not have.", this);
+                    board.Remove(row.key);   // do not retry a broken row every frame
+                }
+                return;
+            }
+        }
+
+        /// <summary>THE DERIVED CONSUME (§4c): leaving a request state clears its key —
+        /// what a Clear task at the end of every flow used to say.</summary>
+        private void OnFlowNodeChanged(string previousId, string currentId)
+        {
+            ServiceDef def = m_FlowsDef;
+            if (def == null || string.IsNullOrEmpty(previousId))
+                return;
+            for (int i = 0; i < def.requests.Count; i++)
+            {
+                ServiceRequest row = def.requests[i];
+                if (row != null && string.Equals(row.stateId, previousId,
+                    StringComparison.Ordinal))
+                {
+                    m_Flows?.context?.blackboard.Remove(row.key);
+                    return;
+                }
+            }
         }
 
         /// <summary>Whether the flow tree is up — a wired def and a started run.</summary>
@@ -169,14 +252,24 @@ namespace PowerOfFire.DrawToPlay
             };
             m_Flows.StartTree();
             if (!m_Flows.isRunning)
+            {
                 m_Flows = null;
+                return;
+            }
+            m_FlowsDef = def;
+            m_Flows.activeNodeChanged += OnFlowNodeChanged;
+            FlowRules.Validate(def, this);
         }
 
         private void StopFlows()
         {
             if (m_Flows != null)
+            {
+                m_Flows.activeNodeChanged -= OnFlowNodeChanged;
                 m_Flows.StopTree();
+            }
             m_Flows = null;
+            m_FlowsDef = null;
             m_FlowsStarted = false;
         }
     }

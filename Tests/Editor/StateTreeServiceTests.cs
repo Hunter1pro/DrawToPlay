@@ -281,42 +281,28 @@ namespace PowerOfFire.DrawToPlay.Tests
 
         // ------------------------------------------------------------------ def flows
 
-        [Test]
-        public void DefFlows_RunWithTheService_AndServeARequestKey()
+        private (StateTreeContextHost host, InventoryService service, ServiceDef def)
+            MakeFlowsFixture()
         {
-            // The §4b contract: a ServiceDef may declare a FLOW TREE; the service runs it
-            // on its scope, sharing the scope's blackboard — so a request key written by
-            // ANYONE (a skin, a tutorial, this test) is served by the subsystem itself.
-            var wants = ScriptableObject.CreateInstance<HasBlackboardKeyCondition>();
-            wants.key = new StateTreeKeyField("test.request");
-            m_Assets.Add(wants);
-
+            // The §4c shape: a typed request state holding ONLY its meaningful task —
+            // no interrupt condition, no consume; the runner derives both from the def.
             var receipt = ScriptableObject.CreateInstance<SetBlackboardTask>();
             receipt.key = new StateTreeKeyField("test.served");
             receipt.kind = SetBlackboardTask.ValueKind.Float;
             receipt.floatValue = 1f;
             m_Assets.Add(receipt);
 
-            var consume = ScriptableObject.CreateInstance<SetBlackboardTask>();
-            consume.key = new StateTreeKeyField("test.request");
-            consume.kind = SetBlackboardTask.ValueKind.Clear;
-            m_Assets.Add(consume);
-
             var idle = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
             idle.name = "idle";
             idle.nodeId = "idle";
             idle.completeWhen = StateTreeCompleteWhen.Never;
-            idle.transitions.Add(new StateTreeTransition
-            {
-                targetNodeId = "serve", condition = wants, checkWhileRunning = true
-            });
             m_Assets.Add(idle);
 
             var serve = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
             serve.name = "serve";
             serve.nodeId = "serve";
+            serve.roleKind = "request";
             serve.tasks.Add(receipt);
-            serve.tasks.Add(consume);
             serve.transitions.Add(new StateTreeTransition { targetNodeId = "idle" });
             m_Assets.Add(serve);
 
@@ -336,6 +322,10 @@ namespace PowerOfFire.DrawToPlay.Tests
             def.serviceName = "flow-test";
             def.scope = StateTreeContextKind.Root;
             def.flows = flows;
+            def.requests.Add(new ServiceRequest
+            {
+                key = "test.request", stateId = "serve", description = "serve the test"
+            });
             m_Assets.Add(def);
 
             var rootGo = new GameObject("FlowRoot");
@@ -350,6 +340,13 @@ namespace PowerOfFire.DrawToPlay.Tests
             var service = rootGo.AddComponent<InventoryService>();
             service.definition = def;
             service.Connect();
+            return (host, service, def);
+        }
+
+        [Test]
+        public void DefFlows_ServeADeclaredRequest_EntryAndConsumeDerived()
+        {
+            (StateTreeContextHost host, InventoryService service, _) = MakeFlowsFixture();
 
             host.Context.blackboard["test.request"] = "1";
             for (int i = 0; i < 3; i++)
@@ -357,9 +354,26 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             Assert.IsTrue(service.flowsRunning, "the def's tree runs with the service");
             Assert.IsTrue(host.Context.blackboard.ContainsKey("test.served"),
-                "the request was served on the SCOPE's blackboard — the shared board");
+                "the pending key entered its DECLARED state — no authored interrupt");
             Assert.IsFalse(host.Context.blackboard.ContainsKey("test.request"),
-                "and consumed by the flow itself");
+                "and leaving the request state consumed the key — no authored clear");
+        }
+
+        [Test]
+        public void TypedRequest_GoesThroughTheDefsRows()
+        {
+            (StateTreeContextHost host, InventoryService service, _) = MakeFlowsFixture();
+            service.TickFlows(0.02f);   // start the tree
+
+            service.Request("test.request");
+            for (int i = 0; i < 3; i++)
+                service.TickFlows(0.02f);
+            Assert.IsTrue(host.Context.blackboard.ContainsKey("test.served"),
+                "the typed door writes the same key the flow serves");
+
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(
+                "not a declared request"));
+            service.Request("test.typo");
         }
     }
 }

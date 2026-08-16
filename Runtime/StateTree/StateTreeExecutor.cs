@@ -480,6 +480,26 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>The fired transition, taken. It is the TRANSITION rather than the target id
         /// because a transition carries more than a destination since M7j — it also says what to do
         /// with the returns of the tasks it is ending.</summary>
+        /// <summary>
+        /// An EXTERNALLY requested transition (the §4c flows runner): move to a node by id
+        /// exactly as a fired interrupt would — outputs skipped (there is no authored
+        /// transition to route), running tasks Cancelled, listeners told. False when the
+        /// run is down or the id is unknown; the caller decides whether that is loud.
+        /// </summary>
+        public bool RequestTransition(string targetNodeId)
+        {
+            if (!isRunning || string.IsNullOrEmpty(targetNodeId)
+                || !m_NodeIndex.TryGetValue(targetNodeId, out var target))
+                return false;
+            string previousId = m_CurrentNode != null ? m_CurrentNode.nodeId : "";
+            target = ResolveEntryNode(target);
+            nodeLeft?.Invoke(previousId);
+            ExitRunningTasks(StateTreeStatus.Cancelled);
+            EnterNode(target);
+            activeNodeChanged?.Invoke(previousId, target.nodeId);
+            return true;
+        }
+
         private void TransitionTo(StateTreeTransition transition)
         {
             string targetId = transition != null ? transition.targetNodeId : "";

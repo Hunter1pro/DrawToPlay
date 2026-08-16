@@ -46,10 +46,31 @@ namespace PowerOfFire.DrawToPlay
         public string treeKind = "";
 
         [Tooltip("The subsystem's OWN flow tree (the UI wiring brief §4b), run by the "
-            + "service on its scope for as long as it lives. Its declared keys are the "
-            + "subsystem's request API: anything that writes one triggers the matching flow "
-            + "state, no matter who wrote it. Empty = the service has no flows.")]
+            + "service on its scope for as long as it lives. Empty = the service has no "
+            + "flows.")]
         public StateTreeAsset flows;
+
+        /// <summary>
+        /// THE REQUEST API (§4c) — what this subsystem answers to, declared where the
+        /// subsystem is declared. One row per request: the blackboard key that asks, the
+        /// flow state that serves, the sentence that explains. The service runner derives
+        /// the plumbing FROM these rows — entry when the key appears, consume when the
+        /// state exits — so the flow tree authors only what a request MEANS. Declaration
+        /// order is priority when several requests are pending.
+        /// </summary>
+        public List<ServiceRequest> requests = new List<ServiceRequest>();
+
+        /// <summary>The declared request for a key, or null.</summary>
+        public ServiceRequest RequestFor(string key)
+        {
+            for (int i = 0; i < requests.Count; i++)
+            {
+                ServiceRequest row = requests[i];
+                if (row != null && string.Equals(row.key, key, StringComparison.Ordinal))
+                    return row;
+            }
+            return null;
+        }
 
         /// <summary>
         /// What may nest under what, per KIND — declared rows a service's validators and
@@ -110,6 +131,21 @@ namespace PowerOfFire.DrawToPlay
             }
             return null;
         }
+    }
+
+    /// <summary>One declared request: the key that asks, the flow state that serves,
+    /// the sentence that explains. A row of the subsystem's API (§4c).</summary>
+    [Serializable]
+    public sealed class ServiceRequest
+    {
+        [Tooltip("The blackboard key that triggers this request — the name callers write.")]
+        public string key = "";
+
+        [Tooltip("The nodeId of the flow state that serves it.")]
+        public string stateId = "";
+
+        [Tooltip("What asking this DOES — shown wherever the API is offered.")]
+        public string description = "";
     }
 
     /// <summary>One kind's birth gift: the task a rule-typed state starts with.</summary>

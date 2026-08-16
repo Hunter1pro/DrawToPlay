@@ -99,6 +99,19 @@ namespace PowerOfFire.DrawToPlay
 
         // ---- the verbs: what a flow can tell this skin to do ---------------------------
 
+        /// <summary>The generic verb surface (§4c) — what UiCallTask speaks.</summary>
+        public override bool Call(string verb, string argument)
+        {
+            switch (verb)
+            {
+                case "toggle": ToggleOpen(); return true;
+                case "open": Open(); return true;
+                case "close": Close(); return true;
+                case "flash": Flash(argument); return true;
+                default: return false;
+            }
+        }
+
         public void Open()
         {
             m_Open = true;

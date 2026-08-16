@@ -19,6 +19,17 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>
+        /// The generic VERB surface (§4c) — what one UiCallTask drives on any skin: the
+        /// bag answers "toggle"/"flash", a HUD answers "pulse", the next view answers
+        /// whatever it declares. Return true when the verb was yours; false lets a call
+        /// pass over views that do not speak it. Base speaks nothing.
+        /// </summary>
+        public virtual bool Call(string verb, string argument)
+        {
+            return false;
+        }
+
+        /// <summary>
         /// The view's ONE output edge (the UI wiring brief): a press becomes a REQUEST on
         /// the root blackboard — the GotoKey shape travel proved — served by whatever flow
         /// state watches the key. Views request; trees decide what happens, visibly.
