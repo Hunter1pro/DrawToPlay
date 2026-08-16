@@ -20,11 +20,24 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     [AddComponentMenu("Draw To Play/Services/Craft Service")]
     [ServiceActionContract(CraftAction, "value = recipe name")]
+    [ServiceActionContract(StartAction, "value = recipe name — the player performs it")]
     public sealed class CraftService : StateTreeServiceBehaviour
     {
+        [Tooltip("How close the player must be for a station's panel to open, in metres. "
+            + "Slightly wider than the craft ability's own reach, so the offer is on screen "
+            + "before the button would work rather than after.")]
+        public float benchRange = 2.4f;
+
+        [Tooltip("The tag a station carries.")]
+        public string stationTag = "station";
+
         /// <summary>The one verb, as a symbol — the attribute above, the switch below and the
         /// demo's def all reference this, so declaration and dispatch cannot drift.</summary>
         public const string CraftAction = "craft";
+
+        /// <summary>The panel button's action: START the player crafting rather than crafting
+        /// for them. Both roads end at <see cref="CraftAction"/> — one after a swing.</summary>
+        public const string StartAction = "craft-start";
 
         [Tooltip("The declaration this service runs: scope and the recipe registry (whose "
             + "dependsOn names the item registry its costs and results pick from).")]
@@ -39,6 +52,154 @@ namespace PowerOfFire.DrawToPlay
         /// self-healing like every other service field — a level swap refills it.</summary>
         [InjectService] private InventoryService m_Inventory;
 
+        /// <summary>
+        /// THE PANEL'S OWN BUTTON — the subsystem talking to itself (§4g), so it stays off the
+        /// def, which is the public API other systems call. Same action as the world press,
+        /// because there is only one rule about what three timber are worth; what differs is
+        /// who asked.
+        /// </summary>
+        protected override void DeclareInternalRequests(List<ServiceRequest> into)
+        {
+            // NO ANNOUNCE BEAT HERE. Reactions run when the REQUEST is served, and this
+            // request only starts a swing — the outcome does not exist yet, so a beat here
+            // showed the PREVIOUS craft's sentence under the new one's button. The panel is
+            // told by the public request that carries the result (see the def's craft.begin),
+            // which is served after the domain hook has written it.
+            into.Add(Internal(CraftPanelView.MakeKey, StartAction));
+        }
+
+        /// <summary>
+        /// WHAT THE PLAYER IS STANDING AT, pushed to the panel each tick.
+        ///
+        /// The service polls and the view does not, which is the doctrine's whole shape: a
+        /// skin that asked "am I near a bench" would need the world, the player and the
+        /// recipe catalog — three references a piece of screen has no business holding. Here
+        /// it is one distance check on the subsystem that already owns all three.
+        /// </summary>
+        protected override void Update()
+        {
+            base.Update();
+            PushOffer();
+        }
+
+        private void PushOffer()
+        {
+            UiService ui = Ui;
+            if (ui == null)
+                return;
+            GameObject view = ui.ShownView("craft");
+            CraftPanelView panel = view != null
+                ? view.GetComponentInChildren<CraftPanelView>(true)
+                : null;
+            if (panel == null)
+                return;
+
+            CraftOffer offer = OfferAt(StateTreeContextHost.Resolve(gameObject,
+                StateTreeContextKind.Player));
+            if (offer == null)
+            {
+                if (m_Shown.Length > 0)
+                    panel.Close();
+                m_Shown = "";
+                return;
+            }
+
+            // ONLY WHEN IT CHANGED. Pushing every frame would rebuild a handful of labels
+            // sixty times a second to say the same sentence — the panel is a statement, not an
+            // animation, and its own contents are the cheapest possible description of it.
+            string signature = Signature(offer);
+            if (signature == m_Shown)
+                return;
+            m_Shown = signature;
+            panel.Show(offer);
+        }
+
+        private static string Signature(CraftOffer offer)
+        {
+            string signature = offer.recipeName + "|" + offer.affordable;
+            for (int i = 0; i < offer.costs.Count; i++)
+            {
+                CraftCostLine cost = offer.costs[i];
+                if (cost != null)
+                    signature += "|" + cost.itemName + cost.held + "/" + cost.need;
+            }
+            return signature;
+        }
+
+        /// <summary>What the panel is currently saying, so it is only told again when the
+        /// sentence would differ. Empty means nothing is on screen.</summary>
+        private string m_Shown = "";
+
+        /// <summary>
+        /// The nearest station within reach, as a finished read model — or null when there is
+        /// none. Both numbers per cost are counted HERE, so the skin adds nothing to them.
+        /// </summary>
+        public CraftOffer OfferAt(StateTreeContextHost player)
+        {
+            if (player == null || player.Context == null)
+                return null;
+            WorldService world = StateTreeContextHost.FindService<WorldService>(player.gameObject);
+            CraftRecipeRegistry catalog = recipes;
+            if (world == null || catalog == null || m_Inventory == null)
+                return null;
+
+            s_Benches.Clear();
+            world.CollectByTag(stationTag, s_Benches);
+            WorldObjectBehaviour bench = null;
+            float best = benchRange;
+            for (int i = 0; i < s_Benches.Count; i++)
+            {
+                WorldObjectBehaviour candidate = s_Benches[i];
+                if (candidate == null || !candidate.isActiveAndEnabled)
+                    continue;
+                Vector3 offset = candidate.transform.position - player.transform.position;
+                offset.y = 0f;
+                if (offset.magnitude >= best)
+                    continue;
+                bench = candidate;
+                best = offset.magnitude;
+            }
+            if (bench == null)
+                return null;
+
+            // WHICH recipe is the placer pattern's answer: the citizen's entry name is the row
+            // it was placed as. The same fact the craft ability reads off it.
+            var recipe = catalog.FindByName(bench.entryName) as CraftRecipeDef;
+            if (recipe == null)
+                return null;
+
+            var offer = new CraftOffer
+            {
+                stationName = bench.name,
+                recipeName = recipe.name,
+                displayName = recipe.displayName,
+                affordable = true
+            };
+            for (int i = 0; i < recipe.costs.Count; i++)
+            {
+                CraftRecipeDef.Cost cost = recipe.costs[i];
+                if (cost == null || string.IsNullOrEmpty(cost.item.entryName))
+                    continue;
+                var line = new CraftCostLine
+                {
+                    item = m_Inventory.Row(cost.item.entryName),
+                    itemName = cost.item.entryName,
+                    need = Mathf.Max(1, cost.count),
+                    held = m_Inventory.Count(player.Context, cost.item.entryName)
+                };
+                offer.costs.Add(line);
+                if (line.met)
+                    continue;
+                offer.affordable = false;
+                if (offer.blocker.Length == 0)
+                    offer.blocker = "needs " + line.need + " " + line.itemName;
+            }
+            return offer;
+        }
+
+        private static readonly List<WorldObjectBehaviour> s_Benches =
+            new List<WorldObjectBehaviour>();
+
         /// <summary>THE DOMAIN HOOK (§4g): what the request's action means.</summary>
         protected override void OnRequest(ServiceRequest request, string value)
         {
@@ -46,6 +207,15 @@ namespace PowerOfFire.DrawToPlay
             {
                 case CraftAction:
                     Craft(value);
+                    break;
+
+                // THE PANEL'S BUTTON IS THE WORLD PRESS. It could have crafted directly — the
+                // verb is right here — and that would have been a second way to spend three
+                // timber, with its own timing, its own animation (none) and its own bugs. It
+                // asks the PLAYER to do it instead, so the bench answers the same way however
+                // you asked, hammering included.
+                case StartAction:
+                    StartCrafting();
                     break;
             }
         }
@@ -117,6 +287,27 @@ namespace PowerOfFire.DrawToPlay
 
             Announce(CraftResult.Key, result);
             return result;
+        }
+
+        /// <summary>
+        /// Ask the player to perform its craft ability. The ability finds the bench itself,
+        /// holds the pose for its clip, and sends the public request when it lands — so this
+        /// method knows nothing about recipes, and the panel button and the action button are
+        /// genuinely one flow.
+        /// </summary>
+        private void StartCrafting()
+        {
+            StateTreeContextHost player = StateTreeContextHost.Resolve(gameObject,
+                StateTreeContextKind.Player);
+            var host = player != null ? player.GetComponent<AbilityHost>() : null;
+            if (host != null && host.Activate("craft"))
+                return;
+
+            // A press that does nothing is the bug this whole pass is about, so say why.
+            Announce(CraftResult.Key, new CraftResult
+            {
+                refusal = "not now", line = "not now"
+            });
         }
 
         /// <summary>A refusal, announced like a success. Every way of not crafting leaves the
