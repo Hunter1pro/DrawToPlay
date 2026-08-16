@@ -96,27 +96,18 @@ namespace PowerOfFire.DrawToPlay.Editor
             ping.style.alignSelf = Align.FlexStart;
             fold.Add(ping);
 
-            var hidden = 0;
+            // Every row on a def IS public — a subsystem's self-talk lives in its own
+            // code, so this window has nothing to filter.
             var listed = 0;
             for (var i = 0; i < def.requests.Count; i++)
             {
                 ServiceRequest row = def.requests[i];
                 if (row == null || string.IsNullOrEmpty(row.key))
                     continue;
-                // The window is the PUBLIC surface: a request the subsystem's own skin
-                // sends itself is not something another system should be offered.
-                if (!row.exposed)
-                {
-                    ++hidden;
-                    continue;
-                }
                 if (listed++ == 0)
                     fold.Add(Header("Requests — what it answers to"));
                 fold.Add(RequestRow(def, row));
             }
-            if (hidden > 0)
-                fold.Add(Note("  (" + hidden + " internal request"
-                    + (hidden == 1 ? "" : "s") + " — the subsystem's own skin)"));
 
             List<StateTreeKeyDeclaration> flowAnnouncements = Announcements(def);
             var anyAnnounced = def.announcements.Count > 0 || flowAnnouncements.Count > 0;

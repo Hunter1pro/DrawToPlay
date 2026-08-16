@@ -61,10 +61,26 @@ namespace PowerOfFire.DrawToPlay
         protected override ServiceDef FlowSource => definition;
 
         /// <summary>
-        /// THE DOMAIN HOOK (§4g): what the def's request rows MEAN. Every one of the
-        /// bag's handlers is single-frame — verb, beats, consume — so no state tree
-        /// serves them; the def rows say the beats, this switch says the verbs, and every
-        /// served request ends with the skin redrawn to the truth.
+        /// THE BAG'S OWN BUTTONS — what its skin sends this service, kept OFF the def:
+        /// the def declares what other systems may ask (opening the bag), and use/wear/
+        /// take-off are the subsystem talking to itself. Served by the same machinery,
+        /// with the same beats it always had.
+        /// </summary>
+        protected override void DeclareInternalRequests(List<ServiceRequest> into)
+        {
+            into.Add(Internal(InventoryWidgetView.UseKey, UseAction,
+                Beat("inventory", "flash", valueArgument: true),
+                Beat("inventory", "announce", argumentKey: ItemUseResult.Key),
+                Beat("hud", "pulse")));
+            into.Add(Internal(InventoryWidgetView.WearKey, WearAction));
+            into.Add(Internal(InventoryWidgetView.TakeoffKey, TakeoffAction));
+        }
+
+        /// <summary>
+        /// THE DOMAIN HOOK (§4g): what a request's action MEANS. Every one of the bag's
+        /// handlers is single-frame — verb, beats, consume — so no state tree serves
+        /// them; the rows say the beats, this switch says the verbs, and every served
+        /// request ends with the skin redrawn to the truth.
         /// </summary>
         protected override void OnRequest(ServiceRequest request, string value)
         {

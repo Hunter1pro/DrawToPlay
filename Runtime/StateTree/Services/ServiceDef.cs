@@ -56,13 +56,18 @@ namespace PowerOfFire.DrawToPlay
         public StateTreeAsset flows;
 
         /// <summary>
-        /// THE REQUEST API (§4c) — what this subsystem answers to, declared where the
-        /// subsystem is declared. One row per request: the blackboard key that asks, the
-        /// sentence that explains, and HOW it is served — a flow state (<c>stateId</c>,
-        /// for handlers that wait) or def-level handling (§4g: <c>action</c> +
-        /// <c>reactions</c>, for the single-frame verb-plus-beats shape). The runner
-        /// derives all plumbing from these rows: entry when the key appears, consume when
-        /// served. Declaration order is priority when several requests are pending.
+        /// THE PUBLIC REQUEST API (§4c) — what OTHER systems may ask of this subsystem,
+        /// declared where the subsystem is declared. One row per request: the blackboard
+        /// key that asks, the sentence that explains, and HOW it is served — a flow state
+        /// (<c>stateId</c>, for handlers that wait) or def-level handling (§4g:
+        /// <c>action</c> + <c>reactions</c>, for the single-frame verb-plus-beats shape).
+        /// The runner derives all plumbing from these rows: entry when the key appears,
+        /// consume when served. Declaration order is priority when several are pending.
+        ///
+        /// A request the subsystem sends ITSELF (its own skin's buttons) does not belong
+        /// here — the def is a public surface, and self-talk on it is noise every reader
+        /// has to learn to ignore. Those live in the service's own code
+        /// (<c>DeclareInternalRequests</c>), served by exactly the same machinery.
         /// </summary>
         public List<ServiceRequest> requests = new List<ServiceRequest>();
 
@@ -168,12 +173,6 @@ namespace PowerOfFire.DrawToPlay
 
         [Tooltip("What asking this DOES — shown wherever the API is offered.")]
         public string description = "";
-
-        [Tooltip("Part of the PUBLIC API — offered to other systems in the Subsystem APIs "
-            + "window and its scaffolds. Clear it for a request the subsystem's own skin "
-            + "sends itself (a bag button); it is served identically, it just stops being "
-            + "advertised as something else should call.")]
-        public bool exposed = true;
 
         [Tooltip("Optional (§4d): the request's value NAMES A ROW of this registry — "
             + "'a string' becomes 'an item of M21Items'. Typed callers are validated "

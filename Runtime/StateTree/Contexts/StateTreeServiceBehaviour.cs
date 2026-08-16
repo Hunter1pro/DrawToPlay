@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
@@ -164,6 +165,7 @@ namespace PowerOfFire.DrawToPlay
                     StartFlows();
                     ShowSpawns(def);
                 }
+                DeclareInternalRequests(m_Internal);
             }
 
             ServePendingRequests();
@@ -214,7 +216,21 @@ namespace PowerOfFire.DrawToPlay
         {
             ServiceDef def = m_FlowsDef;
             var board = Board();
-            if (def == null || board == null)
+            if (board == null)
+                return;
+
+            // The subsystem's OWN requests first (its skin's buttons), then the public
+            // ones the def declares — one serving path, two sources, and the def stays a
+            // public surface.
+            for (int i = 0; i < m_Internal.Count; i++)
+            {
+                ServiceRequest row = m_Internal[i];
+                if (row != null && !string.IsNullOrEmpty(row.key)
+                    && board.ContainsKey(row.key))
+                    ServeDirect(row, board);
+            }
+
+            if (def == null)
                 return;
 
             for (int i = 0; i < def.requests.Count; i++)
@@ -273,6 +289,47 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         protected virtual void OnRequest(ServiceRequest request, string value)
         {
+        }
+
+        /// <summary>
+        /// THE SUBSYSTEM'S OWN REQUESTS — what its skin sends IT, declared in code
+        /// because it is nobody else's business: the def is the public surface, and
+        /// self-talk listed there is noise every reader has to learn to skip. Served by
+        /// exactly the same machinery as a public row (action, reactions, consume), and
+        /// deliberately NOT callable through <see cref="Request"/>: an internal key is
+        /// not an API. Collected once, at the first tick.
+        /// </summary>
+        protected virtual void DeclareInternalRequests(List<ServiceRequest> into)
+        {
+        }
+
+        private readonly List<ServiceRequest> m_Internal = new List<ServiceRequest>();
+
+        /// <summary>One internal request, compactly: the key its skin writes, the domain
+        /// action it means, and the UI beats that follow.</summary>
+        protected static ServiceRequest Internal(string key, string action,
+            params UiReaction[] beats)
+        {
+            var row = new ServiceRequest { key = key, action = action ?? "" };
+            for (int i = 0; beats != null && i < beats.Length; i++)
+            {
+                if (beats[i] != null)
+                    row.reactions.Add(beats[i]);
+            }
+            return row;
+        }
+
+        /// <summary>One UI beat of an internal request — the UiCallTask, in code.</summary>
+        protected static UiReaction Beat(string uiRow, string verb,
+            bool valueArgument = false, string argumentKey = "")
+        {
+            var beat = new UiReaction
+            {
+                verb = verb, valueArgument = valueArgument, argumentKey = argumentKey ?? ""
+            };
+            beat.ui.entryId = "ui." + uiRow;
+            beat.ui.entryName = uiRow;
+            return beat;
         }
 
         /// <summary>The declared UI beats of a def-served request — the UiCallTask, read
