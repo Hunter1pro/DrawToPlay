@@ -241,6 +241,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// one, so it gets a label that says which of the two happened.</summary>
         private const string k_EditFieldKeyUndo = "Set Field Blackboard Key";
 
+        private const string k_EditFieldValueUndo = "Set Field Value";
+
         private const string k_LinkSourceUndo = "Link Parameter To Tree Parameter";
         private const string k_UnlinkSourceUndo = "Unlink Parameter";
 
@@ -1546,6 +1548,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (StateTreeEditorOps.TryGetKeyField(target, fieldName, out var keyKind,
                         out var anyKind))
                     return BuildKeyContractField(target, fieldName, keyKind, anyKind);
+
+                // A plain string with DECLARED offers — a subsystem request, a dialog
+                // result, whatever a game registers. The last thing in the inspector that
+                // was still typed from memory.
+                List<string> offers = StateTreeFieldOffers.For(target, fieldName);
+                if (offers != null)
+                    return BuildOfferedStringField(target, fieldName, offers);
             }
 
             return BuildBindableField(field, target, fieldName, kind, targetIndex);
@@ -1701,6 +1710,77 @@ namespace PowerOfFire.DrawToPlay.Editor
                 + "— add the registry asset there.", HelpBoxMessageType.Warning);
             help.style.marginTop = 2f;
             return help;
+        }
+
+        /// <summary>
+        /// A string field whose values are DECLARED somewhere — text plus a ▾ of the
+        /// offers, and locked while it holds one of them (the house rule: a picked value
+        /// is a wire, and a wire is changed from its picker). Free text stays legal, so an
+        /// author ahead of the data is not blocked by their own vocabulary.
+        /// </summary>
+        private VisualElement BuildOfferedStringField(UnityEngine.Object target,
+            string fieldName, List<string> offers)
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.minHeight = k_RowMinHeight;
+
+            string current = StateTreeEditorOps.StringFieldValue(target, fieldName) ?? "";
+            bool declared = !string.IsNullOrEmpty(current) && offers.Contains(current);
+
+            var text = new TextField(ObjectNames.NicifyVariableName(fieldName))
+            {
+                value = current,
+                isDelayed = true,
+                isReadOnly = declared
+            };
+            text.AddToClassList(TextField.alignedFieldUssClassName);
+            text.style.flexGrow = 1f;
+            text.style.minHeight = k_ControlMinHeight;
+            if (declared)
+            {
+                ApplyOverrideStyle(text, false);
+                text.tooltip = $"'{current}' is a DECLARED value — change it from ▾.";
+            }
+            else
+            {
+                text.tooltip = "Free text: no declaration offers this value. ▾ lists what "
+                    + "the project declares.";
+            }
+            text.RegisterValueChangedCallback(evt =>
+                CommitStringField(target, fieldName, evt.newValue));
+            row.Add(text);
+
+            var pick = new Button(() =>
+            {
+                var menu = new GenericMenu();
+                for (int i = 0; i < offers.Count; i++)
+                {
+                    string offer = offers[i];
+                    string label = string.IsNullOrEmpty(offer) ? "(none)" : offer;
+                    menu.AddItem(new GUIContent(label), offer == current,
+                        () => CommitStringField(target, fieldName, offer));
+                }
+                menu.ShowAsContext();
+            })
+            {
+                text = "▾"
+            };
+            pick.style.flexShrink = 0f;
+            pick.style.minHeight = k_ControlMinHeight;
+            pick.tooltip = "What the project declares for this field.";
+            row.Add(pick);
+            return row;
+        }
+
+        private void CommitStringField(UnityEngine.Object target, string fieldName,
+            string value)
+        {
+            if (!StateTreeEditorOps.SetStringField(target, fieldName, value, k_EditFieldValueUndo))
+                return;
+            m_Edited?.Invoke();
+            RebuildPane();
         }
 
         /// <summary>The ⛃ menu: every entry of the right class from every registry the tree

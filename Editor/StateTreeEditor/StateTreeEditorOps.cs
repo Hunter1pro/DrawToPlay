@@ -1127,6 +1127,36 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <returns>A fresh list, never null; names in declaration order, duplicates included
         /// exactly as declared (a graph that sets one name twice is one output, and the baker is
         /// what decides that — this only reports).</returns>
+        /// <summary>A string field's current value, or null when the field is not one.</summary>
+        internal static string StringFieldValue(object target, string fieldName)
+        {
+            FieldInfo field = target?.GetType().GetField(fieldName,
+                BindingFlags.Public | BindingFlags.Instance);
+            return field != null && field.FieldType == typeof(string)
+                ? field.GetValue(target) as string
+                : null;
+        }
+
+        /// <summary>Write a string field, undo-correctly. False when there is nothing to
+        /// write or the value is unchanged.</summary>
+        internal static bool SetStringField(UnityEngine.Object target, string fieldName,
+            string value, string undoName)
+        {
+            FieldInfo field = target != null
+                ? target.GetType().GetField(fieldName,
+                    BindingFlags.Public | BindingFlags.Instance)
+                : null;
+            if (field == null || field.FieldType != typeof(string))
+                return false;
+            if (string.Equals(field.GetValue(target) as string, value, StringComparison.Ordinal))
+                return false;
+
+            Undo.RecordObject(target, undoName);
+            field.SetValue(target, value ?? string.Empty);
+            EditorUtility.SetDirty(target);
+            return true;
+        }
+
         internal static List<TaskOutputValue> CollectTaskOutputs(StateTreeTaskAsset task)
         {
             var found = new List<TaskOutputValue>();
