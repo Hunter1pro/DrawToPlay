@@ -175,6 +175,11 @@ namespace PowerOfFire.DrawToPlay
         /// when the author actually wants a different name from the one the task returned.</summary>
         public string blackboardKey;
 
+        /// <summary>Wire to a DECLARED key (§4e) — picked, not typed: when set, the executor
+        /// rewrites <see cref="blackboardKey"/> to the declaration's current name at start,
+        /// so renaming the declared key never orphans the route. Empty = free-typed text.</summary>
+        public string keyId = "";
+
         /// <summary>The key this row writes: <see cref="blackboardKey"/>, or the output's own name
         /// when none is given. One place, because the inspector shows it as a placeholder and the
         /// executor writes it, and a disagreement between those two would be invisible.</summary>
@@ -207,7 +212,8 @@ namespace PowerOfFire.DrawToPlay
                 {
                     taskIndex = route.taskIndex,
                     outputName = route.outputName,
-                    blackboardKey = route.blackboardKey
+                    blackboardKey = route.blackboardKey,
+                    keyId = route.keyId
                 });
             }
             return copy;

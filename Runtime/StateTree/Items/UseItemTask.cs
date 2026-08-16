@@ -10,6 +10,8 @@ namespace PowerOfFire.DrawToPlay
     /// bag). Publishes a 'result' output — an <see cref="ItemUseResult"/> contract payload
     /// (§4d) a transition can route to one key for whoever cares what was just drunk.</summary>
     [StateTreeCategory("Tasks/Items", "Use one of a picked consumable item")]
+    [TaskOutputContract("result", typeof(ItemUseResult),
+        "What the use came to — the item's definition, its name, and whether it landed.")]
     public sealed class UseItemTask : StateTreeTaskAsset, IStateTreeOutputSource
     {
         [Tooltip("The item row — picked from the item registry.")]

@@ -39,15 +39,27 @@ namespace PowerOfFire.DrawToPlay
                 return StateTreeStatus.Success;
 
             string value = argument;
+            object payload = null;
             string key = argumentKey;
             if (!string.IsNullOrEmpty(key)
-                && context.blackboard.TryGetValue(key, out object held)
-                && held is string dynamic && !string.IsNullOrEmpty(dynamic))
-                value = dynamic;
+                && context.blackboard.TryGetValue(key, out object held) && held != null)
+            {
+                // A string on the key is the scalar argument; anything richer is a CONTRACT
+                // PAYLOAD (§4e) handed to the skin whole.
+                if (held is string dynamic)
+                {
+                    if (!string.IsNullOrEmpty(dynamic))
+                        value = dynamic;
+                }
+                else
+                {
+                    payload = held;
+                }
+            }
 
             UiViewBehaviour[] views = view.GetComponentsInChildren<UiViewBehaviour>(true);
             for (int i = 0; i < views.Length; i++)
-                views[i].Call(verb, value);
+                views[i].Call(verb, value, payload);
             return StateTreeStatus.Success;
         }
     }

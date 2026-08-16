@@ -95,6 +95,60 @@ namespace PowerOfFire.DrawToPlay
             };
             m_Panel.Add(m_Grid);
             root.Add(m_Panel);
+
+            // The announce line: "used: <bound>" — the bound half is written by Unity's
+            // runtime data binding against the routed contract object, never by hand.
+            m_AnnounceLine = new VisualElement
+            {
+                style =
+                {
+                    position = Position.Absolute,
+                    top = 26f, right = 120f,
+                    flexDirection = FlexDirection.Row,
+                    display = DisplayStyle.None
+                },
+                pickingMode = PickingMode.Ignore
+            };
+            m_AnnounceLine.Add(new Label("used: ")
+            {
+                style = { fontSize = 12f, color = new Color(1f, 1f, 1f, 0.55f) },
+                pickingMode = PickingMode.Ignore
+            });
+            m_Announce = new Label("")
+            {
+                style =
+                {
+                    fontSize = 12f,
+                    color = new Color(0.55f, 0.9f, 0.55f),
+                    unityFontStyleAndWeight = FontStyle.Bold
+                },
+                pickingMode = PickingMode.Ignore
+            };
+            m_AnnounceLine.Add(m_Announce);
+            root.Add(m_AnnounceLine);
+        }
+
+        private VisualElement m_AnnounceLine;
+        private Label m_Announce;
+
+        /// <summary>§4e's binding demo, end to end: the flow routed a typed object here;
+        /// the label's text is a DataBinding with a PropertyPath into that class —
+        /// nameof-safe, refactor-following — shown for a beat and gone.</summary>
+        private void Announce(object payload)
+        {
+            if (m_Announce == null || payload == null)
+                return;
+            m_Announce.dataSource = payload;
+            m_Announce.SetBinding("text", new DataBinding
+            {
+                dataSourcePath = new Unity.Properties.PropertyPath(
+                    nameof(ItemUseResult.itemName)),
+                bindingMode = BindingMode.ToTarget
+            });
+            m_AnnounceLine.style.display = DisplayStyle.Flex;
+            m_AnnounceLine.schedule
+                .Execute(() => m_AnnounceLine.style.display = DisplayStyle.None)
+                .StartingIn(1400);
         }
 
         // ---- the verbs: what a flow can tell this skin to do ---------------------------
@@ -110,6 +164,19 @@ namespace PowerOfFire.DrawToPlay
                 case "flash": Flash(argument); return true;
                 default: return false;
             }
+        }
+
+        /// <summary>The payload flavor (§4e): "announce" takes the routed
+        /// <see cref="ItemUseResult"/> whole and BINDS it — Unity's runtime data binding,
+        /// a PropertyPath against the contract class, no label.text plumbing between.</summary>
+        public override bool Call(string verb, string argument, object payload)
+        {
+            if (verb == "announce")
+            {
+                Announce(payload);
+                return true;
+            }
+            return Call(verb, argument);
         }
 
         public void Open()

@@ -123,6 +123,34 @@ namespace PowerOfFire.DrawToPlay
     /// state that <c>OnExit</c> tears down — which is exactly what <see cref="RunGraphTask"/> does,
     /// since its OnExit destroys the instance the values live on.
     /// </summary>
+    /// <summary>
+    /// A runtime-built output, DECLARED (§4e) — the class-level twin of a [TaskOutput]
+    /// field, for tasks whose outputs exist only when they run
+    /// (<see cref="IStateTreeOutputSource"/>). What it buys is the OFFER: the route editor
+    /// can list "result : ItemUseResult" in a dropdown and filter target keys to
+    /// compatible declarations, instead of showing a text field into a dictionary.
+    /// Infrastructure wires declare contracts; a plain state's ad-hoc blackboard string
+    /// needs none of this.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = true)]
+    public sealed class TaskOutputContractAttribute : Attribute
+    {
+        public readonly string name;
+
+        /// <summary>The payload's class for object outputs; null for a scalar contract.</summary>
+        public readonly Type payloadType;
+
+        public readonly string description;
+
+        public TaskOutputContractAttribute(string name, Type payloadType = null,
+            string description = "")
+        {
+            this.name = name;
+            this.payloadType = payloadType;
+            this.description = description;
+        }
+    }
+
     public interface IStateTreeOutputSource
     {
         /// <summary>Appends this task's outputs to <paramref name="into"/>.</summary>

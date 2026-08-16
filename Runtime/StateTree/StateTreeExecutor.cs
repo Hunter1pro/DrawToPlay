@@ -1157,11 +1157,38 @@ namespace PowerOfFire.DrawToPlay
                 return;
 
             for (int i = 0; i < node.tasks.Count; i++)
+            {
                 ResolveKeyFieldsOn(node.tasks[i], node.nodeId);
+                // The flat-field reflection above cannot see into the returns LIST — the
+                // wired landing keys there follow declared renames the same way (§4e).
+                var returns = node.tasks[i] != null ? node.tasks[i].returns : null;
+                for (int j = 0; returns != null && j < returns.Count; j++)
+                {
+                    StateTreeKeyField key = returns[j] != null ? returns[j].key : null;
+                    if (key == null || !key.isWired)
+                        continue;
+                    StateTreeKeyDeclaration declared =
+                        StateTreeKeyResolver.Find(m_ActiveData, owner, key.keyId);
+                    if (declared != null && !string.IsNullOrEmpty(declared.name))
+                        key.BindResolved(declared.name);
+                }
+            }
             for (int i = 0; i < node.transitions.Count; i++)
             {
-                if (node.transitions[i] != null)
-                    ResolveKeyFieldsOn(node.transitions[i].condition, node.nodeId);
+                if (node.transitions[i] == null)
+                    continue;
+                ResolveKeyFieldsOn(node.transitions[i].condition, node.nodeId);
+                // A wired route (§4e) lands under the declaration's CURRENT name.
+                var routes = node.transitions[i].outputRoutes;
+                for (int j = 0; routes != null && j < routes.Count; j++)
+                {
+                    if (routes[j] == null || string.IsNullOrEmpty(routes[j].keyId))
+                        continue;
+                    StateTreeKeyDeclaration declared =
+                        StateTreeKeyResolver.Find(m_ActiveData, owner, routes[j].keyId);
+                    if (declared != null && !string.IsNullOrEmpty(declared.name))
+                        routes[j].blackboardKey = declared.name;
+                }
             }
 
             for (int i = 0; i < node.children.Count; i++)

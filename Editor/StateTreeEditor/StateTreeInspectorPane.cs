@@ -4621,6 +4621,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 evt => CommitRouteKey(transitionIndex, routeIndex, evt.newValue));
             row.Add(key);
 
+            row.Add(BuildRouteKeyPicker(transitionIndex, routeIndex, route, task));
             row.Add(RemoveRouteButton(transitionIndex, routeIndex));
 
             var problem = DescribeRouteProblem(route);
@@ -4687,7 +4688,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (var i = 0; i < outputs.Count; ++i)
             {
                 names.Add(outputs[i].name);
-                labels.Add($"{outputs[i].name} ({KindLabel(outputs[i].kind)})");
+                // A contract output (§4e) is labeled by its PAYLOAD CLASS — the offer says
+                // what crosses, not just that something does.
+                labels.Add(outputs[i].objectValue is Type payload
+                    ? $"{outputs[i].name} : {payload.Name}"
+                    : $"{outputs[i].name} ({KindLabel(outputs[i].kind)})");
             }
 
             var selected = names.IndexOf(current);
@@ -6297,6 +6302,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             var group = StateTreeEditorOps.BeginUndoGroup(k_EditRouteUndo);
             Undo.RecordObject(m_Node, k_EditRouteUndo);
             route.blackboardKey = value;
+            // Typing is the deliberate unwire (§4e): a hand-written name stops following any
+            // declaration's renames, exactly like a key field's unbind gesture.
+            route.keyId = string.Empty;
             EditorUtility.SetDirty(m_Node);
             StateTreeEditorOps.EndUndoGroup(group);
 
@@ -6323,6 +6331,107 @@ namespace PowerOfFire.DrawToPlay.Editor
             return transition != null && !string.IsNullOrEmpty(resolved)
                 && StateTreeEditorOps.CountEntryBindings(m_Tree, transition.targetNodeId,
                     resolved) > 0;
+        }
+
+        /// <summary>
+        /// THE TYPED OFFER (§4e): the route's landing key as a PICK from the tree's declared
+        /// keys, filtered by what the selected output actually is — an object contract sees
+        /// Object keys whose payload agrees, a scalar sees its kind, an undiscoverable
+        /// output sees everything (the honest fallback). Picking wires by id so declaration
+        /// renames follow; typing in the text field is the deliberate unwire.
+        /// </summary>
+        private VisualElement BuildRouteKeyPicker(int transitionIndex, int routeIndex,
+            TransitionOutputRoute route, StateTreeTaskAsset task)
+        {
+            var pick = new Button { text = "▤" };
+            pick.style.flexShrink = 0f;
+            pick.style.minHeight = k_ControlMinHeight;
+            pick.tooltip = "Pick a DECLARED key to land under, offered by type. Picking wires "
+                + "by id (renames follow); typing a name instead unwires.";
+            pick.clicked += () =>
+            {
+                Type payload = null;
+                var kind = GraphTaskParameterKind.String;
+                var kindKnown = false;
+                var outputs = StateTreeEditorOps.CollectTaskOutputs(task);
+                for (var i = 0; i < outputs.Count; ++i)
+                {
+                    if (!string.Equals(outputs[i].name, route.outputName,
+                        StringComparison.Ordinal))
+                        continue;
+                    payload = outputs[i].objectValue as Type;
+                    kind = outputs[i].kind;
+                    kindKnown = true;
+                    break;
+                }
+
+                var menu = new GenericMenu();
+                var keys = m_Tree != null ? m_Tree.keys : null;
+                var offered = 0;
+                for (var i = 0; keys != null && i < keys.Count; ++i)
+                {
+                    var declared = keys[i];
+                    if (declared == null || string.IsNullOrEmpty(declared.name)
+                        || !RouteKeyCompatible(declared, payload, kind, kindKnown))
+                        continue;
+                    ++offered;
+                    var choice = declared;
+                    menu.AddItem(new GUIContent(choice.name + DeclaredKeySuffix(choice)),
+                        string.Equals(route.keyId, choice.id, StringComparison.Ordinal),
+                        () =>
+                        {
+                            CommitRoute(transitionIndex, routeIndex, entry =>
+                            {
+                                entry.blackboardKey = choice.name;
+                                entry.keyId = choice.id;
+                            });
+                            RebuildPane();
+                        });
+                }
+                if (offered == 0)
+                    menu.AddDisabledItem(new GUIContent("no compatible declared keys"));
+                menu.ShowAsContext();
+            };
+            return pick;
+        }
+
+        private static string DeclaredKeySuffix(StateTreeKeyDeclaration declared)
+        {
+            if (!string.IsNullOrEmpty(declared.payloadTypeName))
+                return " : " + declared.payloadTypeName;
+            if (declared.namesRowOf != null)
+                return " — row of " + declared.namesRowOf.name;
+            return " (" + declared.kind + ")";
+        }
+
+        /// <summary>What may land where: an object contract only on an Object key whose
+        /// payload agrees (or is open); Float/Bool interchange (one numeric slot, the
+        /// TaskOutputValue rule); strings on the string-flavored kinds.</summary>
+        private static bool RouteKeyCompatible(StateTreeKeyDeclaration declared, Type payload,
+            GraphTaskParameterKind kind, bool kindKnown)
+        {
+            if (payload != null)
+            {
+                return declared.kind == StateTreeKeyKind.Object
+                    && (string.IsNullOrEmpty(declared.payloadTypeName)
+                        || string.Equals(declared.payloadTypeName, payload.Name,
+                            StringComparison.Ordinal)
+                        || string.Equals(declared.payloadTypeName, payload.FullName,
+                            StringComparison.Ordinal));
+            }
+            if (!kindKnown)
+                return true;
+            switch (kind)
+            {
+                case GraphTaskParameterKind.Float:
+                case GraphTaskParameterKind.Bool:
+                    return declared.kind == StateTreeKeyKind.Float
+                        || declared.kind == StateTreeKeyKind.Bool;
+                default:
+                    return declared.kind == StateTreeKeyKind.String
+                        || declared.kind == StateTreeKeyKind.Tag
+                        || declared.kind == StateTreeKeyKind.Screen;
+            }
         }
 
         /// <summary>The same question from the field's end: is the key this binding reads written

@@ -1163,6 +1163,23 @@ namespace PowerOfFire.DrawToPlay.Editor
                 found.Add(new TaskOutputValue { name = field.Name, kind = kind });
             }
 
+            // Runtime-built outputs, DECLARED (§4e): the class-level contract attribute is
+            // what makes an IStateTreeOutputSource's output pickable. The payload TYPE
+            // rides in objectValue — an editor-only carrier the label reads back.
+            var contracts = (TaskOutputContractAttribute[])task.GetType()
+                .GetCustomAttributes(typeof(TaskOutputContractAttribute), true);
+            for (var i = 0; i < contracts.Length; ++i)
+            {
+                if (string.IsNullOrEmpty(contracts[i].name))
+                    continue;
+                found.Add(new TaskOutputValue
+                {
+                    name = contracts[i].name,
+                    kind = GraphTaskParameterKind.String,
+                    objectValue = contracts[i].payloadType
+                });
+            }
+
             return found;
         }
 

@@ -29,6 +29,14 @@ namespace PowerOfFire.DrawToPlay
             return false;
         }
 
+        /// <summary>The payload flavor (§4e): a verb handed a whole CONTRACT OBJECT — an
+        /// ItemUseResult a flow routed onto the board — beside the scalar argument. The
+        /// base forwards to the scalar form so a skin overrides whichever it speaks.</summary>
+        public virtual bool Call(string verb, string argument, object payload)
+        {
+            return Call(verb, argument);
+        }
+
         /// <summary>
         /// The view's ONE output edge (the UI wiring brief): a press becomes a REQUEST on
         /// the root blackboard — the GotoKey shape travel proved — served by whatever flow

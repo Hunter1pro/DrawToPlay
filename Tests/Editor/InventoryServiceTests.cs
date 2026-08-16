@@ -362,6 +362,18 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void UseItemTask_DeclaresItsContract_ForTheTypedOffer()
+        {
+            // §4e: a runtime-built output is DECLARED by attribute, so the route editor can
+            // offer "result : ItemUseResult" instead of a text field into a dictionary.
+            var contracts = (TaskOutputContractAttribute[])typeof(UseItemTask)
+                .GetCustomAttributes(typeof(TaskOutputContractAttribute), true);
+            Assert.AreEqual(1, contracts.Length);
+            Assert.AreEqual("result", contracts[0].name);
+            Assert.AreEqual(typeof(ItemUseResult), contracts[0].payloadType);
+        }
+
+        [Test]
         public void ForgetWornOnPlayerChange_DropsRecordsWithoutReverting()
         {
             // The level-swap moment: the OLD body's modifiers die with its components, so
