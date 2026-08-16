@@ -45,19 +45,58 @@ namespace PowerOfFire.DrawToPlay.Editor
             EditorUtility.SetDirty(target);
         }
 
+        /// <summary>The lock rule, uniform (§4g review): a value that MATCHES a declared
+        /// offer is BOUND — the field renders read-only and the ▾ is how it changes
+        /// (pick another offer, or the menu's clear item to go free-text). A value no
+        /// offer knows is free text and stays editable. Derived, not stored: bound IS
+        /// "the contract recognises it".</summary>
+        private void BoundTextField(string label, string tooltip, string current,
+            bool bound, System.Action<string> set)
+        {
+            if (bound)
+            {
+                using (new EditorGUI.DisabledScope(true))
+                {
+                    EditorGUILayout.TextField(new GUIContent(label, tooltip
+                        + " — BOUND to a declared offer; change it from ▾."), current);
+                }
+            }
+            else
+            {
+                string typed = EditorGUILayout.DelayedTextField(
+                    new GUIContent(label, tooltip), current);
+                if (typed != current)
+                    Commit(() => set(typed));
+            }
+        }
+
+        private static bool Offered(string[] offers, string value)
+        {
+            for (int i = 0; i < offers.Length; i++)
+            {
+                if (string.Equals(offers[i], value, System.StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
         // ---- the service type: who runs this def ---------------------------------------
 
         private void DrawServiceType(ServiceDef def)
         {
             EditorGUILayout.BeginHorizontal();
-            string typed = EditorGUILayout.DelayedTextField(new GUIContent("Service Type",
+            BoundTextField("Service Type",
                 "The service class that runs this def — the source of the action "
-                + "vocabulary below."), def.serviceTypeName);
-            if (typed != def.serviceTypeName)
-                Commit(() => def.serviceTypeName = typed);
+                + "vocabulary below.",
+                def.serviceTypeName,
+                ResolveServiceType(def.serviceTypeName) != null,
+                value => def.serviceTypeName = value);
             if (GUILayout.Button("▾", GUILayout.Width(22f)))
             {
                 var menu = new GenericMenu();
+                menu.AddItem(new GUIContent("(none)"),
+                    string.IsNullOrEmpty(def.serviceTypeName),
+                    () => Commit(() => def.serviceTypeName = ""));
                 foreach (System.Type type in
                     TypeCache.GetTypesDerivedFrom<StateTreeServiceBehaviour>())
                 {
@@ -114,11 +153,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                     Commit(() => row.namesRowOf = registry);
 
                 EditorGUILayout.BeginHorizontal();
-                string action = EditorGUILayout.DelayedTextField(new GUIContent("Action",
+                BoundTextField("Action",
                     "The domain verb the service interprets — picked from its declared "
-                    + "vocabulary."), row.action);
-                if (action != row.action)
-                    Commit(() => row.action = action);
+                    + "vocabulary.",
+                    row.action,
+                    !string.IsNullOrEmpty(row.action)
+                        && Offered(ActionOffers(def), row.action),
+                    value => row.action = value);
                 ActionPicker(def, row);
                 EditorGUILayout.EndHorizontal();
 
@@ -167,9 +208,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                 EditorGUILayout.EndHorizontal();
 
                 EditorGUILayout.BeginHorizontal();
-                string verb = EditorGUILayout.DelayedTextField("Verb", beat.verb);
-                if (verb != beat.verb)
-                    Commit(() => beat.verb = verb);
+                BoundTextField("Verb", "The verb, in the view's vocabulary.",
+                    beat.verb,
+                    !string.IsNullOrEmpty(beat.verb)
+                        && Offered(VerbOffers(beat.ui.entryName), beat.verb),
+                    value => beat.verb = value);
                 VerbPicker(beat);
                 EditorGUILayout.EndHorizontal();
 
@@ -180,12 +223,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                     Commit(() => beat.valueArgument = valueArgument);
 
                 EditorGUILayout.BeginHorizontal();
-                string argumentKey = EditorGUILayout.DelayedTextField(
-                    new GUIContent("Argument Key", "A blackboard key whose held value "
-                        + "rides along — an announcement's payload travels whole."),
-                    beat.argumentKey);
-                if (argumentKey != beat.argumentKey)
-                    Commit(() => beat.argumentKey = argumentKey);
+                BoundTextField("Argument Key",
+                    "A blackboard key whose held value rides along — an announcement's "
+                    + "payload travels whole.",
+                    beat.argumentKey,
+                    !string.IsNullOrEmpty(beat.argumentKey)
+                        && Offered(AnnouncementKeys(def), beat.argumentKey),
+                    value => beat.argumentKey = value);
                 ArgumentKeyPicker(def, beat);
                 EditorGUILayout.EndHorizontal();
                 EditorGUILayout.Space(2f);
@@ -256,10 +300,16 @@ namespace PowerOfFire.DrawToPlay.Editor
                     break;
                 }
                 EditorGUILayout.EndHorizontal();
-                string payload = EditorGUILayout.DelayedTextField("Payload Type",
-                    announced.payloadTypeName);
-                if (payload != announced.payloadTypeName)
-                    Commit(() => announced.payloadTypeName = payload);
+                EditorGUILayout.BeginHorizontal();
+                BoundTextField("Payload Type",
+                    "The contract class this key carries — the project already declares "
+                    + "these ([TaskOutputContract] payloads).",
+                    announced.payloadTypeName,
+                    !string.IsNullOrEmpty(announced.payloadTypeName)
+                        && Offered(PayloadTypeOffers(), announced.payloadTypeName),
+                    value => announced.payloadTypeName = value);
+                PayloadTypePicker(announced);
+                EditorGUILayout.EndHorizontal();
                 string description = EditorGUILayout.DelayedTextField("Description",
                     announced.description);
                 if (description != announced.description)
@@ -270,7 +320,92 @@ namespace PowerOfFire.DrawToPlay.Editor
                 Commit(() => def.announcements.Add(new ServiceAnnouncement()));
         }
 
+        // ---- the offers: what the project's contracts declare --------------------------
+
+        private static string[] ActionOffers(ServiceDef def)
+        {
+            System.Type type = ResolveServiceType(def.serviceTypeName);
+            if (type == null)
+                return System.Array.Empty<string>();
+            var contracts = (ServiceActionContractAttribute[])type.GetCustomAttributes(
+                typeof(ServiceActionContractAttribute), true);
+            var offers = new string[contracts.Length];
+            for (int i = 0; i < contracts.Length; i++)
+                offers[i] = contracts[i].action;
+            return offers;
+        }
+
+        private static string[] VerbOffers(string rowName)
+        {
+            GameObject prefab = SpawnPrefab(rowName);
+            if (prefab == null)
+                return System.Array.Empty<string>();
+            var offers = new System.Collections.Generic.List<string>();
+            UiViewBehaviour[] views = prefab.GetComponentsInChildren<UiViewBehaviour>(true);
+            for (int i = 0; i < views.Length; i++)
+            {
+                if (views[i] == null)
+                    continue;
+                var contracts = (UiVerbContractAttribute[])views[i].GetType()
+                    .GetCustomAttributes(typeof(UiVerbContractAttribute), true);
+                for (int k = 0; k < contracts.Length; k++)
+                    offers.Add(contracts[k].verb);
+            }
+            return offers.ToArray();
+        }
+
+        private static string[] AnnouncementKeys(ServiceDef def)
+        {
+            var offers = new System.Collections.Generic.List<string>();
+            for (int i = 0; i < def.announcements.Count; i++)
+            {
+                if (def.announcements[i] != null
+                    && !string.IsNullOrEmpty(def.announcements[i].key))
+                    offers.Add(def.announcements[i].key);
+            }
+            return offers.ToArray();
+        }
+
+        /// <summary>Every payload class any task contract declares — the type names the
+        /// project actually sends, which is what an announcement may carry.</summary>
+        private static string[] PayloadTypeOffers()
+        {
+            var offers = new System.Collections.Generic.List<string>();
+            foreach (System.Type type in TypeCache.GetTypesDerivedFrom<StateTreeTaskAsset>())
+            {
+                var contracts = (TaskOutputContractAttribute[])type.GetCustomAttributes(
+                    typeof(TaskOutputContractAttribute), true);
+                for (int i = 0; i < contracts.Length; i++)
+                {
+                    if (contracts[i].payloadType != null
+                        && !offers.Contains(contracts[i].payloadType.Name))
+                        offers.Add(contracts[i].payloadType.Name);
+                }
+            }
+            return offers.ToArray();
+        }
+
         // ---- the pickers: offers from declared contracts -------------------------------
+
+        private void PayloadTypePicker(ServiceAnnouncement announced)
+        {
+            if (!GUILayout.Button("▾", GUILayout.Width(22f)))
+                return;
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("(none)"),
+                string.IsNullOrEmpty(announced.payloadTypeName),
+                () => Commit(() => announced.payloadTypeName = ""));
+            string[] offers = PayloadTypeOffers();
+            if (offers.Length == 0)
+                menu.AddDisabledItem(new GUIContent("no [TaskOutputContract] payloads yet"));
+            for (int i = 0; i < offers.Length; i++)
+            {
+                string offer = offers[i];
+                menu.AddItem(new GUIContent(offer), offer == announced.payloadTypeName,
+                    () => Commit(() => announced.payloadTypeName = offer));
+            }
+            menu.ShowAsContext();
+        }
 
         private void ActionPicker(ServiceDef def, ServiceRequest row)
         {
@@ -309,6 +444,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (!GUILayout.Button("▾", GUILayout.Width(22f)))
                 return;
             var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(beat.verb),
+                () => Commit(() => beat.verb = ""));
             var any = false;
             GameObject prefab = SpawnPrefab(beat.ui.entryName);
             if (prefab != null)
