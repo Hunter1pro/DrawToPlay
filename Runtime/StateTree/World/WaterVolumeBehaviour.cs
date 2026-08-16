@@ -19,7 +19,18 @@ namespace PowerOfFire.DrawToPlay
     [AddComponentMenu("Draw To Play/World/Water Volume")]
     public sealed class WaterVolumeBehaviour : WorldObjectBehaviour
     {
-        [Tooltip("The volume's extent in world units, centred on this object.")]
+        [Tooltip("Take the water's extent from the SHAPE IT DRAWS — move or scale the plane "
+            + "and the place follows. Off = the size below is the truth and the visual is "
+            + "decoration.")]
+        public bool fitToVisual = true;
+
+        [Tooltip("How deep the volume reaches below and above its surface. Generous on "
+            + "purpose: a boat sits on the surface, a walker stands on the bed, and neither "
+            + "should fall out of the volume over a step height.")]
+        public float depth = 4f;
+
+        [Tooltip("The volume's extent in world units, centred on this object — used when it "
+            + "is not fitted to the visual.")]
         public Vector3 size = new Vector3(20f, 6f, 20f);
 
         [Tooltip("The tag actors look for. A level may hold several volumes; they all "
@@ -46,13 +57,46 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public bool Contains(Vector3 worldPoint)
         {
+            // FITTED TO WHAT IT DRAWS, by default (the review that found this): a hand-typed
+            // extent beside a plane you can drag is two sources for one fact, and they drifted
+            // — the scene ended up with a 10-metre pond claiming a 48-metre volume, so dry
+            // ground several strides inland counted as water. The picture IS the place now;
+            // scaling the plane is the whole authoring act.
+            if (fitToVisual)
+            {
+                Renderer visual = Visual;
+                if (visual != null)
+                {
+                    Bounds bounds = visual.bounds;
+                    float half = Mathf.Max(0.01f, depth) * 0.5f;
+                    return worldPoint.x >= bounds.min.x && worldPoint.x <= bounds.max.x
+                        && worldPoint.z >= bounds.min.z && worldPoint.z <= bounds.max.z
+                        && worldPoint.y >= transform.position.y - half
+                        && worldPoint.y <= transform.position.y + half;
+                }
+            }
+
             Vector3 local = Quaternion.Inverse(transform.rotation)
                 * (worldPoint - transform.position);
-            Vector3 half = size * 0.5f;
-            return Mathf.Abs(local.x) <= half.x
-                && Mathf.Abs(local.y) <= half.y
-                && Mathf.Abs(local.z) <= half.z;
+            Vector3 halfSize = size * 0.5f;
+            return Mathf.Abs(local.x) <= halfSize.x
+                && Mathf.Abs(local.y) <= halfSize.y
+                && Mathf.Abs(local.z) <= halfSize.z;
         }
+
+        /// <summary>The shape this water draws — its own renderer, or the first one under it
+        /// for a pool built as a parent with a plane inside.</summary>
+        private Renderer Visual
+        {
+            get
+            {
+                if (m_Visual == null)
+                    m_Visual = GetComponentInChildren<Renderer>();
+                return m_Visual;
+            }
+        }
+
+        [System.NonSerialized] private Renderer m_Visual;
 
         /// <summary>
         /// Where a boat sits: THE WATER'S OWN HEIGHT.
@@ -87,9 +131,21 @@ namespace PowerOfFire.DrawToPlay
             return null;
         }
 
+        /// <summary>The volume as the RULES see it — drawn from the same source Contains uses,
+        /// so a selected water never shows one box and tests another.</summary>
         private void OnDrawGizmosSelected()
         {
             Gizmos.color = new Color(0.3f, 0.6f, 0.9f, 0.35f);
+            Renderer visual = fitToVisual ? GetComponentInChildren<Renderer>() : null;
+            if (visual != null)
+            {
+                Gizmos.matrix = Matrix4x4.identity;
+                var bounds = visual.bounds;
+                Gizmos.DrawCube(
+                    new Vector3(bounds.center.x, transform.position.y, bounds.center.z),
+                    new Vector3(bounds.size.x, Mathf.Max(0.01f, depth), bounds.size.z));
+                return;
+            }
             Gizmos.matrix = transform.localToWorldMatrix;
             Gizmos.DrawCube(Vector3.zero, size);
         }

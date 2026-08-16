@@ -35,8 +35,13 @@ namespace PowerOfFire.DrawToPlay
     [StateTreeCategory("Tasks/World", "Set the aboard mode from the water underfoot")]
     public sealed class WaterCheckTask : StateTreeTaskAsset
     {
-        [Tooltip("The item that permits being afloat — a boat. Empty = anyone may float.")]
+        [Tooltip("The item that permits being afloat — a boat. Empty = this actor is not "
+            + "gated by anything carried.")]
         public StateTreeEntryRef<ItemDef> requires = new StateTreeEntryRef<ItemDef>();
+
+        [Tooltip("A world tag that permits being afloat, for an actor with no bag to carry an "
+            + "artifact in — a raider that arrived in its own boat. Empty = no tag route.")]
+        public string requiresTag = "";
 
         [Tooltip("The tag the level's water volumes carry.")]
         public string waterTag = "water";
@@ -88,14 +93,34 @@ namespace PowerOfFire.DrawToPlay
             return StateTreeStatus.Running;
         }
 
-        /// <summary>Why this actor may not float, or null when it may. A REASON rather than
-        /// a bool, because "no boat" and "no inventory reachable from here" are different
-        /// problems and only one of them is the player's fault.</summary>
+        /// <summary>
+        /// Why this actor may not float, or null when it may. A REASON rather than a bool,
+        /// because "no boat" and "no inventory reachable from here" are different problems and
+        /// only one of them is the player's fault.
+        ///
+        /// TWO ROUTES TO THE SAME RULE, because "nobody floats without a reason" should hold
+        /// for everyone and only the player has a bag to keep an artifact in. A carried ITEM is
+        /// the player's reason; a world TAG is a raider's, declared on the row that places it.
+        /// Leaving both empty means an actor that floats unconditionally, which the review
+        /// rightly read as the rule not applying to half the cast.
+        /// </summary>
         private string WhyNotFloat(StateTreeContext context)
         {
+            if (!string.IsNullOrEmpty(requiresTag))
+            {
+                var citizens = context.owner.GetComponents<WorldObjectBehaviour>();
+                for (int i = 0; i < citizens.Length; i++)
+                {
+                    if (citizens[i] != null && citizens[i].HasTag(requiresTag))
+                        return null;
+                }
+            }
+
             string itemName = requires.entryName;
             if (string.IsNullOrEmpty(itemName))
-                return null;
+                return string.IsNullOrEmpty(requiresTag)
+                    ? null
+                    : "is no '" + requiresTag + "'";
             InventoryService inventory =
                 StateTreeContextHost.FindService<InventoryService>(context.owner);
             if (inventory == null)
