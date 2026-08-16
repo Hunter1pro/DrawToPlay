@@ -124,18 +124,10 @@ namespace PowerOfFire.DrawToPlay
 
         [InjectService] private UiService m_UiService;
 
-        /// <summary>The screen's ledger, INJECTED (the wiring law) — filled by the base's
-        /// two-pass Start, re-asked at the point of use for EditMode tests and early
-        /// callers. Null is a legal answer (a headless scope has no screen).</summary>
-        protected UiService Ui
-        {
-            get
-            {
-                if (m_UiService == null)
-                    StateTreeServiceInjector.Inject(this, gameObject, true);
-                return m_UiService;
-            }
-        }
+        /// <summary>The screen's ledger, INJECTED — kept fresh by the heartbeat in
+        /// <see cref="TickFlows"/>. Null is a legal answer (a headless scope has no
+        /// screen).</summary>
+        protected UiService Ui => m_UiService;
 
         /// <summary>Virtual so a subclass with its own Update stays honest: override, call
         /// base, then do your work — a hidden (non-override) Update would silently stop the
@@ -151,6 +143,16 @@ namespace PowerOfFire.DrawToPlay
         /// every call serves pending requests (def-level and tree alike).</summary>
         public void TickFlows(float deltaTime)
         {
+            // THE ADOPTION PRINCIPLE, STANDING — and FIRST, before anything reads a
+            // field: injected fields self-heal on the service's own heartbeat. A scope
+            // that arrived late (the player spawns with a level) or was replaced (a level
+            // swap) refills here, because Inject skips every field that already holds a
+            // live value and a dead one counts as empty. A subclass therefore READS its
+            // [InjectService]/[InjectHost] fields, never re-asks — the field IS the
+            // pattern. (Order proven the hard way: spawns showing before this line ran
+            // read a null UiService on boots where the quiet Start pass missed.)
+            StateTreeServiceInjector.Inject(this, gameObject, true);
+
             if (!m_FlowsStarted)
             {
                 m_FlowsStarted = true;
@@ -163,6 +165,7 @@ namespace PowerOfFire.DrawToPlay
                     ShowSpawns(def);
                 }
             }
+
             ServePendingRequests();
             m_Flows?.TickTree(deltaTime);
         }

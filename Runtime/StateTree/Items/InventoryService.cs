@@ -101,7 +101,7 @@ namespace PowerOfFire.DrawToPlay
         {
             if (widget == null)
                 return;
-            StateTreeContextHost player = PlayerHost();
+            StateTreeContextHost player = m_Player;
             if (player == null || player.Context == null)
             {
                 widget.Redraw(null, null);
@@ -253,7 +253,7 @@ namespace PowerOfFire.DrawToPlay
             ItemDef row = Row(itemName);
             if (row == null || string.IsNullOrEmpty(row.useEffect.entryName))
                 return false;
-            StateTreeContextHost player = PlayerHost();
+            StateTreeContextHost player = m_Player;
             if (player == null || player.Context == null)
                 return false;
             EffectDef effect = FindInClosure(row.useEffect.entryName) as EffectDef;
@@ -303,7 +303,7 @@ namespace PowerOfFire.DrawToPlay
             ItemDef row = Row(itemName);
             if (row == null || string.IsNullOrEmpty(row.slot.entryId))
                 return false;
-            StateTreeContextHost player = PlayerHost();
+            StateTreeContextHost player = m_Player;
             if (player == null || player.Context == null
                 || !Has(player.Context, itemName))
                 return false;
@@ -356,7 +356,7 @@ namespace PowerOfFire.DrawToPlay
             {
                 if (!string.Equals(m_Worn[i].slotId, slotId, StringComparison.Ordinal))
                     continue;
-                StateTreeContextHost player = PlayerHost();
+                StateTreeContextHost player = m_Player;
                 var attributes = player != null
                     ? player.GetComponent<AttributeComponent>() : null;
                 for (int j = 0; j < m_Worn[i].handles.Count && attributes != null; j++)
@@ -404,15 +404,6 @@ namespace PowerOfFire.DrawToPlay
         /// next ask — the injector treats a dead host as an empty slot.</summary>
         [InjectHost(StateTreeContextKind.Player, optional: true)]
         private StateTreeContextHost m_Player;
-
-        /// <summary>Injected, re-asked at the point of use (the OutpostNpc form) — the
-        /// player arrives with a level, not with this service.</summary>
-        private StateTreeContextHost PlayerHost()
-        {
-            if (m_Player == null)
-                StateTreeServiceInjector.Inject(this, gameObject, true);
-            return m_Player;
-        }
 
         private StateTreeRegistryEntry FindInClosure(string entryName)
         {

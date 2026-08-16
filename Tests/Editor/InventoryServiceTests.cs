@@ -120,6 +120,11 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Player.autoStart = false;
             m_Player.Register();
             m_Hosts.Add(m_Player);
+
+            // The runtime contract, honored: injected fields are valid from the first
+            // tick — the heartbeat fills them — so the fixture ticks once, exactly as
+            // play mode's first Update would.
+            m_Service.TickFlows(0f);
         }
 
         [TearDown]
