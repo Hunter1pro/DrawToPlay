@@ -42,6 +42,10 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("Starting this cancels any active ability carrying one of these tags.")]
         public List<string> cancelTags = new List<string>();
 
+        [Tooltip("The OWNER holding any of these refuses the activation — a state of the actor, "
+            + "not of another ability. 'No chopping while afloat', 'no casting while silenced'.")]
+        public List<string> blockedByTags = new List<string>();
+
         [Tooltip("Held by the owner while this runs — queryable via AbilityHost.HasTag.")]
         public List<string> activationTags = new List<string>();
 

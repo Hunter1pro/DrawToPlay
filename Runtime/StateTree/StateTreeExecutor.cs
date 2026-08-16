@@ -1274,7 +1274,20 @@ namespace PowerOfFire.DrawToPlay
 
         private void BindReferenceFields(UnityEngine.Object target, string nodeId)
         {
-            if (target == null)
+            BindReferenceFields(target, nodeId, 0);
+        }
+
+        /// <summary>
+        /// <paramref name="depth"/> guards the COMPOSITION walk below: a condition may hold
+        /// other conditions (AllCondition), and an atom nested inside one is as much a part of
+        /// the tree as a task is — it wants its services injected and its rows bound by exactly
+        /// the same pass. The first composite shipped without this and its children evaluated
+        /// with null services, silently answering false: the resolve pass has to follow the
+        /// composition or composing is a trap.
+        /// </summary>
+        private void BindReferenceFields(UnityEngine.Object target, string nodeId, int depth)
+        {
+            if (target == null || depth > 16)
                 return;
 
             // The lean capability wire: [InjectService] fields filled by the framework, no
@@ -1299,6 +1312,20 @@ namespace PowerOfFire.DrawToPlay
                 {
                     if (fields[i].GetValue(target) is IStateTreeServiceRef reference)
                         BindServiceRef(reference, fields[i].Name, nodeId);
+                }
+                else if (typeof(StateTreeConditionAsset).IsAssignableFrom(fields[i].FieldType))
+                {
+                    BindReferenceFields(fields[i].GetValue(target) as StateTreeConditionAsset,
+                        nodeId, depth + 1);
+                }
+                else if (fields[i].GetValue(target) is System.Collections.IEnumerable held
+                    && !(held is string))
+                {
+                    foreach (object item in held)
+                    {
+                        if (item is StateTreeConditionAsset nested)
+                            BindReferenceFields(nested, nodeId, depth + 1);
+                    }
                 }
             }
         }

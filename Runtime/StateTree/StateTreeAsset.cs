@@ -81,7 +81,7 @@ namespace PowerOfFire.DrawToPlay
                 copy.transitions.Add(tr == null ? null : new StateTreeTransition
                 {
                     targetNodeId = tr.targetNodeId,
-                    condition = tr.condition != null ? Instantiate(tr.condition) : null,
+                    condition = DeepCopyCondition(tr.condition, 0),
                     checkWhileRunning = tr.checkWhileRunning,
                     // The executor routes outputs off the COPY's transitions, so a field left out of
                     // this hand-written list is a feature that silently never runs (M7j).
@@ -91,6 +91,50 @@ namespace PowerOfFire.DrawToPlay
             copy.children = new List<StateTreeNodeAsset>(node.children.Count);
             foreach (var child in node.children)
                 copy.children.Add(DeepCopyNode(child, depth + 1));
+            return copy;
+        }
+
+        /// <summary>
+        /// A CONDITION, AND WHATEVER IT HOLDS.
+        ///
+        /// Instantiate copies the object but not what its reference fields point AT, so a
+        /// composite condition's children stayed the authored assets — one set shared by every
+        /// runner, every actor and every level. That is the same hazard the tasks are copied
+        /// for, and it bit exactly as predicted: the framework fills an [InjectService] field
+        /// only when it is empty, so a shared child kept the FIRST level's services, and the
+        /// press it was reading came from an input service that had been unloaded with the
+        /// yard. The edge simply never fired, with every part of it looking correct in the
+        /// inspector.
+        ///
+        /// Reflection, because composition is a shape any condition may have — a list of them,
+        /// a single nested one — and the copy has to follow whatever the author wrote rather
+        /// than a list of types this method knows about.
+        /// </summary>
+        private static StateTreeConditionAsset DeepCopyCondition(StateTreeConditionAsset source,
+            int depth)
+        {
+            if (source == null || depth > 16)
+                return null;
+
+            var copy = Instantiate(source);
+            System.Reflection.FieldInfo[] fields = copy.GetType().GetFields(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            for (int i = 0; i < fields.Length; i++)
+            {
+                if (typeof(StateTreeConditionAsset).IsAssignableFrom(fields[i].FieldType))
+                {
+                    fields[i].SetValue(copy, DeepCopyCondition(
+                        fields[i].GetValue(copy) as StateTreeConditionAsset, depth + 1));
+                }
+                else if (fields[i].FieldType == typeof(List<StateTreeConditionAsset>)
+                    && fields[i].GetValue(copy) is List<StateTreeConditionAsset> held)
+                {
+                    var copies = new List<StateTreeConditionAsset>(held.Count);
+                    for (int j = 0; j < held.Count; j++)
+                        copies.Add(DeepCopyCondition(held[j], depth + 1));
+                    fields[i].SetValue(copy, copies);
+                }
+            }
             return copy;
         }
 
@@ -113,10 +157,35 @@ namespace PowerOfFire.DrawToPlay
                 DestroyTreeObject(task);
             foreach (var tr in node.transitions)
                 if (tr != null)
-                    DestroyTreeObject(tr.condition);
+                    DestroyConditionCopy(tr.condition, 0);
             foreach (var child in node.children)
                 DestroyNodeCopy(child, depth + 1);
             DestroyTreeObject(node);
+        }
+
+        /// <summary>The mirror of <see cref="DeepCopyCondition"/> — a composite's children are
+        /// copies too, so they leak until domain reload unless they go with their parent.</summary>
+        private static void DestroyConditionCopy(StateTreeConditionAsset condition, int depth)
+        {
+            if (condition == null || depth > 16)
+                return;
+
+            System.Reflection.FieldInfo[] fields = condition.GetType().GetFields(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            for (int i = 0; i < fields.Length; i++)
+            {
+                if (typeof(StateTreeConditionAsset).IsAssignableFrom(fields[i].FieldType))
+                {
+                    DestroyConditionCopy(fields[i].GetValue(condition) as StateTreeConditionAsset,
+                        depth + 1);
+                }
+                else if (fields[i].GetValue(condition) is List<StateTreeConditionAsset> held)
+                {
+                    for (int j = 0; j < held.Count; j++)
+                        DestroyConditionCopy(held[j], depth + 1);
+                }
+            }
+            DestroyTreeObject(condition);
         }
 
         private static void DestroyTreeObject(UnityEngine.Object target)

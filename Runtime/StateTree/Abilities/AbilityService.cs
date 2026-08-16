@@ -97,6 +97,19 @@ namespace PowerOfFire.DrawToPlay
             if (!host.CooldownReady(def))
                 return false;
 
+            // WHAT THE OWNER IS, before what it is doing (M26). blockTags is one ability
+            // holding another off; this is the ACTOR's own standing state refusing the verb —
+            // afloat, silenced, bound. Without it a mode had no way to take a land ability
+            // away except by rewriting the tree that offers it, which is the tree learning
+            // about boats. The row says "not while Aboard" and every path to the ability
+            // obeys, including the ones written later.
+            for (int i = 0; i < def.blockedByTags.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(def.blockedByTags[i])
+                    && host.HasTag(def.blockedByTags[i]))
+                    return false;
+            }
+
             AbilityDef active = host.active;
             if (active == null)
                 return true;
