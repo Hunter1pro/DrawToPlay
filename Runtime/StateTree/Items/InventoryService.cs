@@ -19,12 +19,19 @@ namespace PowerOfFire.DrawToPlay
     /// which was the milestone's bet.
     /// </summary>
     [AddComponentMenu("Draw To Play/Services/Inventory Service")]
-    [ServiceActionContract("use", "value = item name")]
-    [ServiceActionContract("wear", "value = item name")]
-    [ServiceActionContract("takeoff", "value = slot name")]
-    [ServiceActionContract("refresh")]
+    [ServiceActionContract(UseAction, "value = item name")]
+    [ServiceActionContract(WearAction, "value = item name")]
+    [ServiceActionContract(TakeoffAction, "value = slot name")]
+    [ServiceActionContract(RefreshAction)]
     public sealed class InventoryService : StateTreeServiceBehaviour
     {
+        // The action vocabulary as SYMBOLS — the attribute above, the switch below, and
+        // the builder all reference these, so declaration and dispatch cannot drift.
+        public const string UseAction = "use";
+        public const string WearAction = "wear";
+        public const string TakeoffAction = "takeoff";
+        public const string RefreshAction = "refresh";
+
         [Tooltip("The declaration this service runs: scope and the item registry (whose "
             + "dependsOn names the effect and slot registries its rows pick from).")]
         public ServiceDef definition;
@@ -65,7 +72,7 @@ namespace PowerOfFire.DrawToPlay
         {
             switch (request.action)
             {
-                case "use":
+                case UseAction:
                 {
                     ItemDef row = Row(value);
                     bool used = Use(value);
@@ -77,10 +84,10 @@ namespace PowerOfFire.DrawToPlay
                     });
                     break;
                 }
-                case "wear":
+                case WearAction:
                     Equip(value);
                     break;
-                case "takeoff":
+                case TakeoffAction:
                 {
                     // Typed request values name ROWS; the domain speaks ids — resolved
                     // here at the boundary, an id passing through untouched.
