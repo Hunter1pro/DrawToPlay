@@ -5,25 +5,35 @@ using UnityEngine.UIElements;
 namespace PowerOfFire.DrawToPlay
 {
     /// <summary>
-    /// THE BAG AS ITS OWN PANEL (M25) — a UI ROW's view like the HUD and the dialog, not a
-    /// corner of the HUD anymore. A toggle button opens a panel showing everything carried,
-    /// and the panel is where the item VERBS live: a consumable row gets a USE button (spend
-    /// one, apply its effect), an equipment row gets WEAR/TAKE OFF (slot swap semantics are
-    /// the service's). The view never decides what an item does — it just reads the row's
-    /// declared behaviour and offers the matching button.
-    ///
-    /// Redraws on the service's <c>changed</c>/<c>equipmentChanged</c> events rather than
-    /// polling; the player scope is resolved per redraw because the player is a spawned
-    /// citizen that is a different object after a level change.
-    ///
-    /// WIRING (the law): the service arrives by INJECTION — filled by UiService at spawn,
-    /// re-injected at the point of use if this view was placed by hand — never by an
-    /// Update loop that polls until something stops being null.
+    /// THE BAG AS A DUMB SYSTEM (the UI wiring brief, variant B) — pixels in, requests out,
+    /// and nothing else. The panel never finds a service, never subscribes, never decides:
+    /// it draws exactly what <see cref="Redraw"/> hands it, and every press becomes ONE
+    /// request key on the root blackboard (<see cref="UiViewBehaviour.Request"/>). What a
+    /// press MEANS — the domain verb, the flash, the HUD pulse, the redraw — is a flow
+    /// STATE in the session tree, readable in the dashboard as a task list. Swapping this
+    /// skin for a radial one changes a prefab reference; the flows never notice.
     /// </summary>
     [AddComponentMenu("Draw To Play/UI/Inventory Widget")]
     [RequireComponent(typeof(UIDocument))]
     public sealed class InventoryWidgetView : UiViewBehaviour
     {
+        // ---- the request vocabulary: the whole surface between this skin and the flows --
+
+        public const string ToggleKey = "ui.bag.toggle";
+
+        /// <summary>Value = the item's registry name.</summary>
+        public const string UseKey = "ui.bag.use";
+
+        /// <summary>Value = the item's registry name.</summary>
+        public const string WearKey = "ui.bag.wear";
+
+        /// <summary>Value = the slot row's id.</summary>
+        public const string TakeoffKey = "ui.bag.takeoff";
+
+        /// <summary>Written by whoever observes an outside change (a pickup on the floor)
+        /// so the refresh FLOW redraws an open bag.</summary>
+        public const string RefreshKey = "ui.bag.refresh";
+
         [Tooltip("Edge length of one item cell in the grid.")]
         public float cellSize = 64f;
 
@@ -33,19 +43,13 @@ namespace PowerOfFire.DrawToPlay
         private Button m_Toggle;
         private bool m_Open;
 
-        [InjectService] private InventoryService m_Inventory;
+        private readonly Dictionary<string, VisualElement> m_Cells =
+            new Dictionary<string, VisualElement>(System.StringComparer.Ordinal);
 
-        /// <summary>The service, injected at the point of use when spawn-time injection has
-        /// not happened (a hand-placed widget) — the OutpostNpc form, with a graceful null.</summary>
-        private InventoryService Inventory
-        {
-            get
-            {
-                if (m_Inventory == null)
-                    StateTreeServiceInjector.Inject(this, gameObject);
-                return m_Inventory;
-            }
-        }
+        private static readonly Color k_CellColor = new Color(1f, 1f, 1f, 0.06f);
+        private static readonly Color k_FlashColor = new Color(0.55f, 0.9f, 0.55f, 0.45f);
+
+        public bool isOpen => m_Open;
 
         private void OnEnable()
         {
@@ -54,7 +58,7 @@ namespace PowerOfFire.DrawToPlay
             // clickable sits on an explicit pickable layer above it.
             root.pickingMode = PickingMode.Ignore;
 
-            m_Toggle = new Button(Toggle) { text = "▮ BAG" };
+            m_Toggle = new Button(() => Request(ToggleKey)) { text = "▮ BAG" };
             m_Toggle.style.position = Position.Absolute;
             m_Toggle.style.top = 16f;
             m_Toggle.style.right = 16f;
@@ -93,66 +97,50 @@ namespace PowerOfFire.DrawToPlay
             root.Add(m_Panel);
         }
 
-        private void OnDisable()
+        // ---- the verbs: what a flow can tell this skin to do ---------------------------
+
+        public void Open()
         {
-            Unwire();
+            m_Open = true;
+            if (m_Panel != null)
+                m_Panel.style.display = DisplayStyle.Flex;
         }
 
-        /// <summary>Called by UiService after injection — the subscribe moment. Re-shows
-        /// re-Bind, so the idiom is unsubscribe-then-subscribe rather than a flag.</summary>
-        public override void Bind(System.Collections.Generic.IReadOnlyList<GraphTaskParameter> arguments)
+        public void Close()
         {
-            if (Inventory == null)
-                return;
-            Unwire();
-            m_Inventory.changed += OnInventoryChanged;
-            m_Inventory.equipmentChanged += OnInventoryChanged;
-            if (m_Open)
-                Redraw();
+            m_Open = false;
+            if (m_Panel != null)
+                m_Panel.style.display = DisplayStyle.None;
         }
 
-        private void Unwire()
-        {
-            if (m_Inventory == null)
-                return;
-            m_Inventory.changed -= OnInventoryChanged;
-            m_Inventory.equipmentChanged -= OnInventoryChanged;
-        }
-
-        private void OnInventoryChanged()
+        public void ToggleOpen()
         {
             if (m_Open)
-                Redraw();
+                Close();
+            else
+                Open();
         }
 
-        private void Toggle()
+        /// <summary>Draw exactly this — the flow's redraw task built it, this skin shows
+        /// it. Called with empty lists it shows an empty bag; it never asks for more.</summary>
+        public void Redraw(IReadOnlyList<ItemStack> stacks, IReadOnlyList<BagSlotLine> slots)
         {
-            m_Open = !m_Open;
-            m_Panel.style.display = m_Open ? DisplayStyle.Flex : DisplayStyle.None;
-            if (m_Open)
-                Redraw();
-        }
-
-        private void Redraw()
-        {
-            if (m_Grid == null || Inventory == null)
+            if (m_Grid == null)
                 return;
 
             m_Slots.Clear();
             m_Grid.Clear();
+            m_Cells.Clear();
 
-            StateTreeContextHost player = StateTreeContextHost.Resolve(gameObject,
-                StateTreeContextKind.Player);
-            if (player == null || player.Context == null)
-            {
-                m_Grid.Add(Note("no player"));
-                return;
-            }
+            // Keep the handed lines: the cells below read them for their worn/wear split.
+            m_LastSlots.Clear();
+            for (int i = 0; slots != null && i < slots.Count; i++)
+                m_LastSlots.Add(slots[i]);
 
-            BuildSlots();
+            for (int i = 0; i < m_LastSlots.Count; i++)
+                m_Slots.Add(SlotLine(m_LastSlots[i]));
 
-            IReadOnlyList<ItemStack> stacks = m_Inventory.Stacks(player.Context);
-            if (stacks.Count == 0)
+            if (stacks == null || stacks.Count == 0)
             {
                 m_Grid.Add(Note("empty"));
                 return;
@@ -161,63 +149,52 @@ namespace PowerOfFire.DrawToPlay
                 m_Grid.Add(Cell(stacks[i]));
         }
 
-        /// <summary>One line per slot ROW — the slot catalog is whatever slot registry the
-        /// item registry depends on, so a new slot is a new row there and a new line here.</summary>
-        private void BuildSlots()
+        /// <summary>A short accent on an item's cell — the flow's "that one just did
+        /// something" beat. A name with no cell is a quiet no-op.</summary>
+        public void Flash(string itemName)
         {
-            EquipmentSlotRegistry slots = SlotCatalog();
-            if (slots == null)
+            if (string.IsNullOrEmpty(itemName)
+                || !m_Cells.TryGetValue(itemName, out VisualElement cell) || cell == null)
                 return;
-            foreach (EquipmentSlotDef slot in slots.entries)
-            {
-                if (slot == null)
-                    continue;
-                string wornName = m_Inventory.EquippedIn(slot.id);
-                ItemDef worn = string.IsNullOrEmpty(wornName) ? null : m_Inventory.Row(wornName);
-                string slotLabel = string.IsNullOrEmpty(slot.displayName)
-                    ? slot.name : slot.displayName;
-
-                var line = new VisualElement
-                {
-                    style =
-                    {
-                        flexDirection = FlexDirection.Row,
-                        alignItems = Align.Center,
-                        marginBottom = 4f
-                    }
-                };
-                line.Add(new Label(slotLabel + ":  "
-                    + (worn != null ? Label(worn) : wornName != "" ? wornName : "—"))
-                {
-                    style =
-                    {
-                        color = worn != null
-                            ? new Color(0.75f, 0.9f, 1f)
-                            : new Color(1f, 1f, 1f, 0.45f),
-                        fontSize = 13f, flexGrow = 1f
-                    }
-                });
-                if (!string.IsNullOrEmpty(wornName))
-                {
-                    string slotId = slot.id;
-                    line.Add(Verb("take off", () => m_Inventory.Unequip(slotId)));
-                }
-                m_Slots.Add(line);
-            }
+            cell.style.backgroundColor = k_FlashColor;
+            cell.schedule.Execute(() => cell.style.backgroundColor = k_CellColor)
+                .StartingIn(400);
         }
 
-        private EquipmentSlotRegistry SlotCatalog()
+        // ---- drawing -------------------------------------------------------------------
+
+        private VisualElement SlotLine(BagSlotLine slot)
         {
-            if (m_Inventory == null || m_Inventory.registry == null)
-                return null;
-            var reachable = new List<StateTreeRegistryAsset>();
-            m_Inventory.registry.CollectWithDependencies(reachable);
-            for (int i = 0; i < reachable.Count; i++)
+            bool worn = !string.IsNullOrEmpty(slot.wornItemName);
+            var line = new VisualElement
             {
-                if (reachable[i] is EquipmentSlotRegistry slots)
-                    return slots;
+                style =
+                {
+                    flexDirection = FlexDirection.Row,
+                    alignItems = Align.Center,
+                    marginBottom = 4f
+                }
+            };
+            line.Add(new Label(slot.slotLabel + ":  "
+                + (worn
+                    ? (string.IsNullOrEmpty(slot.wornItemLabel)
+                        ? slot.wornItemName : slot.wornItemLabel)
+                    : "—"))
+            {
+                style =
+                {
+                    color = worn
+                        ? new Color(0.75f, 0.9f, 1f)
+                        : new Color(1f, 1f, 1f, 0.45f),
+                    fontSize = 13f, flexGrow = 1f
+                }
+            });
+            if (worn)
+            {
+                string slotId = slot.slotId;
+                line.Add(Verb("take off", () => Request(TakeoffKey, slotId)));
             }
-            return null;
+            return line;
         }
 
         private VisualElement Cell(ItemStack stack)
@@ -228,11 +205,12 @@ namespace PowerOfFire.DrawToPlay
                 {
                     width = cellSize, height = cellSize + 24f,
                     marginRight = 6f, marginBottom = 6f,
-                    backgroundColor = new Color(1f, 1f, 1f, 0.06f),
+                    backgroundColor = k_CellColor,
                     alignItems = Align.Center
                 }
             };
             Round(cell, 8f);
+            m_Cells[stack.definition.name] = cell;
 
             var face = new VisualElement
             {
@@ -294,19 +272,34 @@ namespace PowerOfFire.DrawToPlay
                 });
             }
 
-            // The verb the ROW declares, if any. Captured name because the stack list is
-            // rebuilt under the button's feet on every change.
+            // The verb the ROW declares becomes a REQUEST — what it does is the flow's say.
             string itemName = stack.definition.name;
             if (!string.IsNullOrEmpty(stack.definition.useEffect.entryName))
-                cell.Add(Verb("use", () => m_Inventory.Use(itemName)));
+                cell.Add(Verb("use", () => Request(UseKey, itemName)));
             else if (!string.IsNullOrEmpty(stack.definition.slot.entryId))
             {
-                cell.Add(m_Inventory.IsEquipped(itemName)
-                    ? Verb("worn ✓", () => m_Inventory.Unequip(stack.definition.slot.entryId))
-                    : Verb("wear", () => m_Inventory.Equip(itemName)));
+                string slotId = stack.definition.slot.entryId;
+                cell.Add(WornIn(slotId, itemName)
+                    ? Verb("worn ✓", () => Request(TakeoffKey, slotId))
+                    : Verb("wear", () => Request(WearKey, itemName)));
             }
             return cell;
         }
+
+        /// <summary>Whether the last-drawn slot lines say this item sits in this slot —
+        /// the skin reads its own handed data, never the domain.</summary>
+        private bool WornIn(string slotId, string itemName)
+        {
+            for (int i = 0; i < m_LastSlots.Count; i++)
+            {
+                if (m_LastSlots[i].slotId == slotId
+                    && m_LastSlots[i].wornItemName == itemName)
+                    return true;
+            }
+            return false;
+        }
+
+        private readonly List<BagSlotLine> m_LastSlots = new List<BagSlotLine>();
 
         private static Button Verb(string text, System.Action action)
         {

@@ -10,6 +10,11 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("The item row — picked from the item registry. It must declare a slot.")]
         public StateTreeEntryRef<ItemDef> item = new StateTreeEntryRef<ItemDef>();
 
+        [Tooltip("Optional: a blackboard key holding the item's name — the bag's request "
+            + "value. Wins over the picked row when it resolves.")]
+        [StateTreeKey(StateTreeKeyKind.String)]
+        public StateTreeKeyField itemKey = new StateTreeKeyField();
+
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
         {
             if (context == null || context.owner == null)
@@ -18,7 +23,7 @@ namespace PowerOfFire.DrawToPlay
                 StateTreeContextHost.FindService<InventoryService>(context.owner);
             if (inventory == null)
                 return StateTreeStatus.Failure;
-            return inventory.Equip(item.entryName)
+            return inventory.Equip(ItemTaskName.Resolve(context, itemKey, item.entryName))
                 ? StateTreeStatus.Success
                 : StateTreeStatus.Failure;
         }

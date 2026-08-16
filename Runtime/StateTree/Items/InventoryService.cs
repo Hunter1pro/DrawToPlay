@@ -124,6 +124,22 @@ namespace PowerOfFire.DrawToPlay
             changed?.Invoke();
         }
 
+        /// <summary>The slot catalog the item registry depends on, or null — the domain
+        /// closure is this service's knowledge, so nobody else walks dependsOn for it.</summary>
+        public EquipmentSlotRegistry Slots()
+        {
+            if (registry == null)
+                return null;
+            var reachable = new List<StateTreeRegistryAsset>();
+            registry.CollectWithDependencies(reachable);
+            for (int i = 0; i < reachable.Count; i++)
+            {
+                if (reachable[i] is EquipmentSlotRegistry slots)
+                    return slots;
+            }
+            return null;
+        }
+
         // ---- USE: a consumable spends one for its picked effect ------------------------
 
         /// <summary>Spend one and apply the row's use effect to the player. False when the

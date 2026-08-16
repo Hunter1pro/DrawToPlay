@@ -58,6 +58,16 @@ namespace PowerOfFire.DrawToPlay
                 && m_Open.TryGetValue(uiName, out GameObject view) && view != null;
         }
 
+        /// <summary>The live view of a shown row, or null — how flow TASKS reach the systems
+        /// they drive. The hub's whole job: hold the references, forward the reach.</summary>
+        public GameObject ShownView(string uiName)
+        {
+            return !string.IsNullOrEmpty(uiName)
+                && m_Open.TryGetValue(uiName, out GameObject view) && view != null
+                ? view
+                : null;
+        }
+
         /// <summary>
         /// Put a row on screen. Already shown = the SAME view, re-bound with the new
         /// arguments (a re-entered state re-asserts, it does not duplicate). A Screen hides

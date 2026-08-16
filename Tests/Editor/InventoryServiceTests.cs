@@ -266,6 +266,53 @@ namespace PowerOfFire.DrawToPlay.Tests
                 "and its grant re-applied through the same Equip path");
         }
 
+        // ------------------------------------------------------------------ request keys
+
+        [Test]
+        public void ItemTasks_ServeTheBagsRequestKeys()
+        {
+            // The UI wiring brief's edge: a press writes a key, the flow's tasks read it.
+            m_Vitals.Consume(AttributeNames.Health, 3f);
+            m_Service.Add(m_Player.Context, "ration", 1);
+            m_Service.Add(m_Player.Context, "relic", 1);
+
+            var use = ScriptableObject.CreateInstance<UseItemTask>();
+            m_Assets.Add(use);
+            use.itemKey = new StateTreeKeyField(InventoryWidgetView.UseKey);
+            m_Root.Context.blackboard[InventoryWidgetView.UseKey] = "ration";
+            Assert.AreEqual(StateTreeStatus.Success, use.OnTick(m_Root.Context, 0f));
+            Assert.AreEqual(4f, m_Vitals.Value(AttributeNames.Health), 0.001f,
+                "the key named the ration; the heal landed");
+
+            var wear = ScriptableObject.CreateInstance<EquipItemTask>();
+            m_Assets.Add(wear);
+            wear.itemKey = new StateTreeKeyField(InventoryWidgetView.WearKey);
+            m_Root.Context.blackboard[InventoryWidgetView.WearKey] = "relic";
+            Assert.AreEqual(StateTreeStatus.Success, wear.OnTick(m_Root.Context, 0f));
+            Assert.IsTrue(m_Service.IsEquipped("relic"));
+
+            var takeoff = ScriptableObject.CreateInstance<UnequipItemTask>();
+            m_Assets.Add(takeoff);
+            takeoff.slotKey = new StateTreeKeyField(InventoryWidgetView.TakeoffKey);
+            m_Root.Context.blackboard[InventoryWidgetView.TakeoffKey] = "slot.trinket";
+            Assert.AreEqual(StateTreeStatus.Success, takeoff.OnTick(m_Root.Context, 0f));
+            Assert.IsFalse(m_Service.IsEquipped("relic"),
+                "the key named the slot; the relic came off");
+        }
+
+        [Test]
+        public void ItemTasks_FallBackToTheAuthoredRow_WhenNoKeyResolves()
+        {
+            m_Service.Add(m_Player.Context, "relic", 1);
+            var wear = ScriptableObject.CreateInstance<EquipItemTask>();
+            m_Assets.Add(wear);
+            wear.item.entryName = "relic";
+            wear.itemKey = new StateTreeKeyField(InventoryWidgetView.WearKey);   // key absent
+            Assert.AreEqual(StateTreeStatus.Success, wear.OnTick(m_Root.Context, 0f),
+                "no request on the board — the authored row is the target");
+            Assert.IsTrue(m_Service.IsEquipped("relic"));
+        }
+
         [Test]
         public void ForgetWornOnPlayerChange_DropsRecordsWithoutReverting()
         {

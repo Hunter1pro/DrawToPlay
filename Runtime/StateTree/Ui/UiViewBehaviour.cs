@@ -18,6 +18,26 @@ namespace PowerOfFire.DrawToPlay
         {
         }
 
+        /// <summary>
+        /// The view's ONE output edge (the UI wiring brief): a press becomes a REQUEST on
+        /// the root blackboard — the GotoKey shape travel proved — served by whatever flow
+        /// state watches the key. Views request; trees decide what happens, visibly.
+        /// </summary>
+        protected void Request(string key, string value = "1")
+        {
+            if (string.IsNullOrEmpty(key))
+                return;
+            StateTreeContextHost root = StateTreeContextHost.Resolve(gameObject,
+                StateTreeContextKind.Root);
+            if (root == null || root.Context == null)
+            {
+                Debug.LogWarning("[Ui] '" + name + "' has no root scope to request '"
+                    + key + "' on — the press went nowhere.", this);
+                return;
+            }
+            root.Context.blackboard[key] = value ?? "";
+        }
+
         /// <summary>Convenience reads for implementations.</summary>
         protected static string StringArg(IReadOnlyList<GraphTaskParameter> arguments,
             string name, string fallback = "")
