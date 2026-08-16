@@ -22,14 +22,20 @@ namespace PowerOfFire.DrawToPlay.Editor
             var def = (ServiceDef)target;
 
             serializedObject.Update();
+            // The identity every service has. The FLOW-BACKED half (tree kind, flows,
+            // nesting rules, kind seeds) is folded away below: it is meaningful only for
+            // a subsystem whose handlers wait, and on a def-only one it is four empty
+            // fields pretending to be part of the declaration.
             DrawPropertiesExcluding(serializedObject, "m_Script", "serviceTypeName",
-                "requests", "spawns", "announcements");
+                "requests", "spawns", "announcements",
+                "treeKind", "flows", "nestingRules", "kindSeeds");
             serializedObject.ApplyModifiedProperties();
 
             DrawServiceType(def);
             DrawRequests(def);
             DrawSpawns(def);
             DrawAnnouncements(def);
+            DrawFlowBacked(def);
 
             EditorGUILayout.Space(6f);
             if (GUILayout.Button("Subsystem APIs…", GUILayout.Width(140f)))
@@ -170,11 +176,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                 ActionPicker(def, row);
                 EditorGUILayout.EndHorizontal();
 
-                string stateId = EditorGUILayout.DelayedTextField(new GUIContent("State Id",
-                    "Only for a handler that WAITS — routes to the def's flow tree."),
-                    row.stateId);
-                if (stateId != row.stateId)
-                    Commit(() => row.stateId = stateId);
+                // Only where it can mean something: a def with no flow tree has nowhere
+                // for a stateId to point, so the field would be a question with no answers.
+                if (FlowBacked(def))
+                {
+                    string stateId = EditorGUILayout.DelayedTextField(
+                        new GUIContent("State Id",
+                            "Only for a handler that WAITS — routes to the def's flow tree."),
+                        row.stateId);
+                    if (stateId != row.stateId)
+                        Commit(() => row.stateId = stateId);
+                }
 
                 DrawReactions(def, row);
                 EditorGUILayout.EndVertical();
@@ -326,6 +338,43 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (GUILayout.Button("+ announcement", GUILayout.Width(120f)))
                 Commit(() => def.announcements.Add(new ServiceAnnouncement()));
         }
+
+        // ---- the flow-backed half, folded away --------------------------------------
+
+        /// <summary>Whether this def uses a flow TREE at all — the only condition under
+        /// which the tree kind, nesting rules and kind seeds mean anything.</summary>
+        private static bool FlowBacked(ServiceDef def)
+        {
+            if (def.flows != null || !string.IsNullOrEmpty(def.treeKind))
+                return true;
+            for (int i = 0; i < def.requests.Count; i++)
+            {
+                if (def.requests[i] != null && !string.IsNullOrEmpty(def.requests[i].stateId))
+                    return true;
+            }
+            return false;
+        }
+
+        private void DrawFlowBacked(ServiceDef def)
+        {
+            EditorGUILayout.Space(6f);
+            bool backed = FlowBacked(def);
+            m_FlowsOpen = EditorGUILayout.Foldout(m_FlowsOpen || backed,
+                backed ? "Flow tree" : "Flow tree — none (handlers are single-frame)", true);
+            if (!m_FlowsOpen)
+                return;
+
+            EditorGUI.indentLevel++;
+            serializedObject.Update();
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("flows"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("treeKind"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("nestingRules"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("kindSeeds"));
+            serializedObject.ApplyModifiedProperties();
+            EditorGUI.indentLevel--;
+        }
+
+        private bool m_FlowsOpen;
 
         // ---- the offers: what the project's contracts declare --------------------------
 
