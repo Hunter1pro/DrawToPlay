@@ -29,6 +29,20 @@ namespace PowerOfFire.DrawToPlay.Editor
             var grouped = new Dictionary<UnityEngine.Object, GraphEdge>();
             Accumulate(grouped, AssetWireScan.UsersOfAsset(index, asset), asset);
 
+            // A subsystem's CALLERS are incoming edges (§4g): whoever writes one of its
+            // declared request keys is pointing at it, exactly like a row reference does.
+            if (asset is ServiceDef def)
+            {
+                for (int i = 0; i < def.requests.Count; i++)
+                {
+                    ServiceRequest request = def.requests[i];
+                    if (request == null || string.IsNullOrEmpty(request.key))
+                        continue;
+                    if (index.requestCallers.TryGetValue(request.key, out var callers))
+                        Accumulate(grouped, callers, asset);
+                }
+            }
+
             if (asset is StateTreeRegistryAsset registry)
             {
                 for (int i = 0; i < registry.Count; i++)
@@ -48,6 +62,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             UnityEngine.Object asset)
         {
             var forward = new AssetWireScan.Index();
+            // Seed the forward scan with WHO ANSWERS WHAT (§4g): a request call is only
+            // recognisable against the project's owner map, and a fresh local index knows
+            // none of it — so the scan would see every key as an ordinary string.
+            foreach (KeyValuePair<string, UnityEngine.Object> owner in index.requestOwners)
+                forward.requestOwners[owner.Key] = owner.Value;
+
             switch (asset)
             {
                 case StateTreeAsset tree:
@@ -58,6 +78,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                     break;
                 case GameObject prefab:
                     AssetWireScan.ScanPrefab(prefab, forward);
+                    break;
+                case ServiceDef def:
+                    AssetWireScan.ScanServiceDef(def, forward);
                     break;
                 default:
                     return new List<GraphEdge>();
@@ -82,6 +105,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 if (index.rowOwners.TryGetValue("name:" + pair.Key,
                         out UnityEngine.Object owner)
+                    && !ReferenceEquals(owner, asset))
+                    AccumulateTarget(grouped, owner, pair.Value);
+            }
+            // …and the subsystems this asset CALLS: each written request key is an edge to
+            // the def that answers it.
+            foreach (KeyValuePair<string, List<AssetWireScan.WireUse>> pair
+                in forward.requestCallers)
+            {
+                if (index.requestOwners.TryGetValue(pair.Key, out UnityEngine.Object owner)
                     && !ReferenceEquals(owner, asset))
                     AccumulateTarget(grouped, owner, pair.Value);
             }

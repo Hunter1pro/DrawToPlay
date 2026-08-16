@@ -91,6 +91,25 @@ namespace PowerOfFire.DrawToPlay.Editor
             public readonly Dictionary<string, UnityEngine.Object> rowOwners =
                 new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
 
+            /// <summary>WHO CALLS A SUBSYSTEM (§4g), keyed by request key: every place that
+            /// WRITES it — a RequestTask or SetBlackboard in a tree, a component's field.
+            /// The other half of an API is the list of its callers, and a def that cannot
+            /// show it is a promise nobody can audit.</summary>
+            public readonly Dictionary<string, List<WireUse>> requestCallers =
+                new Dictionary<string, List<WireUse>>(StringComparer.Ordinal);
+
+            /// <summary>Which ServiceDef ANSWERS each request key — the roll-up that turns
+            /// a caller into an edge on the map.</summary>
+            public readonly Dictionary<string, UnityEngine.Object> requestOwners =
+                new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
+
+            internal void AddRequestCaller(string key, WireUse use)
+            {
+                if (string.IsNullOrEmpty(key))
+                    return;
+                Bucket(requestCallers, key).Add(use);
+            }
+
             internal void AddRowUse(string id, string name, WireUse use)
             {
                 if (!string.IsNullOrEmpty(id))
@@ -176,6 +195,15 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             var index = new Index();
 
+            // The APIs first: knowing which def answers a key turns every later caller
+            // into an edge instead of a loose string.
+            foreach (var guid in AssetDatabase.FindAssets("t:ServiceDef"))
+            {
+                var def = AssetDatabase.LoadAssetAtPath<ServiceDef>(
+                    AssetDatabase.GUIDToAssetPath(guid));
+                if (def != null)
+                    ScanServiceDef(def, index);
+            }
             foreach (var guid in AssetDatabase.FindAssets("t:StateTreeRegistryAsset"))
             {
                 var registry = AssetDatabase.LoadAssetAtPath<StateTreeRegistryAsset>(
@@ -197,7 +225,98 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (prefab != null)
                     ScanPrefab(prefab, index);
             }
+            // Baked programs live INSIDE .taskgraph files as sub-assets, which a type
+            // search does not reliably reach — so the paths are walked directly.
+            foreach (string path in AssetDatabase.GetAllAssetPaths())
+            {
+                if (!path.EndsWith(".taskgraph", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                foreach (UnityEngine.Object sub in AssetDatabase.LoadAllAssetsAtPath(path))
+                {
+                    if (sub is GraphTaskAsset graph)
+                        ScanGraph(graph, index);
+                }
+            }
             return index;
+        }
+
+        /// <summary>
+        /// A BAKED PROGRAM's wires — the flavor the scan used to miss entirely: a graph's
+        /// calls live in its instruction list, not in fields of a tree, so a dialog that
+        /// asked a subsystem for something looked like nothing at all. Every DoTask node
+        /// carries its task as a real sub-asset (scan it like any other), and the
+        /// blackboard-write instructions carry their key as a string.
+        /// </summary>
+        internal static void ScanGraph(GraphTaskAsset graph, Index index)
+        {
+            if (graph == null || graph.nodes == null)
+                return;
+            for (int i = 0; i < graph.nodes.Count; i++)
+            {
+                GraphTaskNode node = graph.nodes[i];
+                if (node == null)
+                    continue;
+
+                if (node.task != null && !ReferenceEquals(node.task, graph))
+                {
+                    ScanValue(node.task, graph, graph.name + " · node " + i + " · "
+                        + node.task.GetType().Name, index, 0);
+                }
+
+                if ((node.kind == GraphTaskNodeKind.SetBlackboardString
+                        || node.kind == GraphTaskNodeKind.SetBlackboardFloat)
+                    && !string.IsNullOrEmpty(node.stringValue)
+                    && index.requestOwners.ContainsKey(node.stringValue))
+                {
+                    index.AddRequestCaller(node.stringValue, new WireUse
+                    {
+                        context = graph,
+                        description = graph.name + " · node " + i + " · writes '"
+                            + node.stringValue + "'"
+                    });
+                }
+            }
+        }
+
+        /// <summary>A subsystem's declaration (§4g): who owns each request key, and the
+        /// def's own asset edges — its registry, its flow tree, the UI rows it spawns.</summary>
+        internal static void ScanServiceDef(ServiceDef def, Index index)
+        {
+            if (def == null)
+                return;
+            string label = string.IsNullOrEmpty(def.serviceName) ? def.name : def.serviceName;
+
+            for (int i = 0; i < def.requests.Count; i++)
+            {
+                ServiceRequest row = def.requests[i];
+                if (row != null && !string.IsNullOrEmpty(row.key))
+                    index.requestOwners[row.key] = def;
+            }
+
+            if (def.registry != null)
+            {
+                index.AddAssetUse(def.registry, new WireUse
+                {
+                    context = def, description = label + " · service registry"
+                });
+            }
+            if (def.flows != null)
+            {
+                index.AddAssetUse(def.flows, new WireUse
+                {
+                    context = def, description = label + " · flow tree"
+                });
+            }
+            for (int i = 0; def.spawns != null && i < def.spawns.Count; i++)
+            {
+                var spawn = def.spawns[i];
+                if (spawn == null || string.IsNullOrEmpty(spawn.entryName))
+                    continue;
+                index.AddRowUse(spawn.entryId, spawn.entryName, new WireUse
+                {
+                    context = def, description = label + " · spawns this UI row"
+                });
+            }
         }
 
         /// <summary>Every row's picked references, plus the registry's own dependsOn edges.
@@ -334,6 +453,22 @@ namespace PowerOfFire.DrawToPlay.Editor
                 }
                 if (value == null)
                     continue;
+
+                // A REQUEST CALL (§4g): a string field naming a declared request key — a
+                // RequestTask's key, a SetBlackboard's key wire, a component's const. The
+                // owner map decides; anything else keeps whatever meaning it had.
+                string called = value is StateTreeKeyField keyField
+                    ? keyField.text
+                    : value as string;
+                if (!string.IsNullOrEmpty(called) && index.requestOwners.ContainsKey(called))
+                {
+                    index.AddRequestCaller(called, new WireUse
+                    {
+                        context = context,
+                        description = label + " · writes '" + called + "'",
+                        viaRow = viaRow
+                    });
+                }
 
                 switch (value)
                 {

@@ -117,7 +117,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 value = m_Focus
             };
             focus.style.flexGrow = 1f;
-            focus.tooltip = "The asset the map is ABOUT — a tree, a registry, a prefab. "
+            focus.tooltip = "The asset the map is ABOUT — a tree, a registry, a prefab, "
+                + "a service definition (whose callers are its incoming edges). "
                 + "Referencers fan left, references fan right.";
             focus.RegisterValueChangedCallback(evt => SetFocus(evt.newValue));
             bar.Add(focus);

@@ -136,6 +136,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 string key = EditorGUILayout.DelayedTextField("Key", row.key);
                 if (key != row.key)
                     Commit(() => row.key = key);
+                CallersButton(row);
                 if (RemoveButton())
                 {
                     int index = i;
@@ -581,6 +582,40 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static bool RemoveButton()
         {
             return GUILayout.Button("✕", GUILayout.Width(22f));
+        }
+
+        /// <summary>
+        /// WHO CALLS THIS (the other half of an API): every asset that writes this request
+        /// key, from the project-wide wire scan — pick one to ping it. An API whose callers
+        /// cannot be listed is a promise nobody can audit, and the answer "nobody yet" is
+        /// worth seeing too: it names a request that exists for no one.
+        /// </summary>
+        private static void CallersButton(ServiceRequest row)
+        {
+            if (!GUILayout.Button(new GUIContent("⛓", "Who writes this request?"),
+                GUILayout.Width(24f)))
+                return;
+
+            AssetWireScan.Index index = AssetWireScan.Get();
+            var menu = new GenericMenu();
+            if (index.requestCallers.TryGetValue(row.key, out var callers)
+                && callers.Count > 0)
+            {
+                for (int i = 0; i < callers.Count; i++)
+                {
+                    AssetWireScan.WireUse use = callers[i];
+                    UnityEngine.Object target = use.context;
+                    menu.AddItem(new GUIContent(use.description.Replace('/', '∕')),
+                        false, () => EditorGUIUtility.PingObject(target));
+                }
+            }
+            else
+            {
+                menu.AddDisabledItem(new GUIContent("no authored caller writes '"
+                    + row.key + "'"));
+                menu.AddDisabledItem(new GUIContent("(skins and C# callers do not scan)"));
+            }
+            menu.ShowAsContext();
         }
 
         private static System.Type ResolveServiceType(string typeName)
