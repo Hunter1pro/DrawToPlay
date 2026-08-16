@@ -15,6 +15,10 @@ namespace PowerOfFire.DrawToPlay
     /// Redraws on the service's <c>changed</c>/<c>equipmentChanged</c> events rather than
     /// polling; the player scope is resolved per redraw because the player is a spawned
     /// citizen that is a different object after a level change.
+    ///
+    /// WIRING (the law): the service arrives by INJECTION — filled by UiService at spawn,
+    /// re-injected at the point of use if this view was placed by hand — never by an
+    /// Update loop that polls until something stops being null.
     /// </summary>
     [AddComponentMenu("Draw To Play/UI/Inventory Widget")]
     [RequireComponent(typeof(UIDocument))]
@@ -29,7 +33,19 @@ namespace PowerOfFire.DrawToPlay
         private Button m_Toggle;
         private bool m_Open;
 
-        private InventoryService m_Wired;
+        [InjectService] private InventoryService m_Inventory;
+
+        /// <summary>The service, injected at the point of use when spawn-time injection has
+        /// not happened (a hand-placed widget) — the OutpostNpc form, with a graceful null.</summary>
+        private InventoryService Inventory
+        {
+            get
+            {
+                if (m_Inventory == null)
+                    StateTreeServiceInjector.Inject(this, gameObject);
+                return m_Inventory;
+            }
+        }
 
         private void OnEnable()
         {
@@ -82,30 +98,25 @@ namespace PowerOfFire.DrawToPlay
             Unwire();
         }
 
-        /// <summary>The service arrives with the root scene's services, possibly after this
-        /// panel — so wiring retries until it lands, then it is events from there.</summary>
-        private void Update()
+        /// <summary>Called by UiService after injection — the subscribe moment. Re-shows
+        /// re-Bind, so the idiom is unsubscribe-then-subscribe rather than a flag.</summary>
+        public override void Bind(System.Collections.Generic.IReadOnlyList<GraphTaskParameter> arguments)
         {
-            if (m_Wired != null)
+            if (Inventory == null)
                 return;
-            InventoryService inventory =
-                StateTreeContextHost.FindService<InventoryService>(gameObject);
-            if (inventory == null)
-                return;
-            m_Wired = inventory;
-            m_Wired.changed += OnInventoryChanged;
-            m_Wired.equipmentChanged += OnInventoryChanged;
+            Unwire();
+            m_Inventory.changed += OnInventoryChanged;
+            m_Inventory.equipmentChanged += OnInventoryChanged;
             if (m_Open)
                 Redraw();
         }
 
         private void Unwire()
         {
-            if (m_Wired == null)
+            if (m_Inventory == null)
                 return;
-            m_Wired.changed -= OnInventoryChanged;
-            m_Wired.equipmentChanged -= OnInventoryChanged;
-            m_Wired = null;
+            m_Inventory.changed -= OnInventoryChanged;
+            m_Inventory.equipmentChanged -= OnInventoryChanged;
         }
 
         private void OnInventoryChanged()
@@ -124,7 +135,7 @@ namespace PowerOfFire.DrawToPlay
 
         private void Redraw()
         {
-            if (m_Grid == null || m_Wired == null)
+            if (m_Grid == null || Inventory == null)
                 return;
 
             m_Slots.Clear();
@@ -140,7 +151,7 @@ namespace PowerOfFire.DrawToPlay
 
             BuildSlots();
 
-            IReadOnlyList<ItemStack> stacks = m_Wired.Stacks(player.Context);
+            IReadOnlyList<ItemStack> stacks = m_Inventory.Stacks(player.Context);
             if (stacks.Count == 0)
             {
                 m_Grid.Add(Note("empty"));
@@ -161,8 +172,8 @@ namespace PowerOfFire.DrawToPlay
             {
                 if (slot == null)
                     continue;
-                string wornName = m_Wired.EquippedIn(slot.id);
-                ItemDef worn = string.IsNullOrEmpty(wornName) ? null : m_Wired.Row(wornName);
+                string wornName = m_Inventory.EquippedIn(slot.id);
+                ItemDef worn = string.IsNullOrEmpty(wornName) ? null : m_Inventory.Row(wornName);
                 string slotLabel = string.IsNullOrEmpty(slot.displayName)
                     ? slot.name : slot.displayName;
 
@@ -189,7 +200,7 @@ namespace PowerOfFire.DrawToPlay
                 if (!string.IsNullOrEmpty(wornName))
                 {
                     string slotId = slot.id;
-                    line.Add(Verb("take off", () => m_Wired.Unequip(slotId)));
+                    line.Add(Verb("take off", () => m_Inventory.Unequip(slotId)));
                 }
                 m_Slots.Add(line);
             }
@@ -197,10 +208,10 @@ namespace PowerOfFire.DrawToPlay
 
         private EquipmentSlotRegistry SlotCatalog()
         {
-            if (m_Wired == null || m_Wired.registry == null)
+            if (m_Inventory == null || m_Inventory.registry == null)
                 return null;
             var reachable = new List<StateTreeRegistryAsset>();
-            m_Wired.registry.CollectWithDependencies(reachable);
+            m_Inventory.registry.CollectWithDependencies(reachable);
             for (int i = 0; i < reachable.Count; i++)
             {
                 if (reachable[i] is EquipmentSlotRegistry slots)
@@ -287,12 +298,12 @@ namespace PowerOfFire.DrawToPlay
             // rebuilt under the button's feet on every change.
             string itemName = stack.definition.name;
             if (!string.IsNullOrEmpty(stack.definition.useEffect.entryName))
-                cell.Add(Verb("use", () => m_Wired.Use(itemName)));
+                cell.Add(Verb("use", () => m_Inventory.Use(itemName)));
             else if (!string.IsNullOrEmpty(stack.definition.slot.entryId))
             {
-                cell.Add(m_Wired.IsEquipped(itemName)
-                    ? Verb("worn ✓", () => m_Wired.Unequip(stack.definition.slot.entryId))
-                    : Verb("wear", () => m_Wired.Equip(itemName)));
+                cell.Add(m_Inventory.IsEquipped(itemName)
+                    ? Verb("worn ✓", () => m_Inventory.Unequip(stack.definition.slot.entryId))
+                    : Verb("wear", () => m_Inventory.Equip(itemName)));
             }
             return cell;
         }

@@ -215,5 +215,26 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.IsFalse(m_Service.IsShown("paused"),
                 "pre-emption takes the popup with it — nothing can forget to close");
         }
+
+        private sealed class InjectedView : UiViewBehaviour
+        {
+            [InjectService] public InventoryService inventory;
+        }
+
+        [Test]
+        public void Show_InjectsSpawnedViews()
+        {
+            // Spawn-time is bind-time: the spawner fills the view's [InjectService]
+            // fields — a view never polls for its services.
+            var inventory = m_Root.gameObject.AddComponent<InventoryService>();
+            inventory.Connect();
+
+            UiDef row = MakeRow("bag", UiKind.Widget, 9f);
+            row.prefab.AddComponent<InjectedView>();
+
+            GameObject view = m_Service.Show(row);
+            Assert.AreSame(inventory, view.GetComponent<InjectedView>().inventory,
+                "the spawned view was handed the service, not left to find it");
+        }
     }
 }

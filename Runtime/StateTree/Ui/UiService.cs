@@ -131,7 +131,13 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>Row defaults with the show-site's enabled overrides applied (by id — the
-        /// M7h wire), handed to every <see cref="UiViewBehaviour"/> on the view.</summary>
+        /// M7h wire), handed to every <see cref="UiViewBehaviour"/> on the view.
+        ///
+        /// SPAWN-TIME IS BIND-TIME (the wiring law): the views' [InjectService] fields are
+        /// filled here, before Bind — a view is HANDED its dependencies by the thing that
+        /// spawned it, never left to poll for them. Shows come from tree states, which run
+        /// when services are valid, so the injection can be loud. Re-binding an already
+        /// shown view repeats it harmlessly (filled fields are left alone).</summary>
         private static void BindArguments(GameObject view, UiDef row,
             List<GraphTaskParameterOverride> arguments)
         {
@@ -163,7 +169,10 @@ namespace PowerOfFire.DrawToPlay
 
             UiViewBehaviour[] views = view.GetComponentsInChildren<UiViewBehaviour>(true);
             for (int i = 0; i < views.Length; i++)
+            {
+                StateTreeServiceInjector.Inject(views[i], views[i].gameObject);
                 views[i].Bind(effective);
+            }
         }
 
         /// <summary>The panel-order law, enforced as data: two rows sharing an order is the
