@@ -32,5 +32,16 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Why not, in the words a player could be shown: "needs 3 timber". Empty on
         /// a success.</summary>
         public string refusal = "";
+
+        /// <summary>
+        /// THE WHOLE OUTCOME AS ONE SENTENCE — what a skin shows without deciding anything.
+        ///
+        /// A view binds ONE property path, and a craft has two interesting halves that are
+        /// never both filled: what was made, or why it was not. Making the view choose between
+        /// them would put a rule in a skin ("if refusal is empty, show the item"), which is the
+        /// thing the dumb-skin doctrine exists to prevent. The subsystem knows which happened,
+        /// so the subsystem writes the line.
+        /// </summary>
+        public string line = "";
     }
 }

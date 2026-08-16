@@ -67,8 +67,7 @@ namespace PowerOfFire.DrawToPlay
             if (result.recipe == null)
             {
                 result.refusal = "no recipe named '" + result.recipeName + "'";
-                Announce(CraftResult.Key, result);
-                return result;
+                return Refuse(result);
             }
 
             StateTreeContextHost carrier = StateTreeContextHost.Resolve(gameObject,
@@ -76,8 +75,7 @@ namespace PowerOfFire.DrawToPlay
             if (m_Inventory == null || carrier == null || carrier.Context == null)
             {
                 result.refusal = "nobody is carrying anything here";
-                Announce(CraftResult.Key, result);
-                return result;
+                return Refuse(result);
             }
 
             // CHECKED IN FULL FIRST. The refusal names the FIRST thing missing rather than
@@ -95,8 +93,7 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 result.refusal = "needs " + need + " " + cost.item.entryName
                     + " (carrying " + held + ")";
-                Announce(CraftResult.Key, result);
-                return result;
+                return Refuse(result);
             }
 
             for (int i = 0; i < costs.Count; i++)
@@ -112,7 +109,22 @@ namespace PowerOfFire.DrawToPlay
             result.count = Mathf.Max(1, result.recipe.resultCount);
             m_Inventory.Add(carrier.Context, result.itemName, result.count);
             result.made = true;
+            // The sentence, written where the outcome is known — see CraftResult.line.
+            string made = result.recipe != null && !string.IsNullOrEmpty(result.recipe.displayName)
+                ? result.recipe.displayName
+                : result.itemName;
+            result.line = result.count > 1 ? made + " ×" + result.count : made;
 
+            Announce(CraftResult.Key, result);
+            return result;
+        }
+
+        /// <summary>A refusal, announced like a success. Every way of not crafting leaves the
+        /// same contract on the board, so a skin that shows craft outcomes shows this one too
+        /// without a second channel or a second beat.</summary>
+        private CraftResult Refuse(CraftResult result)
+        {
+            result.line = result.refusal;
             Announce(CraftResult.Key, result);
             return result;
         }
