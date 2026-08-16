@@ -16,6 +16,7 @@ namespace PowerOfFire.DrawToPlay
     {
         [Tooltip("The request key — a def's declared request (see the Subsystem APIs "
             + "window for what exists).")]
+        [ServiceRequestKey]
         public string key = "";
 
         [Tooltip("The request's value — an item name for a typed request, '1' for a "

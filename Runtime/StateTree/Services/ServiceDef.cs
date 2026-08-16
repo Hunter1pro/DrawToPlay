@@ -189,6 +189,15 @@ namespace PowerOfFire.DrawToPlay
         public List<UiReaction> reactions = new List<UiReaction>();
     }
 
+    /// <summary>Marks a string field that names a DECLARED REQUEST of some subsystem —
+    /// so authoring surfaces can offer the project's request keys instead of a text box
+    /// (a graph pin's picker, an inspector dropdown). The value is still a plain string:
+    /// the attribute is an affordance, never a contract.</summary>
+    [AttributeUsage(AttributeTargets.Field)]
+    public sealed class ServiceRequestKeyAttribute : Attribute
+    {
+    }
+
     /// <summary>A service's DOMAIN ACTION, declared (§4g) — the UiVerbContract twin for
     /// the OnRequest hook: what a request row's 'action' may say, readable by tools (the
     /// def inspector's action picker, FlowRules) without reading a switch statement.</summary>

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Reflection;
+using UnityEditor;
 using Unity.GraphToolkit.Editor;
 using PowerOfFire.DrawToPlay.Editor;
 
@@ -81,6 +82,13 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 };
             }
 
+            // Not a row: a SUBSYSTEM REQUEST (§4g) is the other thing a pin can offer, and
+            // it describes itself better than a bare string — the service that answers it
+            // becomes the category, its sentence the description.
+            StateTreePickerItem request = DescribeRequest(choice);
+            if (request != null)
+                return request;
+
             return new StateTreePickerItem
             {
                 displayName = choice,
@@ -90,6 +98,34 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 persistKey = choice,
                 payload = choice
             };
+        }
+
+        /// <summary>The declared request behind a key, as a picker item — or null when no
+        /// subsystem answers it (a hand-typed key stays a plain choice).</summary>
+        private static StateTreePickerItem DescribeRequest(string choice)
+        {
+            foreach (string guid in AssetDatabase.FindAssets("t:" + nameof(ServiceDef)))
+            {
+                var def = AssetDatabase.LoadAssetAtPath<ServiceDef>(
+                    AssetDatabase.GUIDToAssetPath(guid));
+                ServiceRequest row = def != null ? def.RequestFor(choice) : null;
+                if (row == null)
+                    continue;
+                string service = string.IsNullOrEmpty(def.serviceName)
+                    ? def.name : def.serviceName;
+                return new StateTreePickerItem
+                {
+                    displayName = choice,
+                    category = service,
+                    description = row.namesRowOf != null
+                        ? row.description + "  (value: a row of " + row.namesRowOf.name + ")"
+                        : row.description,
+                    identity = service,
+                    persistKey = choice,
+                    payload = choice
+                };
+            }
+            return null;
         }
 
         /// <summary>The row's human text: the first string field its class adds beyond the base

@@ -189,9 +189,39 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 if (authoredDefault != null)
                     builder = builder.WithDefaultValue(authoredDefault);
 
-                PortChoices.TryOffer(builder, EntryChoicesFor(owner, field));
+                PortChoices.TryOffer(builder,
+                    EntryChoicesFor(owner, field) ?? RequestChoicesFor(field));
                 builder.Build();
             }
+        }
+
+        /// <summary>
+        /// The DECLARED REQUESTS a [ServiceRequestKey] field may name — every public row
+        /// of every ServiceDef in the project (§4g). The same reasoning as the row pin: a
+        /// subsystem's API is a known list, so asking an author to retype one of its keys
+        /// on a canvas invites the typo that shows up as a button doing nothing. Null for
+        /// every other field, which leaves its editor alone.
+        /// </summary>
+        public static List<string> RequestChoicesFor(FieldInfo field)
+        {
+            if (field == null || field.FieldType != typeof(string)
+                || !field.IsDefined(typeof(ServiceRequestKeyAttribute), true))
+                return null;
+
+            var choices = new List<string> { string.Empty };
+            foreach (string guid in AssetDatabase.FindAssets("t:" + nameof(ServiceDef)))
+            {
+                var def = AssetDatabase.LoadAssetAtPath<ServiceDef>(
+                    AssetDatabase.GUIDToAssetPath(guid));
+                for (int i = 0; def != null && i < def.requests.Count; i++)
+                {
+                    ServiceRequest row = def.requests[i];
+                    if (row != null && !string.IsNullOrEmpty(row.key)
+                        && !choices.Contains(row.key))
+                        choices.Add(row.key);
+                }
+            }
+            return choices.Count > 1 ? choices : null;
         }
 
         /// <summary>The row names a typed-reference field may take, from the graph's registry
