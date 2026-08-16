@@ -122,6 +122,21 @@ namespace PowerOfFire.DrawToPlay
         private ServiceDef m_FlowsDef;
         private bool m_FlowsStarted;
 
+        [InjectService] private UiService m_UiService;
+
+        /// <summary>The screen's ledger, INJECTED (the wiring law) — filled by the base's
+        /// two-pass Start, re-asked at the point of use for EditMode tests and early
+        /// callers. Null is a legal answer (a headless scope has no screen).</summary>
+        protected UiService Ui
+        {
+            get
+            {
+                if (m_UiService == null)
+                    StateTreeServiceInjector.Inject(this, gameObject, true);
+                return m_UiService;
+            }
+        }
+
         /// <summary>Virtual so a subclass with its own Update stays honest: override, call
         /// base, then do your work — a hidden (non-override) Update would silently stop the
         /// subsystem's flows.</summary>
@@ -264,7 +279,7 @@ namespace PowerOfFire.DrawToPlay
         {
             if (row.reactions == null || row.reactions.Count == 0)
                 return;
-            UiService ui = StateTreeContextHost.FindService<UiService>(gameObject);
+            UiService ui = Ui;
             if (ui == null)
                 return;
             var board = Board();
@@ -299,7 +314,7 @@ namespace PowerOfFire.DrawToPlay
         {
             if (def.spawns == null || def.spawns.Count == 0)
                 return;
-            UiService ui = StateTreeContextHost.FindService<UiService>(gameObject);
+            UiService ui = Ui;
             if (ui == null)
             {
                 Debug.LogWarning("StateTreeService '" + GetType().Name + "' declares spawns "

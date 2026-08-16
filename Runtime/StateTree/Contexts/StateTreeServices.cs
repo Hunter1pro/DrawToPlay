@@ -44,15 +44,21 @@ namespace PowerOfFire.DrawToPlay
     public sealed class InjectHostAttribute : Attribute
     {
         public InjectHostAttribute(StateTreeContextKind kind = StateTreeContextKind.Root,
-            string scopeId = "")
+            string scopeId = "", bool optional = false)
         {
             this.kind = kind;
             this.scopeId = scopeId;
+            this.optional = optional;
         }
 
         public StateTreeContextKind kind { get; }
 
         public string scopeId { get; }
+
+        /// <summary>A scope that legitimately COMES AND GOES — the spawned player between
+        /// levels. Missing is not a wiring error, so the loud pass stays quiet about it;
+        /// the field simply holds null until the scope exists (re-ask at point of use).</summary>
+        public bool optional { get; }
     }
 
     /// <summary>
@@ -211,7 +217,7 @@ namespace PowerOfFire.DrawToPlay
                     address.kind, address.scopeId);
                 if (host == null)
                 {
-                    if (quiet)
+                    if (quiet || address.optional)
                         continue;
                     string report = target.GetType().Name + "." + field.Name;
                     if (s_Reported.Add(report))

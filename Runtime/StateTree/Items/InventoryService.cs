@@ -101,8 +101,7 @@ namespace PowerOfFire.DrawToPlay
         {
             if (widget == null)
                 return;
-            StateTreeContextHost player = StateTreeContextHost.Resolve(gameObject,
-                StateTreeContextKind.Player);
+            StateTreeContextHost player = PlayerHost();
             if (player == null || player.Context == null)
             {
                 widget.Redraw(null, null);
@@ -134,7 +133,7 @@ namespace PowerOfFire.DrawToPlay
             ServiceDef def = definition;
             if (def == null || def.spawns == null)
                 return;
-            UiService ui = StateTreeContextHost.FindService<UiService>(gameObject);
+            UiService ui = Ui;
             if (ui == null)
                 return;
             for (int i = 0; i < def.spawns.Count; i++)
@@ -400,9 +399,23 @@ namespace PowerOfFire.DrawToPlay
 
         // ---- resolution ----------------------------------------------------------------
 
+        /// <summary>OPTIONAL, because the player is a spawned citizen: absent between
+        /// levels is a normal state, not a wiring error.</summary>
+        [InjectHost(StateTreeContextKind.Player, optional: true)]
+        private StateTreeContextHost m_Player;
+
+        /// <summary>The player's host through INJECTION (the wiring law), with the
+        /// replaced-body guard: after a level swap the old host is a Unity-dead object the
+        /// injector would skip as "already filled" — cleared to real null first, so the
+        /// re-ask can land the new one. Null while no player exists.</summary>
         private StateTreeContextHost PlayerHost()
         {
-            return StateTreeContextHost.Resolve(gameObject, StateTreeContextKind.Player);
+            if (m_Player == null)
+            {
+                m_Player = null;   // a dead host boxes non-null; clear it for the injector
+                StateTreeServiceInjector.Inject(this, gameObject, true);
+            }
+            return m_Player;
         }
 
         private StateTreeRegistryEntry FindInClosure(string entryName)
