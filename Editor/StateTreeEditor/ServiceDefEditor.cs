@@ -16,6 +16,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             DrawDefaultInspector();
 
             var def = (ServiceDef)target;
+            if (def.requests.Count > 0 || def.flows != null)
+            {
+                EditorGUILayout.Space(4f);
+                if (GUILayout.Button("Subsystem APIs…", GUILayout.Width(140f)))
+                    SubsystemApisWindow.Open();
+            }
             if (def.requests.Count == 0)
                 return;
 
