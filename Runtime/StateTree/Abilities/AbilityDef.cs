@@ -46,6 +46,11 @@ namespace PowerOfFire.DrawToPlay
             + "not of another ability. 'No chopping while afloat', 'no casting while silenced'.")]
         public List<string> blockedByTags = new List<string>();
 
+        [Tooltip("The OWNER must hold ALL of these, or the activation is refused — the twin of "
+            + "the line above, and what makes an ability belong to a MODE: a cannon exists only "
+            + "while aboard.")]
+        public List<string> requiredTags = new List<string>();
+
         [Tooltip("Held by the owner while this runs — queryable via AbilityHost.HasTag.")]
         public List<string> activationTags = new List<string>();
 

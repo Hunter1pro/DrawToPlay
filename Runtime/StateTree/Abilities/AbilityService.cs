@@ -110,6 +110,16 @@ namespace PowerOfFire.DrawToPlay
                     return false;
             }
 
+            // AND WHAT THE OWNER MUST BE. The other half of the same idea, and what lets an
+            // ability belong to a mode instead of to a tree: the ship's cannon is refused on
+            // land by the row saying so, not by the land states carefully never offering it.
+            for (int i = 0; i < def.requiredTags.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(def.requiredTags[i])
+                    && !host.HasTag(def.requiredTags[i]))
+                    return false;
+            }
+
             AbilityDef active = host.active;
             if (active == null)
                 return true;

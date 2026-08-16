@@ -132,6 +132,15 @@ namespace PowerOfFire.DrawToPlay
     [StateTreeCategory("Tasks/World", "Be afloat while this state runs")]
     public sealed class AfloatTask : StateTreeTaskAsset
     {
+        // HOLDING A MODE IS NOT HOLDING A STATE OPEN — set blocking = false wherever this is
+        // authored. It runs for as long as its state does and never finishes, which is what a
+        // standing swap means; but blocking is a COMPLETION gate, and a state whose gate never
+        // opens can never take an on-completion transition. The firing state proved it: one
+        // cannon shot and the ship was stuck in it for good, unable to steer, because the edge
+        // back to sailing waited for a completion this task was quietly preventing. (A
+        // constructor cannot fix it for you: Unity restores the serialized default afterwards,
+        // and the assets a builder already wrote keep whatever they were written with.)
+
         [Tooltip("Speed while afloat — a boat is not a fast pair of legs. Applied as the "
             + "actor's moveSpeed attribute and reverted on exit.")]
         public float speed = 7f;
@@ -140,11 +149,16 @@ namespace PowerOfFire.DrawToPlay
             + "Empty = no visual change.")]
         public string visualChild = "Boat";
 
+        [Tooltip("The visual to HIDE while afloat — the body the ship replaces. Empty = the "
+            + "actor stays visible and rides in its boat.")]
+        public string hiddenChild = "";
+
         [Tooltip("The tag granted while afloat, which land abilities are blocked by.")]
         public string tag = BoardingKeys.AboardTag;
 
         [System.NonSerialized] private AttributeComponent.ModifierHandle m_Speed;
         [System.NonSerialized] private GameObject m_Visual;
+        [System.NonSerialized] private GameObject m_Hidden;
         [System.NonSerialized] private AbilityHost m_Host;
 
         public override void OnEnter(StateTreeContext context)
@@ -175,6 +189,13 @@ namespace PowerOfFire.DrawToPlay
             m_Visual = FindChild(context.owner.transform, visualChild);
             if (m_Visual != null)
                 m_Visual.SetActive(true);
+
+            // THE BODY GOES AWAY, and that is what makes this a mode rather than a prop: while
+            // you are afloat you ARE the ship — HT's CharacterView.ActiveShip, which swaps the
+            // visual rather than parenting one to the other. The walker comes back on exit.
+            m_Hidden = FindChild(context.owner.transform, hiddenChild);
+            if (m_Hidden != null)
+                m_Hidden.SetActive(false);
 
             // Sit ON the water rather than in it.
             WaterVolumeBehaviour water = WaterVolumeBehaviour.At(context.owner,
@@ -232,12 +253,21 @@ namespace PowerOfFire.DrawToPlay
                 m_Visual.SetActive(false);
             m_Visual = null;
 
-            // ONLY IF STILL WET. Walking out of the water is its own disembark and the
-            // actor is already where it wants to be; hauling it back to the remembered
-            // shore would yank it backwards for no reason the player can see. The rescue
-            // is for the other exit — cancelled at sea, sunk, teleported — where leaving
-            // the mode without leaving the water would strand a walker on the waves.
-            if (WaterVolumeBehaviour.At(context.owner, context.owner.transform.position) != null
+            if (m_Hidden != null)
+                m_Hidden.SetActive(true);
+            m_Hidden = null;
+
+            // ONLY WHEN THE MODE IS OVER, and only if still wet.
+            //
+            // The mode is the KEY, not this state: an aboard branch with more than one state
+            // in it (sailing, firing) hands over by exiting one and entering the next, and a
+            // rescue that fired on any exit would haul the player ashore every time they used
+            // the cannon. Walking out of the water is its own disembark and needs no rescue
+            // either — the actor is already where it wants to be. What is left is the exit
+            // that strands: the mode ending while the body is still on the waves.
+            bool stillAboard = context.blackboard.ContainsKey(BoardingKeys.Aboard);
+            if (!stillAboard
+                && WaterVolumeBehaviour.At(context.owner, context.owner.transform.position) != null
                 && context.blackboard.TryGetValue(BoardingKeys.LastGround, out object held)
                 && held is Vector3 ground)
                 Teleport(context.owner, ground);
