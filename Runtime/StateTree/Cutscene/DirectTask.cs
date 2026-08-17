@@ -112,10 +112,30 @@ namespace PowerOfFire.DrawToPlay
                 m_Actor.abilityFinished -= OnAbilityFinished;
                 if (status == StateTreeStatus.Cancelled && m_Started && !m_Finished)
                     m_Actor.Cancel();
+                if (m_Started)
+                    GiveThemBackToThemselves();
             }
             m_Actor = null;
             m_Started = false;
             m_Finished = false;
+        }
+
+        /// <summary>
+        /// THE BEAT IS OVER, SO THE ACTOR IS THEIRS AGAIN. A directed body is the one case where
+        /// an actor's own tree is not the thing that moved it: the keeper stood in 'waiting' for
+        /// the whole scene, so the idle its state plays ON THE WAY IN was never played again, and
+        /// a one-shot that has run out with nothing behind it leaves a character in no pose at
+        /// all — the heap on the ground this fixed.
+        ///
+        /// Re-entering the state the actor is already in is the smallest true statement of "carry
+        /// on being yourself": whatever that state asserts about the body — its idle, its speed —
+        /// is asserted again, and no transition is faked to do it.
+        /// </summary>
+        private void GiveThemBackToThemselves()
+        {
+            var host = m_Actor.GetComponent<StateTreeContextHost>();
+            if (host != null)
+                host.ReenterActiveState();
         }
 
         /// <summary>However it ended — run out, cancelled by another ability, the actor

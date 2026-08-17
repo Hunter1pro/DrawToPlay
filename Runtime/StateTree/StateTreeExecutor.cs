@@ -521,6 +521,30 @@ namespace PowerOfFire.DrawToPlay
             activeNodeChanged?.Invoke(previousId, target.nodeId);
         }
 
+        /// <summary>
+        /// Enter the state this tree is ALREADY in, again — the way a body whose animation was
+        /// taken over from outside gets its own life back.
+        ///
+        /// A state asserts what it is on the way in (an idle clip, a stance, a speed), and never
+        /// again while it runs. That is right for a mind driving itself: nothing else touches the
+        /// body, so nothing has to be re-asserted. It is wrong the moment something ELSE plays a
+        /// one-shot on the same body — a cutscene beat, say — because the state that would put the
+        /// idle back is the state the actor never left, and a clip that has run out with no state
+        /// change behind it leaves a character in no pose at all.
+        ///
+        /// Deliberately no <see cref="activeNodeChanged"/>: nothing changed. Services derive their
+        /// consume from that event, and telling them a state was left when it was not would clear
+        /// keys nobody released.
+        /// </summary>
+        public void ReenterActiveNode()
+        {
+            if (!isRunning || m_CurrentNode == null)
+                return;
+            StateTreeNodeAsset node = m_CurrentNode;
+            ExitRunningTasks(StateTreeStatus.Cancelled);
+            EnterNode(node);
+        }
+
         private void ExitRunningTasks(StateTreeStatus status)
         {
             for (int i = 0; i < m_RunningTasks.Count; i++)

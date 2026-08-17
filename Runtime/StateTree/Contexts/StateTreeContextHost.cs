@@ -164,6 +164,16 @@ namespace PowerOfFire.DrawToPlay
                 m_Executor.TickTree(deltaTime);
         }
 
+        /// <summary>Assert this context's current state over again — what a body needs after
+        /// something outside it (a cutscene beat) took its animation over, since the state that
+        /// would put the idle back is the one it never left. See
+        /// <see cref="StateTreeExecutor.ReenterActiveNode"/>.</summary>
+        public void ReenterActiveState()
+        {
+            if (m_Executor != null)
+                m_Executor.ReenterActiveNode();
+        }
+
         private StateTreeExecutor EnsureExecutor()
         {
             if (m_Executor != null)
