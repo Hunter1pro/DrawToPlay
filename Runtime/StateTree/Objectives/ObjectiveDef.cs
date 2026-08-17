@@ -67,8 +67,15 @@ namespace PowerOfFire.DrawToPlay
             + "HT per-objective icon override, as authored text.")]
         public string arrowGlyph = "";
 
-        [Tooltip("The accent this row wears — the objective line and the arrow tint.")]
+        [Tooltip("The accent this row wears — the objective line, the arrow tint, and the "
+            + "world marker's colour.")]
         public Color accentColor = new Color(0.95f, 0.92f, 0.75f);
+
+        [Tooltip("Also stand a marker on the target IN THE WORLD, not only an arrow on the "
+            + "screen edge. Off by default: a marker is a promise that the place is reachable "
+            + "and worth looking at, and rows that ask for something abstract should not make "
+            + "it.")]
+        public bool worldMarker;
 
         // Zone membership lives on the ZONE now (ZoneDef.stack, the container row):
         // a row joins a zone by being picked into its ordered stack — one authored
