@@ -62,7 +62,14 @@ namespace PowerOfFire.DrawToPlay
         /// so the same row placed twice is spent twice — one-shot-ness belongs to the PLACE,
         /// not to the script.
         /// </summary>
-        public CutsceneResult Play(string cutsceneName, string placementId = "")
+        /// <param name="stageHint">Something standing IN the level the scene belongs to —
+        /// the trigger that asked, usually. It matters because "the level" is not a thing this
+        /// service can look up from where it lives: it sits on the ROOT, and Level-kind hosts
+        /// are plentiful (every spawned exit and timber stand runs its own tree on one), so
+        /// asking the spine for "the level" from up here is ambiguous and answers nobody.
+        /// Walking UP from something inside it always answers.</param>
+        public CutsceneResult Play(string cutsceneName, string placementId = "",
+            GameObject stageHint = null)
         {
             var result = new CutsceneResult { cutsceneName = cutsceneName ?? "" };
 
@@ -78,7 +85,7 @@ namespace PowerOfFire.DrawToPlay
             if (result.cutscene.beats == null)
                 return Refuse(result, "'" + result.cutsceneName + "' has no script");
 
-            StateTreeContextHost stage = Stage();
+            StateTreeContextHost stage = Stage(stageHint);
             if (stage == null)
                 return Refuse(result, "no level to play it in");
 
@@ -118,9 +125,17 @@ namespace PowerOfFire.DrawToPlay
             m_Director.autoStart = false;
             m_Director.tree = result.cutscene.beats;
             m_Director.treeFinished += OnScriptFinished;
-            m_Director.StartTree();
+
+            // THE CAST GOES ON THE BOARD BEFORE THE CURTAIN, and the order is the whole scene:
+            // StartTree enters the first beat immediately, so a cast published afterwards
+            // arrives one moment too late — every beat looked for its actor, found an empty
+            // board, warned, and completed, which from the outside was a scene that played
+            // perfectly in zero seconds with nobody in it. The same lesson as every other
+            // "published after the reader ran" bug in this project, in its newest disguise.
             foreach (KeyValuePair<string, GameObject> part in cast)
                 m_Director.Context.blackboard[part.Key] = part.Value;
+
+            m_Director.StartTree();
 
             if (result.cutscene.takesControl)
                 TakeControl(cast);
@@ -156,7 +171,7 @@ namespace PowerOfFire.DrawToPlay
                 // StopTree first: exiting the beats is what cancels what they started on the
                 // cast, and destroying the host without it would leave an actor mid-stride.
                 m_Director.StopTree();
-                Destroy(m_Director.gameObject);
+                DestroyStage(m_Director.gameObject);
             }
             m_Director = null;
 
@@ -223,11 +238,28 @@ namespace PowerOfFire.DrawToPlay
             m_Held.Clear();
         }
 
-        /// <summary>Where a scene is played: the LEVEL, because its cast, its camera and the
-        /// services its beats reach for all live and die there.</summary>
-        private StateTreeContextHost Stage()
+        /// <summary>
+        /// Where a scene is played: the LEVEL, because its cast, its camera and the services
+        /// its beats reach for all live and die there.
+        ///
+        /// Found by walking up from something that is IN it — the asker first, the player
+        /// second — rather than by asking for "the level" in the abstract, which this project
+        /// cannot answer: a Level-kind host is what every spawned thing with a tree of its own
+        /// runs on, so the kind is plentiful and the question is ambiguous.
+        /// </summary>
+        private StateTreeContextHost Stage(GameObject hint)
         {
-            return StateTreeContextHost.Resolve(gameObject, StateTreeContextKind.Level);
+            StateTreeContextHost stage = hint != null
+                ? StateTreeContextHost.Resolve(hint, StateTreeContextKind.Level)
+                : null;
+            if (stage != null)
+                return stage;
+
+            StateTreeContextHost player = StateTreeContextHost.Resolve(gameObject,
+                StateTreeContextKind.Player);
+            return player != null
+                ? StateTreeContextHost.Resolve(player.gameObject, StateTreeContextKind.Level)
+                : null;
         }
 
         private CutsceneResult Refuse(CutsceneResult result, string why)
@@ -243,6 +275,19 @@ namespace PowerOfFire.DrawToPlay
         {
             return row == null ? "" : string.IsNullOrEmpty(row.displayName)
                 ? row.name : row.displayName;
+        }
+
+        /// <summary>The stage comes down the same way the tree's own runtime copies do —
+        /// deferred in play, at once outside it, so a scene torn down in an editor preview or
+        /// a headless test is not an error the runtime prints.</summary>
+        private static void DestroyStage(GameObject stage)
+        {
+            if (stage == null)
+                return;
+            if (Application.isPlaying)
+                Destroy(stage);
+            else
+                DestroyImmediate(stage);
         }
 
         private Dictionary<string, object> Board()
