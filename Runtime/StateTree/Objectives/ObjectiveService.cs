@@ -15,8 +15,15 @@ namespace PowerOfFire.DrawToPlay
     /// registry and the player's position are toolset facts, checked here.
     /// </summary>
     [AddComponentMenu("Draw To Play/Services/Objective Service")]
+    [ServiceActionContract(FocusAction, "value = the target's stableId, or empty for the "
+        + "nearest one")]
     public sealed class ObjectiveService : StateTreeServiceBehaviour
     {
+        /// <summary>"SHOW ME." The line's one verb that changes nothing about the line —
+        /// asked by the objective banner, by a tap on a pointer, or by any tree that wants
+        /// to draw the eye to what it is asking for.</summary>
+        public const string FocusAction = "objective-focus";
+
         [Tooltip("The declaration this service runs: scope and the objective registry.")]
         public ServiceDef definition;
 
@@ -402,6 +409,109 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Where the arrow points: the nearest citizen carrying the current row's
         /// tag, from the player's position. Null when the row is silent about place.</summary>
+        /// <summary>
+        /// EVERY live thing the current row is about, not just the nearest — the list a
+        /// pointer per target is drawn from, and the reason a row asking for six raiders can
+        /// show six arrows instead of one that keeps changing its mind.
+        ///
+        /// Order is nearest-first, so a skin that can only show a few shows the ones that
+        /// matter. Empty when the row names no tag, when nothing carries it, or when the
+        /// world has not registered anything yet — all normal, none an error.
+        /// </summary>
+        public void CurrentTargets(List<WorldObjectBehaviour> into)
+        {
+            into?.Clear();
+            if (into == null || current == null || string.IsNullOrEmpty(current.targetTag))
+                return;
+            WorldService world = StateTreeContextHost.FindService<WorldService>(gameObject);
+            if (world == null)
+                return;
+
+            StateTreeContextHost player =
+                StateTreeContextHost.Resolve(gameObject, StateTreeContextKind.Player);
+            Vector3 from = player != null ? player.transform.position : transform.position;
+
+            m_Buffer.Clear();
+            world.CollectByTag(current.targetTag, m_Buffer);
+            for (int i = 0; i < m_Buffer.Count; i++)
+            {
+                WorldObjectBehaviour candidate = m_Buffer[i];
+                if (candidate == null)
+                    continue;
+                // ONE ENTRY PER BODY. A citizen wears several of these components at once — it
+                // is a character AND an npc AND whatever else its prefab says — and each
+                // registers itself, so the tag index holds a raider three times over. The
+                // nearest-one question never noticed; a list does, and three pointers stacked
+                // on one body is exactly the noise the per-target pointers exist to avoid.
+                bool already = false;
+                for (int j = 0; j < into.Count; j++)
+                {
+                    if (into[j] != null && into[j].gameObject == candidate.gameObject)
+                    {
+                        already = true;
+                        break;
+                    }
+                }
+                if (!already)
+                    into.Add(candidate);
+            }
+            into.Sort((a, b) =>
+                Flat(a.transform.position - from).CompareTo(Flat(b.transform.position - from)));
+        }
+
+        private static float Flat(Vector3 offset)
+        {
+            offset.y = 0f;
+            return offset.sqrMagnitude;
+        }
+
+        /// <summary>
+        /// SOMEBODY WANTS TO SEE IT. The service does not know what looking means — it has no
+        /// camera and should never grow one — so it names the thing and lets the game answer,
+        /// exactly as kills and pickups are reported the other way.
+        /// </summary>
+        public event Action<WorldObjectBehaviour> focusRequested;
+
+        /// <summary>Ask to be shown one of the current row's targets; null means the nearest.
+        /// Quiet when the row has none — a tap on a stale pointer should do nothing, loudly
+        /// or otherwise.</summary>
+        public void Focus(WorldObjectBehaviour target)
+        {
+            WorldObjectBehaviour shown = target;
+            if (shown == null)
+            {
+                CurrentTargets(m_Targets);
+                shown = m_Targets.Count > 0 ? m_Targets[0] : null;
+            }
+            if (shown != null)
+                focusRequested?.Invoke(shown);
+        }
+
+        private readonly List<WorldObjectBehaviour> m_Targets = new List<WorldObjectBehaviour>();
+
+        protected override void OnRequest(ServiceRequest request, string value)
+        {
+            if (request.action != FocusAction)
+                return;
+            // BY STABLE ID, because the value crosses a blackboard as text: a tree or a skin
+            // names WHICH one, and an empty value means "whichever is nearest" — the same
+            // answer the arrow gives when it only has room for one.
+            WorldObjectBehaviour picked = null;
+            if (!string.IsNullOrEmpty(value))
+            {
+                CurrentTargets(m_Targets);
+                for (int i = 0; i < m_Targets.Count; i++)
+                {
+                    if (m_Targets[i] != null && m_Targets[i].stableId == value)
+                    {
+                        picked = m_Targets[i];
+                        break;
+                    }
+                }
+            }
+            Focus(picked);
+        }
+
         public Vector3? CurrentTargetPosition()
         {
             if (current == null || string.IsNullOrEmpty(current.targetTag))
