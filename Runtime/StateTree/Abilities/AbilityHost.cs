@@ -173,6 +173,17 @@ namespace PowerOfFire.DrawToPlay
                 || Time.time >= readyAt;
         }
 
+        /// <summary>Seconds until this row can be used again, zero when it already can — what a
+        /// reload bar draws. The gate above answers yes/no because that is all the gate needs;
+        /// a player watching a gun needs to know HOW LONG, and neither should have to guess it
+        /// from the other.</summary>
+        public float CooldownRemaining(AbilityDef def)
+        {
+            if (def == null || !m_ReadyAt.TryGetValue(def.name, out float readyAt))
+                return 0f;
+            return Mathf.Max(0f, readyAt - Time.time);
+        }
+
         /// <summary>The running ability tree's context, or null — how tests and tools see
         /// what an activation seeded.</summary>
         public StateTreeContext activeContext => m_Executor != null ? m_Executor.context : null;
