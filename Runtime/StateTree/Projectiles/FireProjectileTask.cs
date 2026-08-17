@@ -24,8 +24,11 @@ namespace PowerOfFire.DrawToPlay
         public StateTreeEntryRef<ProjectileDef> projectile = new StateTreeEntryRef<ProjectileDef>();
 
         /// <summary>The catalog itself, bound at StartTree from the tree's listed registries —
-        /// no asset slot on the task to mis-wire.</summary>
-        private StateTreeRegistryRef<ProjectileDef> m_Projectiles =
+        /// no asset slot on the task to mis-wire. PUBLIC because that binding is reflection
+        /// over the task's serialized fields: declared private, it is simply never filled, and
+        /// the gun answers "no projectile row named 'cannonball'" while the row sits in the
+        /// registry the tree is holding.</summary>
+        public StateTreeRegistryRef<ProjectileDef> projectiles =
             new StateTreeRegistryRef<ProjectileDef>();
 
         [Tooltip("Who it is aimed at: a blackboard key holding the body.")]
@@ -82,6 +85,8 @@ namespace PowerOfFire.DrawToPlay
             }
 
             m_Flight = new ProjectileFlight(row, muzzle, velocity, context.owner.transform);
+            Record(context, "fired '" + row.name + "' at "
+                + (target != null ? target.name : "nothing — straight ahead"));
             if (!string.IsNullOrEmpty(struckKey))
                 context.blackboard.Remove((string)struckKey);
         }
@@ -93,6 +98,9 @@ namespace PowerOfFire.DrawToPlay
             if (m_Flight.Tick(deltaTime))
                 return StateTreeStatus.Running;
 
+            Record(context, "landed on "
+                + (m_Flight.struck != null ? m_Flight.struck.name : "nothing")
+                + " at " + m_Flight.endedAt.ToString("0.0"));
             if (!string.IsNullOrEmpty(struckKey) && m_Flight.struck != null)
                 context.blackboard[(string)struckKey] = m_Flight.struck;
             m_Flight = null;
@@ -115,7 +123,7 @@ namespace PowerOfFire.DrawToPlay
             string wanted = projectile.entryName;
             if (string.IsNullOrEmpty(wanted))
                 return null;
-            if (m_Projectiles.TryGet(wanted, out ProjectileDef bound))
+            if (projectiles.TryGet(wanted, out ProjectileDef bound))
                 return bound;
 
             StateTreeContextHost host = StateTreeContextHost.ResolveNearest(
@@ -134,6 +142,23 @@ namespace PowerOfFire.DrawToPlay
             }
             return null;
         }
+
+        /// <summary>
+        /// WHAT THE GUN JUST DID, on the root board under <c>gun.last</c> — a shot RECORD in
+        /// the same spirit as the cutscene's and the craft's: one sentence, overwritten each
+        /// time, readable by a HUD that wants to say HIT or MISS and by anybody trying to
+        /// find out why a ball went somewhere surprising. A weapon that cannot be asked what
+        /// it did is a weapon you debug by staring at it.
+        /// </summary>
+        private static void Record(StateTreeContext context, string what)
+        {
+            StateTreeContextHost root = StateTreeContextHost.Resolve(
+                context != null ? context.owner : null, StateTreeContextKind.Root);
+            if (root != null && root.Context != null)
+                root.Context.blackboard[k_ShotKey] = what;
+        }
+
+        private const string k_ShotKey = "gun.last";
 
         private static GameObject Body(StateTreeContext context, StateTreeKeyField key)
         {
