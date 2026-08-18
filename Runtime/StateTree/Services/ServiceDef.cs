@@ -90,6 +90,16 @@ namespace PowerOfFire.DrawToPlay
             + "field elsewhere can then ask for the promise instead of naming this def, and the "
             + "picker offers whoever keeps it. A claim is checkable: StateTreeContracts.Missing "
             + "says what a def promises and does not deliver.")]
+        /// <summary>
+        /// THE BODY THIS DEF OWNS (M30.3) — empty for a subsystem, filled for a thing.
+        ///
+        /// The def is on top of the world object: the manifest and the world registry see the DEF,
+        /// and the def spawns and controls the <see cref="WorldObjectBehaviour"/> underneath.
+        /// Which is why this lives here and not on the row that places it — a placement says
+        /// WHERE and WHICH ONE, never what kind of thing this is.
+        /// </summary>
+        public ServiceBody body = new ServiceBody();
+
         public List<StateTreeEntryRef<ContractDef>> implements =
             new List<StateTreeEntryRef<ContractDef>>();
 

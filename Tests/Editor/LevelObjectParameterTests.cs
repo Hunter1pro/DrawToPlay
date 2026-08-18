@@ -8,7 +8,7 @@ namespace PowerOfFire.DrawToPlay.Tests
     /// <summary>
     /// The MANIFEST → TREE argument channel: a placement row carries id-bound override rows for
     /// the parameters its tree declares (<see cref="LevelObjectDef.parameters"/>), the
-    /// spawner copies them onto the spawned host (<see cref="OutpostManifestSpawner.Mind"/>),
+    /// spawner copies them onto the spawned host (<see cref="ServiceBodyFactory.Mind"/>),
     /// and the executor seeds the effective values into the blackboard under the parameters'
     /// names — so a task reads a plain key and one authored tree serves every placement.
     ///
@@ -57,7 +57,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             });
 
             StateTreeContextHost host = MakeHost();
-            OutpostManifestSpawner.Mind(host, row);
+            ServiceBodyFactory.Mind(host, row);
             host.StartTree();
 
             Assert.AreEqual("ridge", host.Context.blackboard["destination"],
@@ -70,7 +70,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             var row = new LevelObjectDef { tree = MakeDeclaringTree() };
 
             StateTreeContextHost host = MakeHost();
-            OutpostManifestSpawner.Mind(host, row);
+            ServiceBodyFactory.Mind(host, row);
             host.StartTree();
 
             Assert.AreEqual("", host.Context.blackboard["destination"],
@@ -89,7 +89,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             row.parameters.values.Add(argument);
 
             StateTreeContextHost host = MakeHost();
-            OutpostManifestSpawner.Mind(host, row);
+            ServiceBodyFactory.Mind(host, row);
 
             Assert.AreEqual(1, host.parameterOverrides.Count);
             Assert.AreNotSame(argument, host.parameterOverrides[0],
