@@ -320,6 +320,25 @@ namespace PowerOfFire.DrawToPlay.Editor
                     context = def, description = label + " · flow tree"
                 });
             }
+            // WHAT IT DECLARES AND WHAT IT BUILDS (M30.3/30.4) — the two edges that appeared
+            // when the def became a first-class thing: the catalogs it may name, and the body
+            // it spawns. A map without them would show a def as if it stood alone.
+            for (int i = 0; def.declares != null && i < def.declares.Count; i++)
+            {
+                if (def.declares[i] == null)
+                    continue;
+                index.AddAssetUse(def.declares[i], new WireUse
+                {
+                    context = def, description = label + " · declares this catalog"
+                });
+            }
+            if (def.body != null && def.body.prefab != null)
+            {
+                index.AddAssetUse(def.body.prefab, new WireUse
+                {
+                    context = def, description = label + " · spawns this body"
+                });
+            }
             for (int i = 0; def.spawns != null && i < def.spawns.Count; i++)
             {
                 var spawn = def.spawns[i];
