@@ -42,6 +42,11 @@ namespace PowerOfFire.DrawToPlay
                     break;
                 case ServiceDef service:
                     Add(service.registry, into);
+                    // WHAT IT DECLARES (M30.4), on top of what it manages: a def that owns a
+                    // body has no catalog of its own to speak of and still needs to name the
+                    // attributes it has — so it declares them, exactly as a registry does.
+                    for (int i = 0; i < service.declares.Count; i++)
+                        Add(service.declares[i], into);
                     if (service.flows != null)
                     {
                         for (int i = 0; i < service.flows.registries.Count; i++)
@@ -225,6 +230,34 @@ namespace PowerOfFire.DrawToPlay
                     return contracts[i];
             }
             return null;
+        }
+
+        /// <summary>
+        /// Every row of a given KIND this asset can name — the attribute catalogs it declares,
+        /// the contracts, the items. The general form of the neighbourhood rule, for a picker
+        /// that knows what shape it wants but not which catalog holds it.
+        /// </summary>
+        public static void RowsOfKind<TRow>(Object owner, List<TRow> into)
+            where TRow : StateTreeRegistryEntry
+        {
+            if (into == null)
+                return;
+            into.Clear();
+
+            var reachable = new List<StateTreeRegistryAsset>();
+            ReachableRegistries(owner, reachable);
+            for (int i = 0; i < reachable.Count; i++)
+            {
+                StateTreeRegistryAsset registry = reachable[i];
+                if (registry == null)
+                    continue;
+                for (int j = 0; j < registry.Count; j++)
+                {
+                    if (registry.EntryAt(j) is TRow row && !string.IsNullOrEmpty(row.name)
+                        && !into.Contains(row))
+                        into.Add(row);
+                }
+            }
         }
 
         /// <summary>Whether this asset declares that registry — the one-line form of the rule,

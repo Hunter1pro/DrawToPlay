@@ -60,17 +60,29 @@ namespace PowerOfFire.DrawToPlay
                 if (!string.IsNullOrEmpty(wanted) && def.RequestFor(wanted) == null)
                     into.Add("request '" + wanted + "'");
             }
-            // Attributes are checked against the def's own registry rows by name: an attribute is
-            // a row like everything else, and a def that manages a catalog containing it can
-            // serve it. A def with no registry promises attributes it cannot have.
+            // ATTRIBUTES ARE DECLARED NOW (M30.4), so that is the first place to look: a def
+            // that says it HAS health delivers the health a contract asks for, and its derived
+            // requests are the surface the promise was really about. A def that declares none
+            // falls back to its catalog, which is how this read before attributes existed.
             for (int i = 0; i < contract.attributes.Count; i++)
             {
                 string wanted = contract.attributes[i];
-                if (string.IsNullOrEmpty(wanted))
+                if (string.IsNullOrEmpty(wanted) || Declares(def, wanted))
                     continue;
                 if (def.registry == null || def.registry.FindByName(wanted) == null)
                     into.Add("attribute '" + wanted + "'");
             }
+        }
+
+        /// <summary>Does this def say it HAS that attribute?</summary>
+        private static bool Declares(ServiceDef def, string attribute)
+        {
+            for (int i = 0; i < def.attributes.Count; i++)
+            {
+                if (def.attributes[i] != null && def.attributes[i].Name == attribute)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>Does this live body keep the contract right now?</summary>

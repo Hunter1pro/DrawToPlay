@@ -63,6 +63,11 @@ namespace PowerOfFire.DrawToPlay
             // character, a talker, an ability host — and exactly ONE of them may wear the row's
             // id: the world indexes by id and the second holder of one id evicts the first. The
             // def names it, because the def is what knows how its body is assembled.
+            // WHAT IT IS, kept on the object: the def spawned this body, so the body can be
+            // asked what def it is — which is what lets a tree standing on a door read the
+            // door's own API instead of being told about doors in advance (M30.4).
+            view.AddComponent<ServiceBodyBinding>().def = def;
+
             WorldObjectBehaviour self = Identity(view, citizens, body.identityPart);
             if (self != null)
             {

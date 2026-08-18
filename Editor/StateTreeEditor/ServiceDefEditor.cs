@@ -28,13 +28,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             // a subsystem whose handlers wait, and on a def-only one it is four empty
             // fields pretending to be part of the declaration.
             DrawPropertiesExcluding(serializedObject, "m_Script", "serviceTypeName",
-                "requests", "spawns", "announcements", "implements",
+                "requests", "spawns", "announcements", "implements", "attributes",
                 "treeKind", "flows", "nestingRules", "kindSeeds");
             serializedObject.ApplyModifiedProperties();
 
             DrawServiceType(def);
             DrawImplements(def);
+            DrawAttributes(def);
             DrawRequests(def);
+            DrawDerived(def);
             DrawSpawns(def);
             DrawAnnouncements(def);
             DrawFlowBacked(def);
@@ -260,6 +262,160 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private readonly List<ContractDef> m_Contracts = new List<ContractDef>();
         private readonly List<string> m_Missing = new List<string>();
+
+        // ---- attributes: what it HAS, and what that lets anybody do ---------------------
+
+        /// <summary>
+        /// WHAT THIS DEF HAS (M30.4) — the data half of its API, from which the request rows
+        /// below are derived rather than typed.
+        ///
+        /// The offer is the neighbourhood again: the attribute catalogs this def's registry
+        /// declares, never the project's. WRITABLE is the permission and it is not decoration —
+        /// a read-only attribute derives the ask alone, and the runtime refuses the rest by
+        /// asking the same question this checkbox answers.
+        /// </summary>
+        private void DrawAttributes(ServiceDef def)
+        {
+            EditorGUILayout.Space(6f);
+            EditorGUILayout.LabelField(new GUIContent("Has — its attributes",
+                "What this kind of thing has. Its read and change requests follow from these."),
+                EditorStyles.boldLabel);
+
+            StateTreeOffers.RowsOfKind(def, m_Attributes);
+
+            for (int i = 0; i < def.attributes.Count; i++)
+            {
+                ServiceAttribute has = def.attributes[i];
+                if (has == null)
+                    continue;
+                int index = i;
+
+                EditorGUILayout.BeginHorizontal();
+                using (new EditorGUI.DisabledScope(true))
+                {
+                    EditorGUILayout.TextField(new GUIContent("Attribute",
+                        "Linked to a catalog row — change it from ▾."),
+                        string.IsNullOrEmpty(has.Name) ? "(none)" : has.Name);
+                }
+                if (GUILayout.Button("▾", GUILayout.Width(22f)))
+                    ShowAttributeMenu(def, index);
+                bool writable = GUILayout.Toggle(has.writable,
+                    new GUIContent("writable", "Off derives only the ask — and the runtime "
+                        + "refuses set and add, not just this inspector."),
+                    GUILayout.Width(78f));
+                if (writable != has.writable)
+                    Commit(() => has.writable = writable);
+                if (GUILayout.Button("✕", GUILayout.Width(22f)))
+                {
+                    Commit(() => def.attributes.RemoveAt(index));
+                    GUIUtility.ExitGUI();
+                }
+                EditorGUILayout.EndHorizontal();
+
+                if (!string.IsNullOrEmpty(has.Name) && !Offered(m_Attributes, has.Name))
+                {
+                    EditorGUILayout.HelpBox("Nothing this def declares holds an attribute called '"
+                        + has.Name + "'. Add its catalog to the registry's Depends On.",
+                        MessageType.Warning);
+                }
+            }
+
+            if (GUILayout.Button("+ has…", GUILayout.Width(140f)))
+                ShowAttributeMenu(def, -1);
+        }
+
+        private void ShowAttributeMenu(ServiceDef def, int index)
+        {
+            var menu = new GenericMenu();
+            if (m_Attributes.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent(def.registry == null
+                    ? "this def manages no catalog — nothing to read attributes from"
+                    : "'" + def.registry.name + "' declares no attribute catalog"));
+            }
+            for (int i = 0; i < m_Attributes.Count; i++)
+            {
+                AttributeDef row = m_Attributes[i];
+                bool taken = HasAttribute(def, row.name);
+                menu.AddItem(new GUIContent(row.name), taken, () => Commit(() =>
+                {
+                    var has = new ServiceAttribute();
+                    has.attribute.entryId = row.id;
+                    has.attribute.entryName = row.name;
+                    if (index >= 0 && index < def.attributes.Count)
+                    {
+                        has.writable = def.attributes[index].writable;
+                        def.attributes[index] = has;
+                    }
+                    else if (!taken)
+                    {
+                        def.attributes.Add(has);
+                    }
+                }));
+            }
+            menu.ShowAsContext();
+        }
+
+        private static bool HasAttribute(ServiceDef def, string name)
+        {
+            for (int i = 0; i < def.attributes.Count; i++)
+            {
+                if (def.attributes[i] != null && def.attributes[i].Name == name)
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool Offered(List<AttributeDef> offers, string name)
+        {
+            for (int i = 0; i < offers.Count; i++)
+            {
+                if (offers[i] != null && offers[i].name == name)
+                    return true;
+            }
+            return false;
+        }
+
+        // ---- derived: the rows nobody types --------------------------------------------
+
+        /// <summary>
+        /// THE API THAT WROTE ITSELF (M30.4) — read-only, because editing a derived row would be
+        /// editing the attribute it came from through a copy.
+        ///
+        /// Each row carries the same ⛓ as an authored one, and it works for the same reason: a
+        /// request key travels as text, so whoever writes 'health.add' anywhere in the project
+        /// is a caller and the usage index already knows it. That is the "links of usage stay
+        /// visible" half of the brief, and it is what makes a generated surface worth reading.
+        /// </summary>
+        private void DrawDerived(ServiceDef def)
+        {
+            def.DerivedRequests(m_Derived);
+            if (m_Derived.Count == 0)
+                return;
+
+            EditorGUILayout.Space(4f);
+            EditorGUILayout.LabelField(new GUIContent("Derived — from what it has",
+                "Nobody typed these. They follow from the attributes above and disappear with "
+                + "them."), EditorStyles.boldLabel);
+
+            for (int i = 0; i < m_Derived.Count; i++)
+            {
+                ServiceRequest row = m_Derived[i];
+                EditorGUILayout.BeginHorizontal();
+                using (new EditorGUI.DisabledScope(true))
+                    EditorGUILayout.TextField(row.key, row.description);
+                CallersButton(row);
+                EditorGUILayout.EndHorizontal();
+            }
+
+            EditorGUILayout.HelpBox("Served on the OBJECT, not on the board: an Object Request "
+                + "task calls these on whatever body this def built. A def that declares an "
+                + "attribute its prefab has not got is refused at the call and says so.",
+                MessageType.None);
+        }
+
+        private readonly List<AttributeDef> m_Attributes = new List<AttributeDef>();
+        private readonly List<ServiceRequest> m_Derived = new List<ServiceRequest>();
 
         // ---- requests ------------------------------------------------------------------
 

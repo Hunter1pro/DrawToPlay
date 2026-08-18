@@ -86,10 +86,6 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public List<ServiceAnnouncement> announcements = new List<ServiceAnnouncement>();
 
-        [Tooltip("The CONTRACTS this def claims to keep (M30.2) — 'damageable', 'openable'. A "
-            + "field elsewhere can then ask for the promise instead of naming this def, and the "
-            + "picker offers whoever keeps it. A claim is checkable: StateTreeContracts.Missing "
-            + "says what a def promises and does not deliver.")]
         /// <summary>
         /// THE BODY THIS DEF OWNS (M30.3) — empty for a subsystem, filled for a thing.
         ///
@@ -100,10 +96,31 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public ServiceBody body = new ServiceBody();
 
+        [Tooltip("The CONTRACTS this def claims to keep (M30.2) — 'damageable', 'openable'. A "
+            + "field elsewhere can then ask for the promise instead of naming this def, and the "
+            + "picker offers whoever keeps it. A claim is checkable: StateTreeContracts.Missing "
+            + "says what a def promises and does not deliver.")]
         public List<StateTreeEntryRef<ContractDef>> implements =
             new List<StateTreeEntryRef<ContractDef>>();
 
-        /// <summary>The declared request for a key, or null.</summary>
+        [Tooltip("The catalogs this def DECLARES beyond the one it manages (M30.4) — the "
+            + "attribute table it draws from, the contracts it may claim. Same rule as a "
+            + "registry's Depends On: what you declare is what your pickers offer.")]
+        public List<StateTreeRegistryAsset> declares = new List<StateTreeRegistryAsset>();
+
+        [Tooltip("WHAT THIS DEF HAS (M30.4) — its attributes, from which its read/change "
+            + "requests are DERIVED rather than typed. Writable is the permission, and the "
+            + "runtime refuses what it forbids.")]
+        public List<ServiceAttribute> attributes = new List<ServiceAttribute>();
+
+        /// <summary>
+        /// The request for a key — AUTHORED FIRST, then derived from what this def has (M30.4).
+        ///
+        /// The order matters and is the whole compatibility story: a def that hand-wrote
+        /// "health.set" keeps its own row, with its own description and reactions, and the
+        /// derived one never shadows it. Everything that validated a request against this
+        /// method now validates the derived surface too, with nothing to change.
+        /// </summary>
         public ServiceRequest RequestFor(string key)
         {
             for (int i = 0; i < requests.Count; i++)
@@ -112,7 +129,109 @@ namespace PowerOfFire.DrawToPlay
                 if (row != null && string.Equals(row.key, key, StringComparison.Ordinal))
                     return row;
             }
+            return DerivedRequestFor(key);
+        }
+
+        /// <summary>
+        /// THE ROWS NOBODY TYPES (M30.4) — one per attribute per verb it permits.
+        ///
+        /// Read and change are the same three sentences for every attribute anybody ever
+        /// declares, so writing them out is transcription: the def says it has `health`, and
+        /// `health.ask`, `health.set` and `health.add` follow. Read-only attributes derive the
+        /// ask alone, which is what makes a derived surface a statement rather than a promise
+        /// the runtime has not read.
+        ///
+        /// Nothing is stored: these are computed from <see cref="attributes"/> every time, so a
+        /// renamed attribute renames its requests and a revoked permission removes them, with no
+        /// stale row left behind to be served by accident.
+        /// </summary>
+        public void DerivedRequests(List<ServiceRequest> into)
+        {
+            if (into == null)
+                return;
+            into.Clear();
+            for (int i = 0; i < attributes.Count; i++)
+            {
+                ServiceAttribute has = attributes[i];
+                string name = has != null ? has.Name : "";
+                if (string.IsNullOrEmpty(name))
+                    continue;
+                into.Add(Derived(name, AskVerb, has));
+                if (!has.writable)
+                    continue;
+                into.Add(Derived(name, SetVerb, has));
+                into.Add(Derived(name, AddVerb, has));
+            }
+        }
+
+        /// <summary>Split a derived key into the attribute and the verb — false when it is not
+        /// shaped like one, which is how an authored key with a dot in it stays authored.</summary>
+        public static bool SplitDerived(string key, out string name, out string verb)
+        {
+            name = "";
+            verb = "";
+            if (string.IsNullOrEmpty(key))
+                return false;
+            int dot = key.LastIndexOf('.');
+            if (dot <= 0 || dot >= key.Length - 1)
+                return false;
+            name = key.Substring(0, dot);
+            verb = key.Substring(dot + 1);
+            return verb == AskVerb || verb == SetVerb || verb == AddVerb;
+        }
+
+        /// <summary>The derived row for a key, or null — the same answer
+        /// <see cref="DerivedRequests"/> gives, without building the list.</summary>
+        public ServiceRequest DerivedRequestFor(string key)
+        {
+            if (!SplitDerived(key, out string name, out string verb))
+                return null;
+
+            for (int i = 0; i < attributes.Count; i++)
+            {
+                ServiceAttribute has = attributes[i];
+                if (has == null || has.Name != name)
+                    continue;
+                // THE PERMISSION IS CHECKED HERE, not only drawn: a read-only attribute has no
+                // set row to find, so every caller that validates against RequestFor is refused
+                // by the same rule the inspector showed.
+                if (verb != AskVerb && !has.writable)
+                    return null;
+                return Derived(name, verb, has);
+            }
             return null;
+        }
+
+        /// <summary>Is this key one of the derived ones — the question the runtime asks before
+        /// deciding whether to act on an attribute or to write the request onto the board.</summary>
+        public bool IsDerived(string key)
+        {
+            return DerivedRequestFor(key) != null;
+        }
+
+        /// <summary>Ask what it is now.</summary>
+        public const string AskVerb = "ask";
+
+        /// <summary>Set it outright.</summary>
+        public const string SetVerb = "set";
+
+        /// <summary>Move it by an amount, signed.</summary>
+        public const string AddVerb = "add";
+
+        private static ServiceRequest Derived(string name, string verb, ServiceAttribute has)
+        {
+            string what = string.IsNullOrEmpty(has.description) ? name : has.description;
+            string says = verb == AskVerb
+                ? "Read " + what + " — the answer lands where the caller asks for it."
+                : verb == SetVerb
+                    ? "Set " + what + " outright."
+                    : "Move " + what + " by an amount, signed.";
+            return new ServiceRequest
+            {
+                key = name + "." + verb,
+                action = verb,
+                description = says + "  (derived from what this def has)"
+            };
         }
 
         /// <summary>

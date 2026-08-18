@@ -293,6 +293,19 @@ namespace PowerOfFire.DrawToPlay.Editor
                     index.requestOwners[row.key] = def;
             }
 
+            // THE DERIVED ONES COUNT AS DECLARED (M30.4): a caller writing 'health.add' is
+            // calling something this def offers, and the usage index is exactly where that has
+            // to be visible. Authored rows keep the ownership when both exist, and a derived key
+            // several defs share is owned by the first — which is honest, because a derived key
+            // is spoken per object rather than per project.
+            var derived = new List<ServiceRequest>();
+            def.DerivedRequests(derived);
+            for (int i = 0; i < derived.Count; i++)
+            {
+                if (!index.requestOwners.ContainsKey(derived[i].key))
+                    index.requestOwners[derived[i].key] = def;
+            }
+
             if (def.registry != null)
             {
                 index.AddAssetUse(def.registry, new WireUse
