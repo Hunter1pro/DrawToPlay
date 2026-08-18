@@ -20,7 +20,7 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     [CreateAssetMenu(menuName = "Draw To Play/Services/Service Definition",
         fileName = "ServiceDef")]
-    public sealed class ServiceDef : ScriptableObject
+    public sealed class ServiceDef : ScriptableObject, IStateTreeNeighbourhood
     {
         /// <summary>The kind a TREE ROOT answers to in every service's nesting rules — a
         /// well-known constant, so "what may sit at the top level" is a rule like any other:
@@ -107,6 +107,10 @@ namespace PowerOfFire.DrawToPlay
             + "attribute table it draws from, the contracts it may claim. Same rule as a "
             + "registry's Depends On: what you declare is what your pickers offer.")]
         public List<StateTreeRegistryAsset> declares = new List<StateTreeRegistryAsset>();
+
+        /// <summary>The neighbourhood rule, said by a def — read by every picker through
+        /// <see cref="StateTreeOffers"/>.</summary>
+        public IReadOnlyList<StateTreeRegistryAsset> DeclaredCatalogs => declares;
 
         [Tooltip("WHAT THIS DEF HAS (M30.4) — its attributes, from which its read/change "
             + "requests are DERIVED rather than typed. Writable is the permission, and the "

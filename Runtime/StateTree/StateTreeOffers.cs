@@ -51,12 +51,9 @@ namespace PowerOfFire.DrawToPlay
                         Add(tree.registries[i], into);
                     break;
                 case ServiceDef service:
+                    // What it MANAGES and what its flows read; what it DECLARES arrived above,
+                    // through the interface, because a def is not the only thing that may say it.
                     Add(service.registry, into);
-                    // WHAT IT DECLARES (M30.4), on top of what it manages: a def that owns a
-                    // body has no catalog of its own to speak of and still needs to name the
-                    // attributes it has — so it declares them, exactly as a registry does.
-                    for (int i = 0; i < service.declares.Count; i++)
-                        Add(service.declares[i], into);
                     if (service.flows != null)
                     {
                         for (int i = 0; i < service.flows.registries.Count; i++)
