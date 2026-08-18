@@ -7,8 +7,17 @@ namespace PowerOfFire.DrawToPlay
     /// at and the game's spawner maps to a view; the description is what the spawner makes of
     /// it.</summary>
     [Serializable]
-    public sealed class LevelObjectKindDef : StateTreeRegistryEntry
+    public sealed class LevelObjectKindDef : StateTreeRegistryEntry, IServiceDefCarrier
     {
+        [Tooltip("The DEF behind this kind of object (M30.2, and the hinge of M30.3): what it "
+            + "promises, what it serves, and — once the def owns its body — what spawns it. "
+            + "Empty is the old shape: a prefab dressed by whatever code knows this kind's name.")]
+        public ServiceDef service;
+
+        /// <summary>The def behind this row — how a picker filters kinds by the promises they
+        /// keep without knowing what a 'kind' is.</summary>
+        public ServiceDef ServiceDef => service;
+
         [TextArea]
         public string description = "";
 

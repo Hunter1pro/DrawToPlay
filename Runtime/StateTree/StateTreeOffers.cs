@@ -79,6 +79,42 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
+        /// <summary>
+        /// The defs that KEEP a contract, drawn from the owner's declared neighbourhood (M30.2).
+        ///
+        /// This is what makes a contract-typed field usable: ask for "damageable" and the picker
+        /// offers the defs that claim it and are reachable from here — not every def in the
+        /// project, and not defs whose catalog nobody declared. The same neighbourhood rule the
+        /// rows follow, applied to behaviour.
+        /// </summary>
+        public static void ImplementersOf(ContractDef contract, Object owner, List<ServiceDef> into)
+        {
+            if (into == null)
+                return;
+            into.Clear();
+            if (contract == null)
+                return;
+
+            var reachable = new List<StateTreeRegistryAsset>();
+            ReachableRegistries(owner, reachable);
+            for (int i = 0; i < reachable.Count; i++)
+            {
+                StateTreeRegistryAsset registry = reachable[i];
+                if (registry == null)
+                    continue;
+                for (int j = 0; j < registry.Count; j++)
+                {
+                    // A def can be a row of a catalog (the M30.3 shape) or the asset that
+                    // manages one; both are found the same way — by asking the row what it is.
+                    if (registry.EntryAt(j) is IServiceDefCarrier carrier
+                        && carrier.ServiceDef != null
+                        && StateTreeContracts.Claims(carrier.ServiceDef, contract)
+                        && !into.Contains(carrier.ServiceDef))
+                        into.Add(carrier.ServiceDef);
+                }
+            }
+        }
+
         /// <summary>Whether this asset declares that registry — the one-line form of the rule,
         /// for a validator that wants to say "this type points outside the neighbourhood".</summary>
         public static bool Declares(Object owner, StateTreeRegistryAsset registry)

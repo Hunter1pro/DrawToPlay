@@ -86,6 +86,13 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public List<ServiceAnnouncement> announcements = new List<ServiceAnnouncement>();
 
+        [Tooltip("The CONTRACTS this def claims to keep (M30.2) — 'damageable', 'openable'. A "
+            + "field elsewhere can then ask for the promise instead of naming this def, and the "
+            + "picker offers whoever keeps it. A claim is checkable: StateTreeContracts.Missing "
+            + "says what a def promises and does not deliver.")]
+        public List<StateTreeEntryRef<ContractDef>> implements =
+            new List<StateTreeEntryRef<ContractDef>>();
+
         /// <summary>The declared request for a key, or null.</summary>
         public ServiceRequest RequestFor(string key)
         {
