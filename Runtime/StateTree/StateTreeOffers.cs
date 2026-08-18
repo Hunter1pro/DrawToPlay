@@ -31,6 +31,16 @@ namespace PowerOfFire.DrawToPlay
             if (into == null)
                 return;
             into.Clear();
+
+            // ANYTHING MAY DECLARE (M30.6): a document, a def, a thing not invented yet. The
+            // rule is the sentence, not the list of types allowed to say it.
+            if (owner is IStateTreeNeighbourhood neighbourhood)
+            {
+                IReadOnlyList<StateTreeRegistryAsset> declared = neighbourhood.DeclaredCatalogs;
+                for (int i = 0; declared != null && i < declared.Count; i++)
+                    Add(declared[i], into);
+            }
+
             switch (owner)
             {
                 case StateTreeRegistryAsset registry:

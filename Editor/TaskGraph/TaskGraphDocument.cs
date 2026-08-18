@@ -26,7 +26,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// toolkit path keeps), and deliberately dull: everything interesting is in the baker and the
     /// window, where it can be reviewed.
     /// </summary>
-    public sealed class TaskGraphDocument : ScriptableObject
+    public sealed class TaskGraphDocument : ScriptableObject, IStateTreeNeighbourhood
     {
         [Tooltip("What the baked program is called. Empty takes this document's name.")]
         public string programName = "";
@@ -37,6 +37,14 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         [Tooltip("The wires. Each names two node ids and a pin, never an index.")]
         public List<TaskGraphDocWire> wires = new List<TaskGraphDocWire>();
+
+        [Tooltip("The catalogs this graph declares — what its typed parameters may name. The "
+            + "same Depends On sentence a registry makes, so the pickers here offer the "
+            + "neighbourhood rather than the project.")]
+        public List<StateTreeRegistryAsset> declares = new List<StateTreeRegistryAsset>();
+
+        /// <summary>The neighbourhood rule, said by a document.</summary>
+        public IReadOnlyList<StateTreeRegistryAsset> DeclaredCatalogs => declares;
 
         [Tooltip("The knobs a caller may override — created OUTSIDE any node and read by "
             + "GetParam nodes, which is the wiring complaint answered.")]
