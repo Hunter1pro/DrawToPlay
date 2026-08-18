@@ -19,8 +19,19 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("What the beats call this part — 'hero', 'the keeper'. The script speaks "
             + "roles; only this row knows who fills them. The ⚿ offers the keys the picked "
             + "beats tree actually declares, so a part is chosen rather than retyped.")]
-        [StateTreeKeysOf("beats", StateTreeKeyKind.Object)]
+        [StateTreeKeysOf("beats", StateTreeKeyKind.Object, false, "roleKeyId")]
         public string role = "";
+
+        /// <summary>
+        /// WHICH DECLARATION this part IS, when it was picked rather than typed — the id half
+        /// of the same text+id pair every wired key field in this toolset uses.
+        ///
+        /// The runtime never reads it: roles are looked up by NAME, because that is what the
+        /// beats put on the blackboard. It exists so the editor can tell "this row means the
+        /// tree's 'keeper'" from "somebody typed keeper", which is the difference between a
+        /// name that follows a rename and one that quietly stops matching.
+        /// </summary>
+        [HideInInspector] public string roleKeyId = "";
 
         [Tooltip("The world tag that finds the actor. Nearest match wins when a level has "
             + "several.")]

@@ -28,12 +28,20 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Offer every declared key regardless of kind.</summary>
         public readonly bool any;
 
+        // (idField is declared below — assigned in the constructor like the rest.)
+
+        /// <summary>The sibling string field holding the picked declaration's id, when the
+        /// link is meant to SURVIVE a rename. Empty makes the picker a plain offer.</summary>
+        public string idField = "";
+
         public StateTreeKeysOfAttribute(string treeField,
-            StateTreeKeyKind kind = StateTreeKeyKind.Object, bool any = false)
+            StateTreeKeyKind kind = StateTreeKeyKind.Object, bool any = false,
+            string idField = "")
         {
             this.treeField = treeField;
             this.kind = kind;
             this.any = any;
+            this.idField = idField;
         }
     }
 }
