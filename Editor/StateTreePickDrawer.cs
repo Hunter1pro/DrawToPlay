@@ -45,6 +45,17 @@ namespace PowerOfFire.DrawToPlay.Editor
             button.style.unityTextAlign = TextAnchor.MiddleLeft;
             button.tooltip = "Pick a state tree. Search by name, or browse by folder.";
 
+            // AND A WAY BACK TO THE ASSET. The picker says which tree this row runs, and that
+            // was the only thing an author could do with it: no way to look at it, no way to
+            // find it in the project. A name is not a reference you can follow. This pings the
+            // asset in the Project window (and OPENS it on alt-click) — what the object fields
+            // Unity draws itself have always done, and what a custom picker quietly took away.
+            var reveal = new Button { text = "◎" };
+            reveal.tooltip = "Show this asset in the Project window. Alt-click to open it.";
+            reveal.style.width = 24f;
+            reveal.style.flexShrink = 0f;
+            reveal.style.unityTextAlign = TextAnchor.MiddleCenter;
+
             string path = property.propertyPath;
             SerializedObject owner = property.serializedObject;
             button.clicked += () =>
@@ -60,10 +71,36 @@ namespace PowerOfFire.DrawToPlay.Editor
                         live.objectReferenceValue = payload as StateTreeAsset;
                         owner.ApplyModifiedProperties();
                         button.text = TextOf(live.objectReferenceValue);
+                        // Picking (none) has to take the reveal away again, or the row offers
+                        // to show an asset that is no longer named.
+                        reveal.SetEnabled(live.objectReferenceValue != null);
                     },
                     "Pick State Tree", "StateTreeAsset");
             };
             row.Add(button);
+
+            reveal.RegisterCallback<ClickEvent>(evt =>
+            {
+                owner.Update();
+                SerializedProperty live = owner.FindProperty(path);
+                UnityEngine.Object asset = live != null ? live.objectReferenceValue : null;
+                if (asset == null)
+                    return;
+                if (evt.altKey)
+                {
+                    AssetDatabase.OpenAsset(asset);
+                    return;
+                }
+                // SELECT AND PING, in that order: selecting shows it in the inspector, pinging
+                // makes the Project window scroll to it and flash — together they answer both
+                // halves of "which asset is this, and where does it live".
+                Selection.activeObject = asset;
+                EditorGUIUtility.PingObject(asset);
+            });
+            // Nothing to reveal is a DISABLED button rather than a missing one, so the row's
+            // shape does not jump as an author fills the field in.
+            reveal.SetEnabled(property.objectReferenceValue != null);
+            row.Add(reveal);
             return row;
         }
 

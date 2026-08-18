@@ -56,6 +56,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             // The button IS the value: it reads as the chosen row, and pressing it opens the
             // picker. A separate "…" button beside a read-only field would spend a column on
             // something that has one action.
+            // Declared before the picker callback so it can refresh the reveal, and assigned
+            // after the reveal exists — the ordinary way round a lambda that must touch a
+            // control created later.
+            System.Action<bool> revealState = null;
             var button = new Button { text = ButtonText(nameProperty.stringValue) };
             button.style.flexGrow = 1f;
             button.style.flexBasis = 0f;
@@ -85,11 +89,56 @@ namespace PowerOfFire.DrawToPlay.Editor
                         liveId.stringValue = picked != null ? picked.id : string.Empty;
                         property.serializedObject.ApplyModifiedProperties();
                         button.text = ButtonText(liveName.stringValue);
+                        revealState?.Invoke(!string.IsNullOrEmpty(liveName.stringValue));
                     },
                     "Pick " + entryType.Name.Replace("Def", ""),
                     "Entry_" + entryType.Name);
             };
             row.Add(button);
+
+            // AND WHERE THAT ROW LIVES. A row reference names a row, and a row is not an asset
+            // you can click — it sits inside a registry somewhere in the project, and until now
+            // the only way to find out WHICH registry was to go looking. This reveals the
+            // registry asset holding the picked row: select and ping, alt-click to open it.
+            var reveal = new Button { text = "◎" };
+            reveal.tooltip = "Show the registry this row lives in. Alt-click to open it.";
+            reveal.style.width = 24f;
+            reveal.style.flexShrink = 0f;
+            reveal.style.unityTextAlign = TextAnchor.MiddleCenter;
+            reveal.RegisterCallback<ClickEvent>(evt =>
+            {
+                property.serializedObject.Update();
+                SerializedProperty liveName = property.serializedObject
+                    .FindProperty(property.propertyPath).FindPropertyRelative("entryName");
+                string wanted = liveName != null ? liveName.stringValue : "";
+                if (string.IsNullOrEmpty(wanted))
+                    return;
+
+                var rows = new List<SourcedRow>();
+                CollectRows(entryType, rows, owner);
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    if (rows[i].entry == null || rows[i].registry == null
+                        || rows[i].entry.name != wanted)
+                        continue;
+                    if (evt.altKey)
+                        AssetDatabase.OpenAsset(rows[i].registry);
+                    else
+                    {
+                        Selection.activeObject = rows[i].registry;
+                        EditorGUIUtility.PingObject(rows[i].registry);
+                    }
+                    return;
+                }
+                // A NAME WITH NO ROW is worth saying out loud: it is exactly the state a
+                // renamed or deleted row leaves behind, and silence would read as "nothing to
+                // show" rather than "this reference is broken".
+                Debug.LogWarning("No registry in the project holds a " + entryType.Name
+                    + " row called '" + wanted + "'.");
+            });
+            revealState = enabled => reveal.SetEnabled(enabled);
+            reveal.SetEnabled(!string.IsNullOrEmpty(nameProperty.stringValue));
+            row.Add(reveal);
             return row;
         }
 
