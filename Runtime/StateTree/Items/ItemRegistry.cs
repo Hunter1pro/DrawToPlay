@@ -58,6 +58,23 @@ namespace PowerOfFire.DrawToPlay
             + "the item cannot be worn.")]
         public StateTreeEntryRef<EquipmentSlotDef> slot = new StateTreeEntryRef<EquipmentSlotDef>();
 
+        [Tooltip("Equipment: the thing that appears in the hand. A prefab on the ROW, because "
+            + "what a sword looks like is a fact about that sword and not about whoever is "
+            + "holding it — the same choice the projectile rows make about their ball.")]
+        public GameObject worldPrefab;
+
+        [Tooltip("Weapon: effects this lands on WHOEVER IS STRUCK, on top of the ability's own "
+            + "damage — the poison on the dagger, the stagger on the hammer. Applied by the "
+            + "ability through ApplyEquippedEffectsTask, so a weapon changes what a swing does "
+            + "without the swing knowing which weapon it is.")]
+        public List<StateTreeEntryRef<EffectDef>> hitEffects =
+            new List<StateTreeEntryRef<EffectDef>>();
+
+        [Tooltip("Weapon: effects a landed hit gives the WIELDER — the axe's fury, the "
+            + "lifesteal on a cursed blade. Same road, other end.")]
+        public List<StateTreeEntryRef<EffectDef>> wielderEffects =
+            new List<StateTreeEntryRef<EffectDef>>();
+
         [Tooltip("Equipment: what wearing it GRANTS — Modifier-operation effect rows, "
             + "applied as revertible attribute modifiers for as long as the item is worn "
             + "and removed cleanly on unequip or swap.")]
