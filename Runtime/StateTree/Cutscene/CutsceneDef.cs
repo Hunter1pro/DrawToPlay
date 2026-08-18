@@ -17,7 +17,9 @@ namespace PowerOfFire.DrawToPlay
     public sealed class CutsceneRole
     {
         [Tooltip("What the beats call this part — 'hero', 'the keeper'. The script speaks "
-            + "roles; only this row knows who fills them.")]
+            + "roles; only this row knows who fills them. The ⚿ offers the keys the picked "
+            + "beats tree actually declares, so a part is chosen rather than retyped.")]
+        [StateTreeKeysOf("beats", StateTreeKeyKind.Object)]
         public string role = "";
 
         [Tooltip("The world tag that finds the actor. Nearest match wins when a level has "
