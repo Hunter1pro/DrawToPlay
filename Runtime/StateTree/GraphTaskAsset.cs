@@ -197,6 +197,38 @@ namespace PowerOfFire.DrawToPlay
         /// actually writes an id.
         /// </summary>
         public string id;
+
+        /// <summary>
+        /// WHAT THIS PARAMETER MEANS (M30.1), when it means more than a number, a word or a flag.
+        ///
+        /// <see cref="kind"/> stays the storage — a Row-typed parameter is still a string holding
+        /// a row's name, and every GetParam node reads it exactly as before — so this field is
+        /// additive in the strictest sense: unset, a parameter is what it always was. Set, the
+        /// editor can offer the registry's rows instead of a text box, the dependency map can see
+        /// that this graph refers to that catalog, and a typo becomes impossible rather than
+        /// discovered at runtime.
+        ///
+        /// Appended last for the same reason <see cref="id"/> was, and read through
+        /// <see cref="TypeOf"/> so nothing has to null-check it.
+        /// </summary>
+        public StateTreeValueType type;
+
+        /// <summary>This parameter's type — the declared one, or the plain primitive every
+        /// parameter authored before M30.1 means.</summary>
+        public StateTreeValueType TypeOf()
+        {
+            if (type != null && !type.IsPlain)
+                return type;
+            switch (kind)
+            {
+                case GraphTaskParameterKind.String:
+                    return StateTreeValueType.Of(StateTreeKeyKind.String);
+                case GraphTaskParameterKind.Bool:
+                    return StateTreeValueType.Of(StateTreeKeyKind.Bool);
+                default:
+                    return StateTreeValueType.Of(StateTreeKeyKind.Float);
+            }
+        }
     }
 
     /// <summary>
