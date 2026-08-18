@@ -179,6 +179,58 @@ namespace PowerOfFire.DrawToPlay.Editor
             return row;
         }
 
+        /// <summary>
+        /// A row-typed override: the catalog's rows, offered from what the OWNER declares.
+        ///
+        /// The owner is the asset being inspected — the tree whose state runs this graph — so a
+        /// state can only override "which item" with an item its own tree can name. That is the
+        /// same rule the declaration followed, applied at the other end, and it is why a typo
+        /// cannot enter here either.
+        /// </summary>
+        private static VisualElement RowField(SerializedProperty setProperty,
+            SerializedProperty values, GraphTaskParameter parameter, Func<int> indexOf,
+            StateTreeValueType type)
+        {
+            int index = indexOf();
+            string current = index >= 0
+                ? Element(values, index).FindPropertyRelative("stringValue").stringValue
+                : parameter.stringValue;
+
+            var pick = new Button { text = string.IsNullOrEmpty(current) ? "(none)" : current };
+            pick.style.unityTextAlign = TextAnchor.MiddleLeft;
+            pick.clicked += () =>
+            {
+                var rows = new List<StateTreeRegistryEntry>();
+                StateTreeOffers.RowsFor(type, setProperty.serializedObject.targetObject, rows);
+
+                var menu = new GenericMenu();
+                menu.AddItem(new GUIContent("(none)"), false, () =>
+                {
+                    Write(setProperty, values, parameter, indexOf, "stringValue", string.Empty);
+                    pick.text = "(none)";
+                });
+                if (rows.Count == 0)
+                {
+                    menu.AddDisabledItem(new GUIContent(type.rows == null
+                        ? "no catalog named"
+                        : "'" + type.rows.name + "' is not declared where this is being tuned"));
+                }
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    string chosen = rows[i].name;
+                    string label = string.IsNullOrEmpty(rows[i].group)
+                        ? chosen : rows[i].group + "/" + chosen;
+                    menu.AddItem(new GUIContent(label), chosen == current, () =>
+                    {
+                        Write(setProperty, values, parameter, indexOf, "stringValue", chosen);
+                        pick.text = chosen;
+                    });
+                }
+                menu.DropDown(pick.worldBound);
+            };
+            return pick;
+        }
+
         /// <summary>The editor for one kind, seeded from the stored row when there is one and from
         /// the program's default when there is not — so ticking a row starts from what was already
         /// running rather than from zero.</summary>
@@ -186,6 +238,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             SerializedProperty values, GraphTaskParameter parameter, Func<int> indexOf)
         {
             int index = indexOf();
+
+            // A ROW-TYPED PARAMETER IS TUNED BY PICKING (M30.1): the state overriding "which item"
+            // gets the catalog, not a text box — the same offer the declaration itself got, from
+            // the same declared neighbourhood, so the two halves cannot disagree about what is
+            // nameable.
+            StateTreeValueType declared = parameter.TypeOf();
+            if (declared.kind == StateTreeValueKind.Row)
+                return RowField(setProperty, values, parameter, indexOf, declared);
 
             switch (parameter.kind)
             {

@@ -711,14 +711,18 @@ namespace PowerOfFire.DrawToPlay.Editor
                 evt => RenameTreeParameter(index, evt.newValue, name, refusal, reserved));
             row.Add(name);
 
-            var kind = new DropdownField(new List<string>(k_ParameterKindChoices),
-                (int)parameter.kind);
-            kind.style.width = 92f;
+            // WHAT THE KEY HOLDS (M30.1). A dropdown of three was the whole vocabulary a
+            // parameter had; now it is a type — and the richer ones are offered from what this
+            // tree DECLARES in its Data, so "an item row" is available exactly where the item
+            // catalog is, and nowhere else.
+            var kind = new Button { text = parameter.TypeOf().Describe() };
+            kind.style.width = 108f;
             kind.style.flexShrink = 0f;
+            kind.style.unityTextAlign = TextAnchor.MiddleLeft;
             kind.tooltip = "What the key holds. A checkbox rides in the same field as a number, so "
-                + "switching between those two keeps the value.";
-            kind.RegisterValueChangedCallback(evt => SetTreeParameterKind(index, kind.index,
-                container));
+                + "switching between those two keeps the value; a row rides as its name, which is "
+                + "what the tree reads either way.";
+            kind.clicked += () => ShowParameterTypeMenu(kind, index, container);
             row.Add(kind);
 
             var value = BuildDeclarationValue(index, parameter);
@@ -743,6 +747,21 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// on the tree asset.</summary>
         private VisualElement BuildDeclarationValue(int index, GraphTaskParameter parameter)
         {
+            // A ROW-TYPED PARAMETER IS PICKED, not typed: the default is one of the catalog's own
+            // rows, so a misspelt name stops being possible at the place it used to happen.
+            StateTreeValueType declared = parameter.TypeOf();
+            if (declared.kind == StateTreeValueKind.Row)
+            {
+                var pick = new Button
+                {
+                    text = string.IsNullOrEmpty(parameter.stringValue)
+                        ? "(none)" : parameter.stringValue
+                };
+                pick.style.unityTextAlign = TextAnchor.MiddleLeft;
+                pick.clicked += () => ShowParameterRowMenu(pick, index, declared);
+                return pick;
+            }
+
             switch (parameter.kind)
             {
                 case GraphTaskParameterKind.String:
@@ -949,6 +968,108 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// The type menu: the three primitives, then the ROWS this tree can actually name.
+        ///
+        /// The second half is the point of M30.1 — the offers come from the tree's declared Data
+        /// (StateTreeOffers), so a parameter can mean "an item row" precisely where the item
+        /// catalog is declared, and a tree that declares nothing is told so rather than shown the
+        /// whole project.
+        /// </summary>
+        private void ShowParameterTypeMenu(VisualElement anchor, int index, VisualElement row)
+        {
+            if (!TryGetDeclaration(index, out GraphTaskParameter parameter))
+                return;
+
+            var menu = new GenericMenu();
+            AddPrimitive(menu, index, row, parameter, "number", GraphTaskParameterKind.Float,
+                StateTreeKeyKind.Float);
+            AddPrimitive(menu, index, row, parameter, "text", GraphTaskParameterKind.String,
+                StateTreeKeyKind.String);
+            AddPrimitive(menu, index, row, parameter, "checkbox", GraphTaskParameterKind.Bool,
+                StateTreeKeyKind.Bool);
+
+            var reachable = new List<StateTreeRegistryAsset>();
+            StateTreeOffers.ReachableRegistries(m_Tree, reachable);
+            menu.AddSeparator("");
+            if (reachable.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent("rows of… — this tree declares no Data yet"));
+            }
+            else
+            {
+                for (int i = 0; i < reachable.Count; i++)
+                {
+                    StateTreeRegistryAsset registry = reachable[i];
+                    if (registry == null)
+                        continue;
+                    bool chosen = parameter.TypeOf().kind == StateTreeValueKind.Row
+                        && parameter.TypeOf().rows == registry;
+                    menu.AddItem(new GUIContent("rows of/" + registry.name), chosen, () =>
+                    {
+                        CommitDeclaration(index, entry =>
+                        {
+                            // Storage stays a string — the row's NAME is what the tree reads.
+                            entry.kind = GraphTaskParameterKind.String;
+                            entry.type = StateTreeValueType.RowsOf(registry);
+                        });
+                        m_Root.schedule.Execute(() => ReplaceDeclarationRow(index, row))
+                            .ExecuteLater(0);
+                    });
+                }
+            }
+            menu.DropDown(anchor.worldBound);
+        }
+
+        private void AddPrimitive(GenericMenu menu, int index, VisualElement row,
+            GraphTaskParameter parameter, string label, GraphTaskParameterKind storage,
+            StateTreeKeyKind primitive)
+        {
+            bool chosen = parameter.TypeOf().IsPlain && parameter.kind == storage;
+            menu.AddItem(new GUIContent(label), chosen, () =>
+            {
+                CommitDeclaration(index, entry =>
+                {
+                    entry.kind = storage;
+                    entry.type = StateTreeValueType.Of(primitive);
+                });
+                m_Root.schedule.Execute(() => ReplaceDeclarationRow(index, row)).ExecuteLater(0);
+            });
+        }
+
+        /// <summary>The default for a row-typed parameter: the catalog's rows, and the way back to
+        /// none — a default nobody set is a real state.</summary>
+        private void ShowParameterRowMenu(Button anchor, int index, StateTreeValueType type)
+        {
+            var rows = new List<StateTreeRegistryEntry>();
+            StateTreeOffers.RowsFor(type, m_Tree, rows);
+
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("(none)"), false, () =>
+            {
+                CommitDeclaration(index, entry => entry.stringValue = string.Empty);
+                anchor.text = "(none)";
+            });
+            if (rows.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent(type.rows == null
+                    ? "no catalog named"
+                    : "'" + type.rows.name + "' is not declared in this tree's Data"));
+            }
+            for (int i = 0; i < rows.Count; i++)
+            {
+                string chosen = rows[i].name;
+                string label = string.IsNullOrEmpty(rows[i].group)
+                    ? chosen : rows[i].group + "/" + chosen;
+                menu.AddItem(new GUIContent(label), false, () =>
+                {
+                    CommitDeclaration(index, entry => entry.stringValue = chosen);
+                    anchor.text = chosen;
+                });
+            }
+            menu.DropDown(anchor.worldBound);
         }
 
         private void SetTreeParameterKind(int index, int choice, VisualElement row)
