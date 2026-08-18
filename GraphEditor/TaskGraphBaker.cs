@@ -796,69 +796,27 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// <summary>An instruction with its wire slots allocated and every one of them UNWIRED. The
         /// -1 fill is load-bearing: a fresh <c>int[]</c> is full of zeros, and zero is a valid
         /// instruction index.</summary>
+        /// <summary>The instruction shapes moved to the runtime with M30.6, because a second
+        /// authoring surface made "how many pins has a Branch" a contract rather than a private
+        /// habit of this file. Kept as one-line hops so every caller below reads unchanged.</summary>
         private static GraphTaskNode NewInstruction(GraphTaskNodeKind kind)
         {
-            return new GraphTaskNode
-            {
-                kind = kind,
-                stringValue = string.Empty,
-                stringValue2 = string.Empty,
-                exec = Unwired(ExecPinCount(kind)),
-                data = Unwired(DataPinCount(kind))
-            };
+            return GraphTaskProgram.NewInstruction(kind);
         }
 
         private static int[] Unwired(int count)
         {
-            var slots = new int[count];
-            for (int i = 0; i < count; i++)
-                slots[i] = -1;
-            return slots;
+            return GraphTaskProgram.Unwired(count);
         }
 
         private static int ExecPinCount(GraphTaskNodeKind kind)
         {
-            switch (kind)
-            {
-                case GraphTaskNodeKind.Branch:
-                case GraphTaskNodeKind.DoTask:
-                    return 2;
-                case GraphTaskNodeKind.SetBlackboardFloat:
-                case GraphTaskNodeKind.SetBlackboardString:
-                case GraphTaskNodeKind.SetOutputFloat:
-                case GraphTaskNodeKind.SetOutputString:
-                case GraphTaskNodeKind.SetOutputBool:
-                case GraphTaskNodeKind.Wait:
-                case GraphTaskNodeKind.FireCue:
-                    return 1;
-                default:
-                    return 0;
-            }
+            return GraphTaskProgram.ExecPins(kind);
         }
 
         private static int DataPinCount(GraphTaskNodeKind kind)
         {
-            switch (kind)
-            {
-                case GraphTaskNodeKind.CompareFloat:
-                case GraphTaskNodeKind.BoolAnd:
-                case GraphTaskNodeKind.BoolOr:
-                    return 2;
-                case GraphTaskNodeKind.Branch:
-                case GraphTaskNodeKind.SetBlackboardFloat:
-                case GraphTaskNodeKind.SetBlackboardString:
-                case GraphTaskNodeKind.SetOutputFloat:
-                case GraphTaskNodeKind.SetOutputString:
-                case GraphTaskNodeKind.SetOutputBool:
-                case GraphTaskNodeKind.Wait:
-                case GraphTaskNodeKind.BoolNot:
-                case GraphTaskNodeKind.GetTaskOutputFloat:
-                case GraphTaskNodeKind.GetTaskOutputString:
-                case GraphTaskNodeKind.GetTaskOutputBool:
-                    return 1;
-                default:
-                    return 0;
-            }
+            return GraphTaskProgram.DataPins(kind);
         }
 
         /// <summary>
