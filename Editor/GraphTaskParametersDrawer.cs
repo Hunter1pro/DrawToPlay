@@ -211,9 +211,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 });
                 if (rows.Count == 0)
                 {
-                    menu.AddDisabledItem(new GUIContent(type.rows == null
-                        ? "no catalog named"
-                        : "'" + type.rows.name + "' is not declared where this is being tuned"));
+                    menu.AddDisabledItem(new GUIContent(StateTreeOffers.WhyEmpty(type,
+                        setProperty.serializedObject.targetObject)));
                 }
                 for (int i = 0; i < rows.Count; i++)
                 {
@@ -244,7 +243,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             // the same declared neighbourhood, so the two halves cannot disagree about what is
             // nameable.
             StateTreeValueType declared = parameter.TypeOf();
-            if (declared.kind == StateTreeValueKind.Row)
+            if (!declared.IsPlain && declared.Storage == StateTreeKeyKind.String)
                 return RowField(setProperty, values, parameter, indexOf, declared);
 
             switch (parameter.kind)

@@ -747,10 +747,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// on the tree asset.</summary>
         private VisualElement BuildDeclarationValue(int index, GraphTaskParameter parameter)
         {
-            // A ROW-TYPED PARAMETER IS PICKED, not typed: the default is one of the catalog's own
-            // rows, so a misspelt name stops being possible at the place it used to happen.
+            // A NAMED-THING PARAMETER IS PICKED, not typed: the default is one of the offered
+            // rows — the catalog's, or whatever keeps the promised contract — so a misspelt name
+            // stops being possible at the place it used to happen.
             StateTreeValueType declared = parameter.TypeOf();
-            if (declared.kind == StateTreeValueKind.Row)
+            if (!declared.IsPlain && declared.Storage == StateTreeKeyKind.String)
             {
                 var pick = new Button
                 {
@@ -1020,6 +1021,32 @@ namespace PowerOfFire.DrawToPlay.Editor
                     });
                 }
             }
+
+            // AND THE PROMISES (M30.2b). A parameter can mean "anything damageable" instead of
+            // "a row of that catalog" — which is what lets a tree be written before the kinds of
+            // thing it will be pointed at exist, the whole reason contracts are here.
+            var contracts = new List<ContractDef>();
+            StateTreeOffers.ContractsFor(m_Tree, contracts);
+            if (contracts.Count > 0)
+                menu.AddSeparator("");
+            for (int i = 0; i < contracts.Count; i++)
+            {
+                ContractDef contract = contracts[i];
+                bool chosen = parameter.TypeOf().kind == StateTreeValueKind.Object
+                    && parameter.TypeOf().contract == contract.name;
+                menu.AddItem(new GUIContent("keeps/" + contract.name), chosen, () =>
+                {
+                    CommitDeclaration(index, entry =>
+                    {
+                        // Storage stays a string here too — a promise is kept by something with
+                        // a name, and the name is what the tree reads.
+                        entry.kind = GraphTaskParameterKind.String;
+                        entry.type = StateTreeValueType.Keeping(contract.name);
+                    });
+                    m_Root.schedule.Execute(() => ReplaceDeclarationRow(index, row))
+                        .ExecuteLater(0);
+                });
+            }
             menu.DropDown(anchor.worldBound);
         }
 
@@ -1053,11 +1080,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 anchor.text = "(none)";
             });
             if (rows.Count == 0)
-            {
-                menu.AddDisabledItem(new GUIContent(type.rows == null
-                    ? "no catalog named"
-                    : "'" + type.rows.name + "' is not declared in this tree's Data"));
-            }
+                menu.AddDisabledItem(new GUIContent(StateTreeOffers.WhyEmpty(type, m_Tree)));
             for (int i = 0; i < rows.Count; i++)
             {
                 string chosen = rows[i].name;

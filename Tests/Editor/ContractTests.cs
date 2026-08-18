@@ -157,6 +157,76 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(found, Is.Empty, "undeclared neighbourhoods offer nothing, as with rows");
         }
 
+        [Test]
+        public void AFieldCanAskByPromise_AndIsOfferedWhateverKeepsIt()
+        {
+            ContractDef openable = Contract("openable");
+            ServiceDef doorDef = Service("door");
+            Claim(doorDef, openable);
+
+            var promises = ScriptableObject.CreateInstance<ContractRegistry>();
+            promises.name = "Promises";
+            m_Junk.Add(promises);
+            promises.entries.Add(openable);
+
+            var kinds = ScriptableObject.CreateInstance<LevelObjectKindRegistry>();
+            kinds.name = "Kinds";
+            m_Junk.Add(kinds);
+            kinds.entries.Add(new LevelObjectKindDef
+            {
+                id = "kind.door", name = "door", service = doorDef
+            });
+            kinds.entries.Add(new LevelObjectKindDef
+            {
+                id = "kind.rock", name = "rock", service = Service("rock")
+            });
+
+            var declaring = ScriptableObject.CreateInstance<LevelObjectRegistry>();
+            declaring.name = "Declaring";
+            m_Junk.Add(declaring);
+            declaring.dependsOn.Add(promises);
+            declaring.dependsOn.Add(kinds);
+
+            // ASKING BY PROMISE IS ASKING FOR A NAME — the field stores what it always stored,
+            // which is why a contract costs the runtime nothing.
+            StateTreeValueType type = StateTreeValueType.Keeping("openable");
+            Assert.That(type.Storage, Is.EqualTo(StateTreeKeyKind.String));
+            Assert.That(type.Describe(), Is.EqualTo("keeps openable"));
+
+            var offered = new List<StateTreeRegistryEntry>();
+            StateTreeOffers.RowsFor(type, declaring, offered);
+            Assert.That(offered.Count, Is.EqualTo(1), "the rock keeps no promise");
+            Assert.That(offered[0].name, Is.EqualTo("door"));
+
+            Assert.That(StateTreeOffers.ContractNamed("openable", declaring), Is.SameAs(openable));
+            Assert.That(StateTreeOffers.ContractNamed("openable", kinds), Is.Null,
+                "a catalog that does not declare the vocabulary cannot speak it");
+        }
+
+        [Test]
+        public void AnEmptyPickerSaysWhichSilenceItIs()
+        {
+            ContractDef openable = Contract("openable");
+            var promises = ScriptableObject.CreateInstance<ContractRegistry>();
+            promises.name = "Promises";
+            m_Junk.Add(promises);
+            promises.entries.Add(openable);
+
+            var speaks = ScriptableObject.CreateInstance<LevelObjectRegistry>();
+            speaks.name = "Speaks";
+            m_Junk.Add(speaks);
+            speaks.dependsOn.Add(promises);
+
+            var silent = ScriptableObject.CreateInstance<LevelObjectRegistry>();
+            silent.name = "Silent";
+            m_Junk.Add(silent);
+
+            StateTreeValueType type = StateTreeValueType.Keeping("openable");
+            // Two afternoons, told apart: a missing dependency and an unimplemented promise.
+            Assert.That(StateTreeOffers.WhyEmpty(type, silent), Does.Contain("is declared here"));
+            Assert.That(StateTreeOffers.WhyEmpty(type, speaks), Does.Contain("claims"));
+        }
+
         private ContractDef Contract(string name, string[] requests = null,
             string[] attributes = null)
         {

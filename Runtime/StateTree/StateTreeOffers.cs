@@ -51,16 +51,31 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        /// <summary>The rows a value of this type may name, drawn from the owner's declared
-        /// neighbourhood. Empty when the type names no registry, or when the owner does not
-        /// declare it — both of which are answers worth showing an author.</summary>
+        /// <summary>
+        /// The rows a value of this type may NAME, drawn from the owner's declared neighbourhood.
+        ///
+        /// Two questions with one answer, because a field asking either one is doing the same job:
+        /// a Row type names a catalog and offers its rows, a contract type names a PROMISE and
+        /// offers whatever keeps it — from any catalog the owner declares. Empty when the type
+        /// names nothing, or when the owner does not declare what it named; both are answers worth
+        /// showing an author, and <see cref="WhyEmpty"/> says which one happened.
+        /// </summary>
         public static void RowsFor(StateTreeValueType type, Object owner,
             List<StateTreeRegistryEntry> into)
         {
             if (into == null)
                 return;
             into.Clear();
-            if (type == null || type.kind != StateTreeValueKind.Row || type.rows == null)
+            if (type == null)
+                return;
+
+            if (type.kind == StateTreeValueKind.Object)
+            {
+                ImplementerRowsOf(ContractNamed(type.contract, owner), owner, into);
+                return;
+            }
+
+            if (type.kind != StateTreeValueKind.Row || type.rows == null)
                 return;
 
             var reachable = new List<StateTreeRegistryAsset>();
@@ -80,6 +95,32 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>
+        /// Why a picker has nothing to offer — in the author's terms, and DIFFERENT per cause.
+        ///
+        /// "Nothing declares that catalog" and "nothing keeps that promise yet" are two entirely
+        /// different afternoons, and a picker that says only "empty" makes the author find out
+        /// which one by experiment.
+        /// </summary>
+        public static string WhyEmpty(StateTreeValueType type, Object owner)
+        {
+            if (type == null)
+                return "no type";
+            if (type.kind == StateTreeValueKind.Object)
+            {
+                if (string.IsNullOrEmpty(type.contract))
+                    return "no contract named";
+                return ContractNamed(type.contract, owner) == null
+                    ? "no contract called '" + type.contract + "' is declared here"
+                    : "nothing declared here claims '" + type.contract + "' yet";
+            }
+            if (type.rows == null)
+                return "no catalog named";
+            return Declares(owner, type.rows)
+                ? "'" + type.rows.name + "' has no rows"
+                : "'" + type.rows.name + "' is not declared here";
+        }
+
+        /// <summary>
         /// The defs that KEEP a contract, drawn from the owner's declared neighbourhood (M30.2).
         ///
         /// This is what makes a contract-typed field usable: ask for "damageable" and the picker
@@ -88,6 +129,30 @@ namespace PowerOfFire.DrawToPlay
         /// rows follow, applied to behaviour.
         /// </summary>
         public static void ImplementersOf(ContractDef contract, Object owner, List<ServiceDef> into)
+        {
+            if (into == null)
+                return;
+            into.Clear();
+            var rows = new List<StateTreeRegistryEntry>();
+            ImplementerRowsOf(contract, owner, rows);
+            for (int i = 0; i < rows.Count; i++)
+            {
+                ServiceDef def = (rows[i] as IServiceDefCarrier)?.ServiceDef;
+                if (def != null && !into.Contains(def))
+                    into.Add(def);
+            }
+        }
+
+        /// <summary>
+        /// The same answer in the currency a FIELD stores (M30.2b): the rows that carry those defs.
+        ///
+        /// A def is not a name — the row carrying it is, and every reference in this toolset rides
+        /// as a row name. So a field that asks for "something damageable" picks from these and
+        /// stores exactly what it always stored, which is why asking by promise costs the runtime
+        /// nothing.
+        /// </summary>
+        public static void ImplementerRowsOf(ContractDef contract, Object owner,
+            List<StateTreeRegistryEntry> into)
         {
             if (into == null)
                 return;
@@ -106,13 +171,60 @@ namespace PowerOfFire.DrawToPlay
                 {
                     // A def can be a row of a catalog (the M30.3 shape) or the asset that
                     // manages one; both are found the same way — by asking the row what it is.
-                    if (registry.EntryAt(j) is IServiceDefCarrier carrier
+                    StateTreeRegistryEntry row = registry.EntryAt(j);
+                    if (row is IServiceDefCarrier carrier
                         && carrier.ServiceDef != null
                         && StateTreeContracts.Claims(carrier.ServiceDef, contract)
-                        && !into.Contains(carrier.ServiceDef))
-                        into.Add(carrier.ServiceDef);
+                        && !into.Contains(row))
+                        into.Add(row);
                 }
             }
+        }
+
+        /// <summary>
+        /// Every contract this asset can NAME — the ones its declared catalogs hold.
+        ///
+        /// What an "implements" picker offers, and the reason a def cannot claim a promise out of
+        /// a catalog it never declared: an unreachable claim is a broken link wearing a name, and
+        /// the moment to catch it is while it is being made.
+        /// </summary>
+        public static void ContractsFor(Object owner, List<ContractDef> into)
+        {
+            if (into == null)
+                return;
+            into.Clear();
+
+            var reachable = new List<StateTreeRegistryAsset>();
+            ReachableRegistries(owner, reachable);
+            for (int i = 0; i < reachable.Count; i++)
+            {
+                StateTreeRegistryAsset registry = reachable[i];
+                if (registry == null)
+                    continue;
+                for (int j = 0; j < registry.Count; j++)
+                {
+                    if (registry.EntryAt(j) is ContractDef contract
+                        && !string.IsNullOrEmpty(contract.name)
+                        && !into.Contains(contract))
+                        into.Add(contract);
+                }
+            }
+        }
+
+        /// <summary>The contract of that name in this asset's neighbourhood, or null — how a field
+        /// marked with a contract NAME finds the row behind it.</summary>
+        public static ContractDef ContractNamed(string name, Object owner)
+        {
+            if (string.IsNullOrEmpty(name))
+                return null;
+            var contracts = new List<ContractDef>();
+            ContractsFor(owner, contracts);
+            for (int i = 0; i < contracts.Count; i++)
+            {
+                if (contracts[i].name == name)
+                    return contracts[i];
+            }
+            return null;
         }
 
         /// <summary>Whether this asset declares that registry — the one-line form of the rule,

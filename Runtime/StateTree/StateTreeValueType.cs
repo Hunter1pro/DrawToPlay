@@ -16,8 +16,9 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>A serialized payload class — what an announcement carries.</summary>
         Payload = 2,
 
-        /// <summary>An object that satisfies a CONTRACT (M30.2). Named here so the type model does
-        /// not have to change shape when interfaces land; unset until it does.</summary>
+        /// <summary>Something that KEEPS A CONTRACT (M30.2) — "anything damageable", rather than
+        /// "a row of that one catalog". Rides as the name of the row that defines it, exactly as
+        /// a Row does, because that is how every reference in this toolset travels.</summary>
         Object = 3
     }
 
@@ -70,7 +71,11 @@ namespace PowerOfFire.DrawToPlay
                 {
                     case StateTreeValueKind.Row: return StateTreeKeyKind.String;
                     case StateTreeValueKind.Payload: return StateTreeKeyKind.Object;
-                    case StateTreeValueKind.Object: return StateTreeKeyKind.Object;
+                    // A CONTRACT-TYPED VALUE IS A NAME, like a row: what changes is which names
+                    // are offered — anything that keeps the promise, from any declared catalog,
+                    // instead of one catalog's rows. A key that holds a live object is a
+                    // different thing and already has a primitive of its own.
+                    case StateTreeValueKind.Object: return StateTreeKeyKind.String;
                     default: return primitive;
                 }
             }
@@ -92,7 +97,7 @@ namespace PowerOfFire.DrawToPlay
                         ? "payload (no type named)"
                         : ShortName(payloadTypeName);
                 case StateTreeValueKind.Object:
-                    return string.IsNullOrEmpty(contract) ? "object" : contract;
+                    return string.IsNullOrEmpty(contract) ? "object" : "keeps " + contract;
                 default:
                     return primitive.ToString().ToLowerInvariant();
             }
@@ -117,6 +122,19 @@ namespace PowerOfFire.DrawToPlay
                 kind = StateTreeValueKind.Row,
                 primitive = StateTreeKeyKind.String,
                 rows = registry
+            };
+        }
+
+        /// <summary>Anything that keeps a contract — the type that asks by promise instead of by
+        /// catalog, and the reason a field can accept a kind of thing nobody had invented when the
+        /// field was written.</summary>
+        public static StateTreeValueType Keeping(string contract)
+        {
+            return new StateTreeValueType
+            {
+                kind = StateTreeValueKind.Object,
+                primitive = StateTreeKeyKind.String,
+                contract = contract ?? ""
             };
         }
 

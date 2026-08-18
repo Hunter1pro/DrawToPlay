@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
@@ -27,11 +28,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             // a subsystem whose handlers wait, and on a def-only one it is four empty
             // fields pretending to be part of the declaration.
             DrawPropertiesExcluding(serializedObject, "m_Script", "serviceTypeName",
-                "requests", "spawns", "announcements",
+                "requests", "spawns", "announcements", "implements",
                 "treeKind", "flows", "nestingRules", "kindSeeds");
             serializedObject.ApplyModifiedProperties();
 
             DrawServiceType(def);
+            DrawImplements(def);
             DrawRequests(def);
             DrawSpawns(def);
             DrawAnnouncements(def);
@@ -117,6 +119,147 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
             EditorGUILayout.EndHorizontal();
         }
+
+        // ---- implements: the promises this def keeps ------------------------------------
+
+        /// <summary>
+        /// WHAT THIS DEF PROMISES TO BE (M30.2b), and whether it delivers.
+        ///
+        /// A claim is a LINK — picked from the contracts this def's catalogs declare, shown locked,
+        /// changed from the ▾. That is the same bargain every wired field in this toolset offers,
+        /// and it is why the name here follows the contract being renamed instead of quietly
+        /// pointing at nothing.
+        ///
+        /// The line UNDER each claim is the point of contracts existing: what the def owes and has
+        /// not delivered. A promise nobody checks is a label, so it is checked here, where it is
+        /// made — and where a missing request can be served with one button, because the row it
+        /// wants is the row the contract already named.
+        /// </summary>
+        private void DrawImplements(ServiceDef def)
+        {
+            EditorGUILayout.Space(6f);
+            EditorGUILayout.LabelField(new GUIContent("Implements",
+                "The contracts this def claims to keep. Fields elsewhere can then ask for the "
+                + "promise instead of naming this def."), EditorStyles.boldLabel);
+
+            StateTreeOffers.ContractsFor(def, m_Contracts);
+
+            for (int i = 0; i < def.implements.Count; i++)
+            {
+                StateTreeEntryRef<ContractDef> claim = def.implements[i];
+                if (claim == null)
+                    continue;
+                ContractDef contract = Resolve(claim);
+
+                EditorGUILayout.BeginHorizontal();
+                using (new EditorGUI.DisabledScope(true))
+                {
+                    EditorGUILayout.TextField(new GUIContent("Keeps",
+                        contract != null ? contract.Describe()
+                            : "This contract is not in any catalog this def declares."),
+                        string.IsNullOrEmpty(claim.entryName) ? "(none)" : claim.entryName);
+                }
+                int index = i;
+                if (GUILayout.Button("▾", GUILayout.Width(22f)))
+                    ShowContractMenu(def, index);
+                if (GUILayout.Button("✕", GUILayout.Width(22f)))
+                {
+                    Commit(() => def.implements.RemoveAt(index));
+                    GUIUtility.ExitGUI();
+                }
+                EditorGUILayout.EndHorizontal();
+
+                if (contract == null)
+                {
+                    EditorGUILayout.HelpBox("Nothing this def declares holds a contract called '"
+                        + claim.entryName + "'. Add its catalog to the registry's Depends On, or "
+                        + "the claim points at a promise nobody can read.", MessageType.Warning);
+                    continue;
+                }
+
+                StateTreeContracts.Missing(def, contract, m_Missing);
+                if (m_Missing.Count == 0)
+                    continue;
+
+                EditorGUILayout.HelpBox("Claimed but not delivered: "
+                    + string.Join(", ", m_Missing), MessageType.Warning);
+                // ONE BUTTON FOR THE HALF THAT IS AUTHORABLE HERE. A missing request is a row this
+                // def is free to add; a missing attribute lives in a catalog and is somebody
+                // else's edit, so it is reported and not offered.
+                for (int r = 0; r < contract.requests.Count; r++)
+                {
+                    string wanted = contract.requests[r];
+                    if (string.IsNullOrEmpty(wanted) || def.RequestFor(wanted) != null)
+                        continue;
+                    if (!GUILayout.Button("Serve '" + wanted + "'", GUILayout.Width(160f)))
+                        continue;
+                    Commit(() => def.requests.Add(new ServiceRequest
+                    {
+                        key = wanted,
+                        description = "Promised by the '" + contract.name + "' contract."
+                    }));
+                    GUIUtility.ExitGUI();
+                }
+            }
+
+            if (GUILayout.Button("+ Implement…", GUILayout.Width(140f)))
+                ShowContractMenu(def, -1);
+        }
+
+        /// <summary>The contracts this def can name — its declared neighbourhood, never the
+        /// project's. Index -1 adds a claim; anything else replaces one.</summary>
+        private void ShowContractMenu(ServiceDef def, int index)
+        {
+            var menu = new GenericMenu();
+            if (m_Contracts.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent(def.registry == null
+                    ? "this def manages no catalog — nothing to read contracts from"
+                    : "'" + def.registry.name + "' declares no contract catalog"));
+            }
+            for (int i = 0; i < m_Contracts.Count; i++)
+            {
+                ContractDef contract = m_Contracts[i];
+                bool claimed = StateTreeContracts.Claims(def, contract);
+                menu.AddItem(new GUIContent(contract.name), claimed, () => Commit(() =>
+                {
+                    var claim = new StateTreeEntryRef<ContractDef>
+                    {
+                        entryId = contract.id,
+                        entryName = contract.name
+                    };
+                    if (index >= 0 && index < def.implements.Count)
+                        def.implements[index] = claim;
+                    else if (!claimed)
+                        def.implements.Add(claim);
+                }));
+            }
+            menu.ShowAsContext();
+        }
+
+        /// <summary>The contract behind a claim, by id first — so renaming the contract renames
+        /// the claim instead of breaking it.</summary>
+        private ContractDef Resolve(StateTreeEntryRef<ContractDef> claim)
+        {
+            for (int i = 0; i < m_Contracts.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(claim.entryId) && m_Contracts[i].id == claim.entryId)
+                {
+                    if (m_Contracts[i].name != claim.entryName)
+                        Commit(() => claim.entryName = m_Contracts[i].name);
+                    return m_Contracts[i];
+                }
+            }
+            for (int i = 0; i < m_Contracts.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(claim.entryName) && m_Contracts[i].name == claim.entryName)
+                    return m_Contracts[i];
+            }
+            return null;
+        }
+
+        private readonly List<ContractDef> m_Contracts = new List<ContractDef>();
+        private readonly List<string> m_Missing = new List<string>();
 
         // ---- requests ------------------------------------------------------------------
 
