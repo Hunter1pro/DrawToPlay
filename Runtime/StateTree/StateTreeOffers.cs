@@ -267,6 +267,51 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
+        /// <summary>
+        /// THE TAGS THIS ASSET MAY NAME (M31) — its declared vocabularies, and nothing else.
+        ///
+        /// A level manifest states them outright (<see cref="LevelObjectRegistry.tags"/>, which
+        /// exists precisely so a placement's picker reads one list rather than walking the
+        /// project); anything else declares a tag registry the way it declares any other catalog.
+        /// Both roads end here, so a def, a tree and a manifest all offer by the same rule.
+        /// </summary>
+        public static void TagsFor(Object owner, List<WorldTagDef> into, string group = "")
+        {
+            if (into == null)
+                return;
+            into.Clear();
+
+            if (owner is LevelObjectRegistry manifest)
+            {
+                for (int i = 0; i < manifest.tags.Count; i++)
+                    Collect(manifest.tags[i], into, group);
+            }
+
+            var reachable = new List<StateTreeRegistryAsset>();
+            ReachableRegistries(owner, reachable);
+            for (int i = 0; i < reachable.Count; i++)
+                Collect(reachable[i] as WorldTagRegistry, into, group);
+        }
+
+        private static void Collect(WorldTagRegistry vocabulary, List<WorldTagDef> into,
+            string group)
+        {
+            if (vocabulary == null)
+                return;
+            for (int i = 0; i < vocabulary.Count; i++)
+            {
+                if (!(vocabulary.EntryAt(i) is WorldTagDef row) || string.IsNullOrEmpty(row.name)
+                    || into.Contains(row))
+                    continue;
+                // A GROUP IS A CATEGORY, not a prefix: the row says which family it belongs to,
+                // so "any objective marker" is a question with an answer and the vocabulary does
+                // not grow a dotted hierarchy nobody can enumerate.
+                if (!string.IsNullOrEmpty(group) && row.group != group)
+                    continue;
+                into.Add(row);
+            }
+        }
+
         /// <summary>Whether this asset declares that registry — the one-line form of the rule,
         /// for a validator that wants to say "this type points outside the neighbourhood".</summary>
         public static bool Declares(Object owner, StateTreeRegistryAsset registry)
