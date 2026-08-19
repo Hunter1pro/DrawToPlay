@@ -124,8 +124,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             def.serviceName = "inventory";
             def.registry = items;
             m_Assets.Add(def);
-            var service = go.AddComponent<InventoryService>();
-            service.definition = def;
+            var service = new InventoryService(host, def);
             host.Provide(service);
             return service;
         }

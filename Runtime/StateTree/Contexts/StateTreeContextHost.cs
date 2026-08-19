@@ -153,7 +153,24 @@ namespace PowerOfFire.DrawToPlay
 
         private void Update()
         {
+            TickSubsystems(Time.deltaTime);
             TickTree(Time.deltaTime);
+        }
+
+        /// <summary>
+        /// One frame of every subsystem this scope owns, BEFORE its own tree (M33).
+        ///
+        /// The order is deliberate and it used to be luck: services were components, so whether
+        /// a request was served before or after the tree that reads its result depended on
+        /// Unity's script order. Serving first means a tree ticked in the same frame sees what
+        /// the subsystems just did.
+        ///
+        /// Public for the same reason TickTree is: an EditMode test owns the clock.
+        /// </summary>
+        public void TickSubsystems(float deltaTime)
+        {
+            for (int i = 0; i < m_Subsystems.Count; i++)
+                m_Subsystems[i]?.Tick(deltaTime);
         }
 
         /// <summary>One tick of the context's own tree — public for headless tests, like the
@@ -394,9 +411,36 @@ namespace PowerOfFire.DrawToPlay
         /// hand-made and plain-C# services. Call once per interface the instance serves.</summary>
         public void Provide<T>(T instance) where T : class
         {
-            if (instance != null)
-                m_Provided[typeof(T)] = instance;
+            Provide(typeof(T), instance);
         }
+
+        /// <summary>
+        /// The same, for an installer holding a runtime Type (M33) — a def names its service by
+        /// name, so the thing building it has no generic parameter to give.
+        ///
+        /// A SUBSYSTEM REGISTERED HERE IS OWNED HERE: it is ticked with this scope and disposed
+        /// with it, which is the whole of its lifetime and the reason it needs no Unity messages
+        /// of its own.
+        /// </summary>
+        public void Provide(Type capability, object instance)
+        {
+            if (capability == null || instance == null)
+                return;
+            m_Provided[capability] = instance;
+
+            if (instance is StateTreeService subsystem && !m_Subsystems.Contains(subsystem))
+                m_Subsystems.Add(subsystem);
+            if (instance is IDisposable disposable)
+            {
+                m_Owned ??= new List<IDisposable>();
+                if (!m_Owned.Contains(disposable))
+                    m_Owned.Add(disposable);
+            }
+        }
+
+        /// <summary>The subsystems this scope runs, in install order — which is dependency
+        /// order, because that is the order an installer builds them in.</summary>
+        private readonly List<StateTreeService> m_Subsystems = new List<StateTreeService>();
 
         /// <summary>Register a RECIPE: the first <see cref="GetService{T}"/> for the capability
         /// constructs <typeparamref name="TImpl"/> through its greediest public constructor,

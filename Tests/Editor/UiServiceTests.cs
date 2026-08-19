@@ -226,8 +226,13 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             // Spawn-time is bind-time: the spawner fills the view's [InjectService]
             // fields — a view never polls for its services.
-            var inventory = m_Root.gameObject.AddComponent<InventoryService>();
-            inventory.Connect();
+            var bagDef = ScriptableObject.CreateInstance<ServiceDef>();
+            bagDef.serviceName = "inventory";
+            bagDef.registry = ScriptableObject.CreateInstance<ItemRegistry>();
+            m_Assets.Add(bagDef);
+            m_Assets.Add(bagDef.registry);
+            var inventory = new InventoryService(m_Root, bagDef);
+            m_Root.Provide(inventory);
 
             UiDef row = MakeRow("bag", UiKind.Widget, 9f);
             row.prefab.AddComponent<InjectedView>();

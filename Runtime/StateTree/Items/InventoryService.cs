@@ -18,21 +18,31 @@ namespace PowerOfFire.DrawToPlay
     /// occupied slot swaps. All of it rows plus existing verbs — no new framework anywhere,
     /// which was the milestone's bet.
     /// </summary>
-    [AddComponentMenu("Draw To Play/Services/Inventory Service")]
     [ServiceActionContract(UseAction, "value = item name")]
     [ServiceActionContract(WearAction, "value = item name")]
     [ServiceActionContract(TakeoffAction, "value = slot name")]
-    public sealed class InventoryService : StateTreeServiceBehaviour
+    public sealed class InventoryService : StateTreeService
     {
+        /// <summary>
+        /// Built by its scope's installer (M33), with the host it belongs to and the def it
+        /// serves. Everything else it needs it asks for HERE, where a missing collaborator is a
+        /// loud failure at install time rather than a null three frames into play.
+        /// </summary>
+        public InventoryService(StateTreeContextHost scope, ServiceDef definition)
+            : base(scope, definition)
+        {
+            if (definition == null)
+                Debug.LogError("[Inventory] built with no ServiceDef — it serves nothing.");
+            else if (registry == null)
+                Debug.LogError("[Inventory] the ServiceDef's registry is not an ItemRegistry.",
+                    definition);
+        }
+
         // The action vocabulary as SYMBOLS — the attribute above, the switch below, and
         // the builder all reference these, so declaration and dispatch cannot drift.
         public const string UseAction = "use";
         public const string WearAction = "wear";
         public const string TakeoffAction = "takeoff";
-
-        [Tooltip("The declaration this service runs: scope and the item registry (whose "
-            + "dependsOn names the effect and slot registries its rows pick from).")]
-        public ServiceDef definition;
 
         /// <summary>Raised after any carried-count change, so views redraw instead of poll.</summary>
         public event Action changed;
@@ -58,11 +68,6 @@ namespace PowerOfFire.DrawToPlay
 
         public ItemRegistry registry =>
             definition != null ? definition.registry as ItemRegistry : null;
-
-        /// <summary>The def's declared behavior (requests, spawns, announcements — and a
-        /// flow tree if one is ever needed) runs with this service — the base does the
-        /// running; this line says whose declaration it is.</summary>
-        protected override ServiceDef FlowSource => definition;
 
         /// <summary>
         /// THE DOMAIN HOOK (§4g): what a request's action MEANS. Every one of the bag's
@@ -112,7 +117,8 @@ namespace PowerOfFire.DrawToPlay
                 return;
             // A DRAW IS NOT A USE: a bag on screen during a level swap draws empty rather
             // than complaining — the carrier accessor is for verbs, which need one.
-            StateTreeContextHost player = m_Player;
+            StateTreeContextHost player = m_Carrier != null ? m_Carrier
+                : StateTreeContextHost.Resolve(scope.gameObject, StateTreeContextKind.Player);
             if (player == null || player.Context == null)
             {
                 widget.Redraw(null, null);
@@ -198,34 +204,12 @@ namespace PowerOfFire.DrawToPlay
 
         private readonly List<InventoryWidgetView> m_Bags = new List<InventoryWidgetView>();
 
-        protected override void OnEnable()
-        {
-            base.OnEnable();
-            if (definition == null)
-                Debug.LogError("[Inventory] no ServiceDef assigned.", this);
-            else if (registry == null)
-                Debug.LogError("[Inventory] the ServiceDef's registry is not an ItemRegistry.",
-                    this);
-
-            // THE SUBSYSTEM REDRAWS ITSELF: it already raises these on every mutation —
-            // its own verbs, a pickup through the graph atoms, a save restore — so nobody
-            // outside needs to ask it to refresh. A request for that was an errand the
-            // subsystem was making other systems run on its behalf.
-            changed += RedrawSpawnedBags;
-            equipmentChanged += RedrawSpawnedBags;
-
-
-        }
-
         /// <summary>
-        /// EVERYTHING THIS SUBSYSTEM IS CONNECTED TO, in one method (M32.6).
-        ///
-        /// The base calls this once its collaborators are injected, its def is validated and
-        /// its screens are shown — and calls it again if any of that is replaced. So this reads
-        /// as a list of what the bag is made of: it redraws itself when it changes, and it is
-        /// handed its bags by the UI service, including the one already on screen.
+        /// THE FIRST TICK, when the world is assembled (M33): the def is validated, the flow
+        /// tree is running and the declared screens are up — so the bag takes the one already
+        /// on screen here rather than waiting to notice it.
         /// </summary>
-        protected override void OnConnected()
+        protected override void OnStarted()
         {
             // IT REDRAWS ITSELF: every mutation raises these — its own verbs, a pickup, a save
             // restore — so nobody outside needs to ask it to refresh.
@@ -237,9 +221,8 @@ namespace PowerOfFire.DrawToPlay
                 return;
             ui.shown += OnUiShown;
             ui.hidden += OnUiHidden;
+            m_Screens = ui;
 
-            // The screens are up by now (the base shows them before connecting), so the bag
-            // that is already open is taken here rather than waited for.
             ServiceDef def = definition;
             for (int i = 0; def != null && i < def.spawns.Count; i++)
             {
@@ -250,19 +233,22 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        protected override void OnDisconnected()
+        /// <summary>Everything the bag holds open, released with its scope.</summary>
+        public override void Dispose()
         {
             changed -= RedrawSpawnedBags;
             equipmentChanged -= RedrawSpawnedBags;
-
-            UiService ui = Ui;
-            if (ui != null)
+            if (m_Screens != null)
             {
-                ui.shown -= OnUiShown;
-                ui.hidden -= OnUiHidden;
+                m_Screens.shown -= OnUiShown;
+                m_Screens.hidden -= OnUiHidden;
+                m_Screens = null;
             }
             m_Bags.Clear();
+            base.Dispose();
         }
+
+        private UiService m_Screens;
 
         // ---- the carried counts: the API the example service had, kept verbatim --------
 
@@ -324,7 +310,10 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>What the carrier holds.</summary>
         public int Count(string itemName)
         {
-            StateTreeContextHost carrier = m_Player;   // a read needs no carrier to complain
+            // A READ NEEDS NO CARRIER TO COMPLAIN: asking an empty bag what it holds is a fair
+            // question with the answer zero.
+            StateTreeContextHost carrier = m_Carrier != null ? m_Carrier
+                : StateTreeContextHost.Resolve(scope.gameObject, StateTreeContextKind.Player);
             return carrier != null ? Count(carrier.Context, itemName) : 0;
         }
 
@@ -408,7 +397,7 @@ namespace PowerOfFire.DrawToPlay
             if (effect == null)
             {
                 Debug.LogError("[Inventory] '" + itemName + "' uses effect '"
-                    + row.useEffect.entryName + "', which resolves to no row.", this);
+                    + row.useEffect.entryName + "', which resolves to no row.");
                 return false;
             }
             if (m_CarrierAbilities == null)
@@ -416,8 +405,7 @@ namespace PowerOfFire.DrawToPlay
                 // A CARRIER THAT CANNOT BE AFFECTED is a rig fault, not an empty pocket: the
                 // item would be spent on nothing, so it is not spent at all.
                 Debug.LogError("[Inventory] '" + player.name + "' carries the bag but has no "
-                    + "AbilityHost, so '" + itemName + "' has nothing to apply its effect to.",
-                    this);
+                    + "AbilityHost, so '" + itemName + "' has nothing to apply its effect to.");
                 return false;
             }
             if (!Remove(player.Context, itemName))
@@ -476,7 +464,7 @@ namespace PowerOfFire.DrawToPlay
                 {
                     Debug.LogWarning("[Inventory] worn effect '"
                         + row.wornEffects[i].entryName + "' on '" + itemName
-                        + "' is not a resolvable Modifier row — skipped.", this);
+                        + "' is not a resolvable Modifier row — skipped.");
                     continue;
                 }
                 attributes.Ensure(effect.attribute.entryName, 0f);
@@ -511,7 +499,7 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 // Reverting a grant on a body that is already gone is a no-op, not an error:
                 // the modifiers died with it. See ForgetWornOnPlayerChange.
-                AttributeComponent attributes = m_Player != null ? m_CarrierAttributes : null;
+                AttributeComponent attributes = m_Carrier != null ? m_CarrierAttributes : null;
                 for (int j = 0; j < m_Worn[i].handles.Count && attributes != null; j++)
                     attributes.RemoveModifier(m_Worn[i].handles[j]);
                 m_Worn.RemoveAt(i);
@@ -552,12 +540,6 @@ namespace PowerOfFire.DrawToPlay
 
         // ---- resolution ----------------------------------------------------------------
 
-        /// <summary>The scope the bag belongs to. Optional at the FIELD, because a player is
-        /// a spawned citizen and the gap between levels is real; required at every USE, which
-        /// is what <see cref="Carrier"/> enforces.</summary>
-        [InjectHost(StateTreeContextKind.Player, optional: true)]
-        private StateTreeContextHost m_Player;
-
         private StateTreeContextHost m_Carrier;
         private AbilityHost m_CarrierAbilities;
         private AttributeComponent m_CarrierAttributes;
@@ -577,7 +559,11 @@ namespace PowerOfFire.DrawToPlay
         private StateTreeContextHost Carrier([System.Runtime.CompilerServices.CallerMemberName]
             string doing = "")
         {
-            StateTreeContextHost player = m_Player;
+            // THE CARRIER IS LOOKED UP, not injected: a player is a spawned citizen, so the
+            // host that scopes it appears and is replaced during a session. Asking the spine is
+            // the same question the injector used to ask on a heartbeat, asked when it matters.
+            StateTreeContextHost player = StateTreeContextHost.Resolve(scope.gameObject,
+                StateTreeContextKind.Player);
             if (player == null || player.Context == null)
             {
                 if (!m_ToldThemAboutTheCarrier)
@@ -586,7 +572,7 @@ namespace PowerOfFire.DrawToPlay
                     Debug.LogError("[Inventory] '" + doing + "' was asked with no carrier — no "
                         + "Player-scope host is mounted, so there is nobody to carry anything. "
                         + "Between levels this is momentary; otherwise the player scope is "
-                        + "missing.", this);
+                        + "missing.");
                 }
                 m_Carrier = null;
                 m_CarrierAbilities = null;

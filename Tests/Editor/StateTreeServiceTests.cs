@@ -322,6 +322,11 @@ namespace PowerOfFire.DrawToPlay.Tests
             def.serviceName = "flow-test";
             def.scope = StateTreeContextKind.Root;
             def.flows = flows;
+            // The bag stands in for "a service with a def" here, and it refuses to be built
+            // without the catalog it manages — so the fixture gives it one (M33).
+            var items = ScriptableObject.CreateInstance<ItemRegistry>();
+            m_Assets.Add(items);
+            def.registry = items;
             def.requests.Add(new ServiceRequest
             {
                 key = "test.request", stateId = "serve", description = "serve the test"
@@ -337,9 +342,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             host.Register();
             m_Hosts.Add(host);
 
-            var service = rootGo.AddComponent<InventoryService>();
-            service.definition = def;
-            service.Connect();
+            var service = new InventoryService(host, def);
+            host.Provide(service);
             return (host, service, def);
         }
 
@@ -350,7 +354,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             host.Context.blackboard["test.request"] = "1";
             for (int i = 0; i < 3; i++)
-                service.TickFlows(0.02f);
+                service.Tick(0.02f);
 
             Assert.IsTrue(service.flowsRunning, "the def's tree runs with the service");
             Assert.IsTrue(host.Context.blackboard.ContainsKey("test.served"),
@@ -363,11 +367,11 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void TypedRequest_GoesThroughTheDefsRows()
         {
             (StateTreeContextHost host, InventoryService service, _) = MakeFlowsFixture();
-            service.TickFlows(0.02f);   // start the tree
+            service.Tick(0.02f);   // start the tree
 
             service.Request("test.request");
             for (int i = 0; i < 3; i++)
-                service.TickFlows(0.02f);
+                service.Tick(0.02f);
             Assert.IsTrue(host.Context.blackboard.ContainsKey("test.served"),
                 "the typed door writes the same key the flow serves");
 

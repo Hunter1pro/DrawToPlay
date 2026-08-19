@@ -103,9 +103,10 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Root.Register();
             m_Hosts.Add(m_Root);
 
-            m_Service = rootGo.AddComponent<InventoryService>();
-            m_Service.definition = def;
-            m_Service.Connect();
+            // BUILT, NOT ADDED (M33): a subsystem is a class its scope owns, so the fixture
+            // does exactly what the installer does in play — one constructor, one Provide.
+            m_Service = new InventoryService(m_Root, def);
+            m_Root.Provide(m_Service);
 
             // ACTIVE, unlike the ability tests' actors: the service resolves the player
             // through the registered-host walk, which skips disabled hosts by design.
@@ -124,7 +125,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             // The runtime contract, honored: injected fields are valid from the first
             // tick — the heartbeat fills them — so the fixture ticks once, exactly as
             // play mode's first Update would.
-            m_Service.TickFlows(0f);
+            m_Service.Tick(0f);
         }
 
         [TearDown]
@@ -380,7 +381,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             });
 
             m_Root.Context.blackboard["test.use"] = "ration";
-            m_Service.TickFlows(0.02f);
+            m_Service.Tick(0.02f);
 
             Assert.AreEqual(1, m_Service.Count(m_Player.Context, "ration"),
                 "the domain verb ran");

@@ -224,8 +224,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             def.serviceName = "inventory";
             def.registry = m_Registry;
             m_Assets.Add(def);
-            var bag = bagObject.AddComponent<InventoryService>();
-            bag.definition = def;
+            var bag = new InventoryService(m_Player, def);
             m_Player.Provide(bag);
         }
 
