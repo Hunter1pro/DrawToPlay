@@ -98,6 +98,21 @@ namespace PowerOfFire.DrawToPlay.Editor
             public readonly Dictionary<string, List<WireUse>> requestCallers =
                 new Dictionary<string, List<WireUse>>(StringComparer.Ordinal);
 
+            /// <summary>WHO WEARS OR ASKS FOR A TAG, keyed by the tag's text — every field
+            /// marked [WorldTag] anywhere in the project, with the ROW it sits on when it sits
+            /// on one. Per entity, deliberately: "the manifest uses 'objective.raider' 21
+            /// times" is true and useless, while "the placement 'place.raider' wears it" is the
+            /// thing an author can act on.</summary>
+            public readonly Dictionary<string, List<WireUse>> tagUses =
+                new Dictionary<string, List<WireUse>>(StringComparer.Ordinal);
+
+            internal void AddTagUse(string tag, WireUse use)
+            {
+                if (string.IsNullOrEmpty(tag))
+                    return;
+                Bucket(tagUses, tag).Add(use);
+            }
+
             /// <summary>Which ServiceDef ANSWERS each request key — the roll-up that turns
             /// a caller into an edge on the map.</summary>
             public readonly Dictionary<string, UnityEngine.Object> requestOwners =
@@ -475,6 +490,28 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// wires, and plain toolset classes (parameter sets, seeds, lists of either) recurse
         /// — bounded, and only into this project's own namespace so Unity types stay shut.
         /// </summary>
+        private static void AddTag(Index index, string tag, UnityEngine.Object context,
+            string label, string field, StateTreeRegistryEntry viaRow)
+        {
+            if (string.IsNullOrEmpty(tag))
+                return;
+            index.AddTagUse(tag, new WireUse
+            {
+                context = context,
+                description = label + " · " + field + " = '" + tag + "'",
+                viaRow = viaRow
+            });
+        }
+
+        /// <summary>Everywhere this tag is worn or asked for.</summary>
+        internal static List<WireUse> UsersOfTag(Index index, string tag)
+        {
+            return index != null && !string.IsNullOrEmpty(tag)
+                && index.tagUses.TryGetValue(tag, out List<WireUse> uses)
+                ? uses
+                : new List<WireUse>();
+        }
+
         private static void ScanValue(object owner, UnityEngine.Object context, string label,
             Index index, int depth, StateTreeRegistryEntry viaRow = null)
         {
@@ -496,6 +533,22 @@ namespace PowerOfFire.DrawToPlay.Editor
                 }
                 if (value == null)
                     continue;
+
+                // A TAG (M31): the field SAYS it is one, so this is a marked wire rather than
+                // a string that happens to match something. Lists are walked element by
+                // element, because a citizen's tags and an ability's blockedByTags are lists.
+                if (System.Attribute.IsDefined(fields[i], typeof(WorldTagAttribute)))
+                {
+                    if (value is string single)
+                    {
+                        AddTag(index, single, context, label, fields[i].Name, viaRow);
+                    }
+                    else if (value is List<string> many)
+                    {
+                        for (int t = 0; t < many.Count; t++)
+                            AddTag(index, many[t], context, label, fields[i].Name, viaRow);
+                    }
+                }
 
                 // A REQUEST CALL (§4g): a string field naming a declared request key — a
                 // RequestTask's key, a SetBlackboard's key wire, a component's const. The

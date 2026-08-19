@@ -348,8 +348,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             var remove = new Button(() => RemoveEntry(index)) { text = "✕" };
             remove.style.width = 22f;
             remove.style.flexShrink = 0f;
-            remove.tooltip = "Delete this entry. References to it (in any tree) warn in place "
-                + "until re-picked — deleting here cannot reach them.";
+            remove.tooltip = "Delete this entry — refused while anything still names it, and "
+                + "the refusal says who. Unpick them first.";
             row.Add(remove);
 
             SerializedProperty child = element.Copy();
@@ -388,6 +388,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 AssetWireScan.Index wireIndex = AssetWireScan.Get();
                 List<AssetWireScan.WireUse> uses =
                     AssetWireScan.UsersOfRow(wireIndex, described);
+                // A TAG IS NOT REFERRED TO BY ID — it is WORN, as text, by placements and asked
+                // for by tasks. Without this a tag row reads "unused" while 21 things carry it.
+                if (described is WorldTagDef)
+                    uses.AddRange(AssetWireScan.UsersOfTag(wireIndex, described.name));
                 // Follow through holding rows here too — a cue's user list should reach
                 // the tree that applies the effect, not stop at the effect row.
                 var visited = new HashSet<string>(StringComparer.Ordinal);
@@ -463,6 +467,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             var registry = (StateTreeRegistryAsset)target;
             IList list = EntriesList(registry);
             if (list == null || index < 0 || index >= list.Count)
+                return;
+
+            // THE GATE (M31): a row that something still names does not go. We know the
+            // references — the same index the ⛓ line above reads — so this is the database
+            // rule, not a warning nobody sees until later.
+            if (list[index] is StateTreeRegistryEntry row && !StateTreeRowGuard.MayRemove(row))
                 return;
 
             Undo.RecordObject(registry, k_RemoveUndo);
