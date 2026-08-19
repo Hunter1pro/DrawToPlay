@@ -904,14 +904,20 @@ namespace PowerOfFire.DrawToPlay.Editor
             System.Action<string> set)
         {
             List<AssetWireScan.WireUse> callers = ServiceKeyRename.Callers(current);
-            bool linked = callers.Count > 0;
+            IReadOnlyList<string> inCode = ServiceKeyCode.Owners(current);
+            bool linked = callers.Count > 0 || inCode.Count > 0;
 
             if (linked)
             {
+                // A CONSTANT COUNTS, and counts hardest: a name C# declares cannot be renamed
+                // from here at all, so the field being editable would fork the name silently.
+                string who = inCode.Count > 0
+                    ? "declared in code as " + string.Join(", ", inCode)
+                    : callers.Count + " place(s) name it";
                 using (new EditorGUI.DisabledScope(true))
                 {
                     EditorGUILayout.TextField(new GUIContent(label, tooltip + " — LINKED: "
-                        + callers.Count + " place(s) name it. ✎ renames it everywhere."), current);
+                        + who + "."), current);
                 }
             }
             else
@@ -923,8 +929,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             CallersButton(current);
-            if (linked && GUILayout.Button(new GUIContent("✎", "Rename it here AND in every "
-                + "place that names it."), GUILayout.Width(24f)))
+            if (linked && inCode.Count == 0
+                && GUILayout.Button(new GUIContent("✎", "Rename it here AND in every "
+                    + "place that names it."), GUILayout.Width(24f)))
             {
                 m_RenamingKey = current;
                 m_RenameTo = current;
@@ -980,21 +987,32 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
 
             List<AssetWireScan.WireUse> callers = ServiceKeyRename.Callers(key);
+            IReadOnlyList<string> inCode = ServiceKeyCode.Owners(key);
             var menu = new GenericMenu();
-            if (callers.Count > 0)
+
+            for (int i = 0; i < callers.Count; i++)
             {
-                for (int i = 0; i < callers.Count; i++)
-                {
-                    AssetWireScan.WireUse use = callers[i];
-                    UnityEngine.Object target = use.context;
-                    menu.AddItem(new GUIContent(use.description.Replace('/', '∕')),
-                        false, () => EditorGUIUtility.PingObject(target));
-                }
+                AssetWireScan.WireUse use = callers[i];
+                UnityEngine.Object target = use.context;
+                menu.AddItem(new GUIContent(use.description.Replace('/', '∕')),
+                    false, () => EditorGUIUtility.PingObject(target));
             }
-            else
+
+            // THE TWO KINDS OF NAMER, told apart, because only one of them can be renamed from
+            // here: an asset moves with a rename, a constant is the source of the name.
+            if (inCode.Count > 0)
             {
-                menu.AddDisabledItem(new GUIContent("no authored caller names '" + key + "'"));
-                menu.AddDisabledItem(new GUIContent("(skins and C# callers do not scan)"));
+                if (callers.Count > 0)
+                    menu.AddSeparator("");
+                for (int i = 0; i < inCode.Count; i++)
+                    menu.AddDisabledItem(new GUIContent("declared in C# · " + inCode[i]));
+            }
+
+            if (callers.Count == 0 && inCode.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent("nothing authored or declared names '"
+                    + key + "'"));
+                menu.AddDisabledItem(new GUIContent("(a skin binding it by hand does not scan)"));
             }
             menu.ShowAsContext();
         }

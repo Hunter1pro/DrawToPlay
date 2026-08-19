@@ -69,6 +69,18 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(caller.key, Is.EqualTo("craft.begin"));
         }
 
+        [Test]
+        public void AKeyDeclaredInCode_IsFoundAndCannotBeRenamedFromTheInspector()
+        {
+            // The case that started this: an announcement whose only namer is a const looked
+            // unused, when a constant is the STRONGEST kind of namer — the source of the name.
+            Assert.That(ServiceKeyCode.Owners(ItemUseResult.Key),
+                Does.Contain(nameof(ItemUseResult) + "." + nameof(ItemUseResult.Key)));
+            Assert.That(ServiceKeyCode.Owners(CraftKeys.Begin),
+                Does.Contain(nameof(CraftKeys) + "." + nameof(CraftKeys.Begin)));
+            Assert.That(ServiceKeyCode.Owners("nothing.declares.this"), Is.Empty);
+        }
+
         private T Make<T>(string name) where T : ScriptableObject
         {
             var asset = ScriptableObject.CreateInstance<T>();
