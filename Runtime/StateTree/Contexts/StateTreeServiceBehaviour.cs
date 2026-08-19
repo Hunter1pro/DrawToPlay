@@ -165,7 +165,6 @@ namespace PowerOfFire.DrawToPlay
                     StartFlows();
                     ShowSpawns(def);
                 }
-                DeclareInternalRequests(m_Internal);
             }
 
             ServePendingRequests();
@@ -190,6 +189,15 @@ namespace PowerOfFire.DrawToPlay
                     + "' — see the def's requests list.", this);
                 return;
             }
+            if (row.internalOnly)
+            {
+                // An internal key is not an API: the skin writes it on the board, and a C#
+                // caller reaching for it is reaching into another subsystem's pocket.
+                Debug.LogError("StateTreeService '" + GetType().Name + "': '" + key
+                    + "' is this subsystem's own button, not part of its API.", this);
+                return;
+            }
+
             // The TYPED value (§4d): a request whose row names a registry refuses a value
             // that names no row — the button that would do nothing forever, refused at the
             // door with a name in the message.
@@ -219,17 +227,9 @@ namespace PowerOfFire.DrawToPlay
             if (board == null)
                 return;
 
-            // The subsystem's OWN requests first (its skin's buttons), then the public
-            // ones the def declares — one serving path, two sources, and the def stays a
-            // public surface.
-            for (int i = 0; i < m_Internal.Count; i++)
-            {
-                ServiceRequest row = m_Internal[i];
-                if (row != null && !string.IsNullOrEmpty(row.key)
-                    && board.ContainsKey(row.key))
-                    ServeDirect(row, board);
-            }
-
+            // ONE SOURCE NOW (M32): the def's rows, its own buttons included. The second
+            // list that used to run first is gone, and with it the question of which of two
+            // declarations a key belonged to.
             if (def == null)
                 return;
 
@@ -292,45 +292,13 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>
-        /// THE SUBSYSTEM'S OWN REQUESTS — what its skin sends IT, declared in code
-        /// because it is nobody else's business: the def is the public surface, and
-        /// self-talk listed there is noise every reader has to learn to skip. Served by
-        /// exactly the same machinery as a public row (action, reactions, consume), and
-        /// deliberately NOT callable through <see cref="Request"/>: an internal key is
-        /// not an API. Collected once, at the first tick.
+        /// A SUBSYSTEM'S OWN BUTTONS ARE ROWS TOO (M32). They used to be declared in code
+        /// here, on the argument that self-talk on the def is noise — but a row nobody can
+        /// see is a row nobody can find a caller for, and the ⛓ answered "nobody" about a
+        /// key the bag's skin writes on every press. They live on the def now, marked
+        /// <see cref="ServiceRequest.internalOnly"/>: declared, mapped, listed, and still
+        /// refused by <see cref="Request"/>, because an internal key is not an API.
         /// </summary>
-        protected virtual void DeclareInternalRequests(List<ServiceRequest> into)
-        {
-        }
-
-        private readonly List<ServiceRequest> m_Internal = new List<ServiceRequest>();
-
-        /// <summary>One internal request, compactly: the key its skin writes, the domain
-        /// action it means, and the UI beats that follow.</summary>
-        protected static ServiceRequest Internal(string key, string action,
-            params UiReaction[] beats)
-        {
-            var row = new ServiceRequest { key = key, action = action ?? "" };
-            for (int i = 0; beats != null && i < beats.Length; i++)
-            {
-                if (beats[i] != null)
-                    row.reactions.Add(beats[i]);
-            }
-            return row;
-        }
-
-        /// <summary>One UI beat of an internal request — the UiCallTask, in code.</summary>
-        protected static UiReaction Beat(string uiRow, string verb,
-            bool valueArgument = false, string argumentKey = "")
-        {
-            var beat = new UiReaction
-            {
-                verb = verb, valueArgument = valueArgument, argumentKey = argumentKey ?? ""
-            };
-            beat.ui.entryId = "ui." + uiRow;
-            beat.ui.entryName = uiRow;
-            return beat;
-        }
 
         /// <summary>The declared UI beats of a def-served request — the UiCallTask, read
         /// from rows: verb on the shown row's views, the request's value as argument, a

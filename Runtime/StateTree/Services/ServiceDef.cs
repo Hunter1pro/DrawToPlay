@@ -327,6 +327,11 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("Def-level serving (§4g): the UI beats after the action, in order — "
             + "what a flow state's task list said, as rows on the def.")]
         public List<UiReaction> reactions = new List<UiReaction>();
+
+        [Tooltip("The subsystem's OWN button (M32): declared like every other row — so the "
+            + "map, the API window and the ⛓ see it — but not part of the API, and refused "
+            + "by the typed C# door. Its skin still writes the key; strangers do not.")]
+        public bool internalOnly;
     }
 
     /// <summary>Marks a string field that names a DECLARED REQUEST of some subsystem —

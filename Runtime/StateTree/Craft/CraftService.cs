@@ -54,22 +54,6 @@ namespace PowerOfFire.DrawToPlay
         [InjectService] private InventoryService m_Inventory;
 
         /// <summary>
-        /// THE PANEL'S OWN BUTTON — the subsystem talking to itself (§4g), so it stays off the
-        /// def, which is the public API other systems call. Same action as the world press,
-        /// because there is only one rule about what three timber are worth; what differs is
-        /// who asked.
-        /// </summary>
-        protected override void DeclareInternalRequests(List<ServiceRequest> into)
-        {
-            // NO ANNOUNCE BEAT HERE. Reactions run when the REQUEST is served, and this
-            // request only starts a swing — the outcome does not exist yet, so a beat here
-            // showed the PREVIOUS craft's sentence under the new one's button. The panel is
-            // told by the public request that carries the result (see the def's craft.begin),
-            // which is served after the domain hook has written it.
-            into.Add(Internal(CraftPanelView.MakeKey, StartAction));
-        }
-
-        /// <summary>
         /// WHAT THE PLAYER IS STANDING AT, pushed to the panel each tick.
         ///
         /// The service polls and the view does not, which is the doctrine's whole shape: a
