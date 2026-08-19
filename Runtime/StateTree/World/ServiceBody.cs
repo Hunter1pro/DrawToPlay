@@ -47,6 +47,12 @@ namespace PowerOfFire.DrawToPlay
             + "people are known as 'npc-keeper' rather than 'keeper'.")]
         public string entryNamePrefix = "";
 
+        [Tooltip("What everything this def builds is CALLED — the tags its bodies wear, picked "
+            + "from a declared vocabulary. A placement adds its own on top; this is what the "
+            + "KIND is, and it lives here because the def owns the body.")]
+        [WorldTag]
+        public List<string> tags = new List<string>();
+
         [Tooltip("Which of the body's parts the placement's ENTRY names — 'the pickup's item', "
             + "'the trigger's scene'. Each link is a component and the reference field on it.")]
         public List<ServiceBodyLink> links = new List<ServiceBodyLink>();

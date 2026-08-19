@@ -364,13 +364,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                     context = def, description = label + " · declares this catalog"
                 });
             }
-            if (def.body != null && def.body.prefab != null)
-            {
-                index.AddAssetUse(def.body.prefab, new WireUse
-                {
-                    context = def, description = label + " · spawns this body"
-                });
-            }
+            // THE BODY IS WALKED, not picked apart: the prefab it spawns, the tags every one of
+            // its bodies wears, whatever it grows next. A def whose fields are read by hand is a
+            // def that goes quiet the day somebody adds one.
+            if (def.body != null)
+                ScanValue(def.body, def, label + " · body", index, 0);
             for (int i = 0; def.spawns != null && i < def.spawns.Count; i++)
             {
                 var spawn = def.spawns[i];
@@ -524,10 +522,19 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             if (owner is LevelObjectTagRef)
                 return true;
+            if (owner is ServiceBody)
+                return field == "tags";          // what every body this def builds is called
             if (owner is WorldObjectBehaviour)
                 return field == "tags";
             if (owner is EffectDef)
                 return field == "grantedTags";
+            if (owner is AbilityDef)
+                return field == "abilityTags"    // what the ability IS, not what it looks for
+                    || field == "activationTags"; // and what it puts on its owner while it runs
+            if (owner is AfloatTask)
+                return field == "tag";           // granted while afloat
+            if (owner is WaterVolumeBehaviour)
+                return field == "waterTag";      // the volume IS the water
             return false;
         }
 

@@ -79,8 +79,20 @@ namespace PowerOfFire.DrawToPlay
                 Expose(self, view, body);
             }
 
-            // ROW TAGS REACH EVERY CITIZEN: arrow targets, kill filters and zones are all found
-            // by tag, and this is the last moment before OnEnable registers them.
+            // WHAT THIS KIND IS, from the def (M31): the tags every body it builds wears. They
+            // used to be EnsureTag calls inside the components — a supply of tags that no map
+            // could see and no author could change without opening a script.
+            for (int i = 0; i < body.tags.Count; i++)
+            {
+                string tag = body.tags[i];
+                if (string.IsNullOrEmpty(tag))
+                    continue;
+                for (int c = 0; c < citizens.Length; c++)
+                    citizens[c].EnsureTag(tag);
+            }
+
+            // AND WHAT THIS ONE IS: arrow targets, kill filters and zones are all found by tag,
+            // and this is the last moment before OnEnable registers them.
             if (row.tags != null)
             {
                 for (int t = 0; t < row.tags.Count; t++)

@@ -20,15 +20,10 @@ namespace PowerOfFire.DrawToPlay
             + "volume picks it here. The row's ID becomes this citizen's tag.")]
         public StateTreeEntryRef<ZoneDef> zone = new StateTreeEntryRef<ZoneDef>();
 
-        protected override void OnEnable()
-        {
-            // Tags are fixed at registration — declare the identity before base registers
-            // this citizen: the base 'zone' tag, and the picked row's ID (renames free).
-            if (!tags.Contains("zone"))
-                tags.Add("zone");
-            if (!string.IsNullOrEmpty(zone.entryId) && !tags.Contains(zone.entryId))
-                tags.Add(zone.entryId);
-            base.OnEnable();
-        }
+        // WHAT IT IS CALLED IS AUTHORED, NOT DERIVED (M31). This used to invent two tags in
+        // OnEnable — "zone" and the picked row's id — which made a volume findable by a word
+        // no vocabulary held and no map could see. The def wears "zone" and the PLACEMENT wears
+        // which zone it is, so the objective pointing at it and the thing carrying it are two
+        // picks from one list.
     }
 }
