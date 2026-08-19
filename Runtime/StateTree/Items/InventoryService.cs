@@ -42,6 +42,10 @@ namespace PowerOfFire.DrawToPlay
 
         private readonly List<ItemStack> m_Stacks = new List<ItemStack>();
 
+        /// <summary>The slot half of the read model, reused like the stacks — a redraw runs on
+        /// every change and a new list per change is garbage nobody asked for.</summary>
+        private readonly List<BagSlotLine> m_Lines = new List<BagSlotLine>();
+
         private sealed class WornItem
         {
             public string slotId;
@@ -114,7 +118,7 @@ namespace PowerOfFire.DrawToPlay
                 widget.Redraw(null, null);
                 return;
             }
-            var lines = new List<BagSlotLine>();
+            m_Lines.Clear();
             EquipmentSlotRegistry slots = Slots();
             for (int i = 0; slots != null && i < slots.entries.Count; i++)
             {
@@ -123,7 +127,7 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 string wornName = EquippedIn(slot.id);
                 ItemDef worn = string.IsNullOrEmpty(wornName) ? null : Row(wornName);
-                lines.Add(new BagSlotLine(
+                m_Lines.Add(new BagSlotLine(
                     slot.id,
                     slot.name,
                     string.IsNullOrEmpty(slot.displayName) ? slot.name : slot.displayName,
@@ -131,7 +135,7 @@ namespace PowerOfFire.DrawToPlay
                     worn == null ? "" : (string.IsNullOrEmpty(worn.displayName)
                         ? worn.name : worn.displayName)));
             }
-            widget.Redraw(Stacks(player.Context), lines);
+            widget.Redraw(Stacks(player.Context), m_Lines);
         }
 
         /// <summary>Every bag this service is showing, redrawn to the present.</summary>
@@ -609,19 +613,51 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>The blackboard the counts live on — the carrier's, or null.</summary>
         public StateTreeContext Bag => Carrier()?.Context;
 
+        /// <summary>
+        /// A ROW FROM WHAT THIS DEF DECLARES — an effect the item picks, a slot it fills.
+        ///
+        /// It used to walk the whole dependsOn closure on every use, allocating the closure
+        /// each time: a swallowed potion did a graph traversal to find a row that had not moved
+        /// since the level loaded. The closure is gathered once per registry and the answers
+        /// are remembered, because neither can change without a domain reload — and a service
+        /// that re-derives constants inside a verb is the habit this milestone is about.
+        /// </summary>
         private StateTreeRegistryEntry FindInClosure(string entryName)
         {
-            if (string.IsNullOrEmpty(entryName) || registry == null)
+            ItemRegistry items = registry;
+            if (string.IsNullOrEmpty(entryName) || items == null)
                 return null;
-            var reachable = new List<StateTreeRegistryAsset>();
-            registry.CollectWithDependencies(reachable);
-            for (int i = 0; i < reachable.Count; i++)
+
+            if (!ReferenceEquals(items, m_ClosureOf))
             {
-                StateTreeRegistryEntry entry = reachable[i].FindByName(entryName);
-                if (entry != null && reachable[i] != registry)
-                    return entry;
+                m_ClosureOf = items;
+                m_Closure.Clear();
+                m_Known.Clear();
+                items.CollectWithDependencies(m_Closure);
             }
-            return null;
+
+            if (m_Known.TryGetValue(entryName, out StateTreeRegistryEntry remembered))
+                return remembered;
+
+            StateTreeRegistryEntry found = null;
+            for (int i = 0; i < m_Closure.Count && found == null; i++)
+            {
+                StateTreeRegistryEntry entry = m_Closure[i].FindByName(entryName);
+                if (entry != null && m_Closure[i] != items)
+                    found = entry;
+            }
+            // A MISS IS REMEMBERED TOO: a misspelt effect name asked twice a second by a held
+            // button should cost one walk, not one per press.
+            m_Known[entryName] = found;
+            return found;
         }
+
+        private ItemRegistry m_ClosureOf;
+
+        private readonly List<StateTreeRegistryAsset> m_Closure =
+            new List<StateTreeRegistryAsset>();
+
+        private readonly Dictionary<string, StateTreeRegistryEntry> m_Known =
+            new Dictionary<string, StateTreeRegistryEntry>(StringComparer.Ordinal);
     }
 }
