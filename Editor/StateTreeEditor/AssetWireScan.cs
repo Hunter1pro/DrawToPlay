@@ -28,6 +28,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             public UnityEngine.Object context;
             public string description;
             public StateTreeRegistryEntry viaRow;
+
+            /// <summary>Tag uses only: true when this use WEARS the tag (a placement carries
+            /// it, a citizen lists it, an effect grants it), false when it ASKS for one (an
+            /// objective points at it, a task looks for it). The map draws the two directions
+            /// differently because they are the two different questions about a tag.</summary>
+            public bool wears;
         }
 
         /// <summary>One line of an expanded usage chain: the use, at its distance from the
@@ -491,16 +497,38 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// — bounded, and only into this project's own namespace so Unity types stay shut.
         /// </summary>
         private static void AddTag(Index index, string tag, UnityEngine.Object context,
-            string label, string field, StateTreeRegistryEntry viaRow)
+            string label, string field, StateTreeRegistryEntry viaRow, bool wears)
         {
             if (string.IsNullOrEmpty(tag))
                 return;
             index.AddTagUse(tag, new WireUse
             {
                 context = context,
-                description = label + " · " + field + " = '" + tag + "'",
-                viaRow = viaRow
+                description = label + " · " + (wears ? "wears" : "asks for") + " '" + tag + "'"
+                    + " (" + field + ")",
+                viaRow = viaRow,
+                wears = wears
             });
+        }
+
+        /// <summary>
+        /// Does this field PUT the tag on something, or LOOK for it?
+        ///
+        /// A placement's tag list and a citizen's own are what an object is called; an effect's
+        /// granted tags are what it makes something be. Everything else — an objective's target,
+        /// a task's water tag, an ability's blockedBy — is a question being asked about the
+        /// world. One is supply and the other is demand, and a tag with only one of them is the
+        /// finding this whole index exists to surface.
+        /// </summary>
+        private static bool Wears(object owner, string field)
+        {
+            if (owner is LevelObjectTagRef)
+                return true;
+            if (owner is WorldObjectBehaviour)
+                return field == "tags";
+            if (owner is EffectDef)
+                return field == "grantedTags";
+            return false;
         }
 
         /// <summary>Everywhere this tag is worn or asked for.</summary>
@@ -539,14 +567,15 @@ namespace PowerOfFire.DrawToPlay.Editor
                 // element, because a citizen's tags and an ability's blockedByTags are lists.
                 if (System.Attribute.IsDefined(fields[i], typeof(WorldTagAttribute)))
                 {
+                    bool wears = Wears(owner, fields[i].Name);
                     if (value is string single)
                     {
-                        AddTag(index, single, context, label, fields[i].Name, viaRow);
+                        AddTag(index, single, context, label, fields[i].Name, viaRow, wears);
                     }
                     else if (value is List<string> many)
                     {
                         for (int t = 0; t < many.Count; t++)
-                            AddTag(index, many[t], context, label, fields[i].Name, viaRow);
+                            AddTag(index, many[t], context, label, fields[i].Name, viaRow, wears);
                     }
                 }
 

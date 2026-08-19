@@ -35,11 +35,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         private Vector2 m_SidePanel;
         private string m_Search = "";
         private Object m_Selected;
+        private string m_SelectedTag;
         private Object m_Focus;
+        private string m_FocusTag;
         private bool m_Built;
 
-        private readonly bool[] m_Kinds = { true, true, true, true, true, true };
-        private readonly bool[] m_EdgeKinds = { true, true, true };
+        private readonly bool[] m_Kinds = { true, true, true, true, true, true, true };
+        private readonly bool[] m_EdgeKinds = { true, true, true, true, true };
 
         private void OnEnable()
         {
@@ -96,23 +98,27 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (int i = 0; i < m_Kinds.Length; i++)
             {
                 m_Kinds[i] = GUILayout.Toggle(m_Kinds[i], ((DependencyGraph.NodeKind)i).ToString(),
-                    EditorStyles.toolbarButton, GUILayout.Width(66f));
+                    EditorStyles.toolbarButton, GUILayout.Width(60f));
             }
 
             GUILayout.Space(6f);
             for (int i = 0; i < m_EdgeKinds.Length; i++)
             {
                 m_EdgeKinds[i] = GUILayout.Toggle(m_EdgeKinds[i],
-                    ((DependencyGraph.EdgeKind)i).ToString().ToLowerInvariant() + " edges",
-                    EditorStyles.toolbarButton, GUILayout.Width(96f));
+                    ((DependencyGraph.EdgeKind)i).ToString().ToLowerInvariant(),
+                    EditorStyles.toolbarButton, GUILayout.Width(62f));
             }
 
             GUILayout.FlexibleSpace();
-            if (m_Focus != null)
+            if (m_Focus != null || !string.IsNullOrEmpty(m_FocusTag))
             {
-                GUILayout.Label("focused on " + m_Focus.name, EditorStyles.miniLabel);
+                GUILayout.Label("focused on "
+                    + (m_Focus != null ? m_Focus.name : m_FocusTag), EditorStyles.miniLabel);
                 if (GUILayout.Button("show all", EditorStyles.toolbarButton, GUILayout.Width(64f)))
+                {
                     m_Focus = null;
+                    m_FocusTag = null;
+                }
             }
             m_Search = GUILayout.TextField(m_Search, EditorStyles.toolbarSearchField,
                 GUILayout.Width(180f));
@@ -123,7 +129,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             if (!m_Kinds[(int)node.kind])
                 return false;
-            if (m_Focus != null && !Near(node))
+            if ((m_Focus != null || !string.IsNullOrEmpty(m_FocusTag)) && !Near(node))
                 return false;
             return string.IsNullOrEmpty(m_Search)
                 || node.label.IndexOf(m_Search, System.StringComparison.OrdinalIgnoreCase) >= 0;
@@ -134,9 +140,17 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// different question and answers it badly.</summary>
         private bool Near(DependencyGraph.Node node)
         {
-            if (node.asset == m_Focus)
-                return true;
-            return m_Graph.Touching(m_Graph.IndexOf(m_Focus), m_Graph.IndexOf(node.asset));
+            int centre = Index(m_Focus, m_FocusTag);
+            int self = Index(node.asset, node.tag);
+            return centre < 0 || self == centre || m_Graph.Touching(centre, self);
+        }
+
+        /// <summary>A node is an asset or a tag; both are found the same way.</summary>
+        private int Index(Object asset, string tag)
+        {
+            if (!string.IsNullOrEmpty(tag))
+                return m_Graph.TagIndex(tag);
+            return m_Graph.IndexOf(asset);
         }
 
         private void DrawCanvas(Rect canvas)
@@ -193,9 +207,14 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (Event.current.type == EventType.MouseDown && rect.Contains(Event.current.mousePosition))
                 {
                     m_Selected = node.asset;
-                    EditorGUIUtility.PingObject(node.asset);
+                    m_SelectedTag = node.tag;
+                    if (node.asset != null)
+                        EditorGUIUtility.PingObject(node.asset);
                     if (Event.current.clickCount > 1)
+                    {
                         m_Focus = node.asset;
+                        m_FocusTag = node.tag;
+                    }
                     Event.current.Use();
                     Repaint();
                 }
@@ -223,6 +242,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 case DependencyGraph.NodeKind.Tree: return new Color(0.68f, 0.68f, 0.9f);
                 case DependencyGraph.NodeKind.Graph: return new Color(0.8f, 0.65f, 0.85f);
                 case DependencyGraph.NodeKind.Prefab: return new Color(0.6f, 0.8f, 0.85f);
+                case DependencyGraph.NodeKind.Tag: return new Color(0.95f, 0.8f, 0.55f);
                 default: return Color.white;
             }
         }
@@ -233,6 +253,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 case DependencyGraph.EdgeKind.Row: return new Color(0.45f, 0.8f, 0.45f);
                 case DependencyGraph.EdgeKind.Request: return new Color(0.95f, 0.65f, 0.3f);
+                // Supply and demand, in two colours: what WEARS a tag and what LOOKS for one.
+                case DependencyGraph.EdgeKind.Wears: return new Color(0.95f, 0.85f, 0.45f);
+                case DependencyGraph.EdgeKind.Asks: return new Color(0.85f, 0.5f, 0.85f);
                 default: return new Color(0.6f, 0.7f, 0.95f);
             }
         }
@@ -243,6 +266,50 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             GUILayout.BeginArea(side, EditorStyles.helpBox);
             m_SidePanel = EditorGUILayout.BeginScrollView(m_SidePanel);
+
+            if (m_Selected == null && !string.IsNullOrEmpty(m_SelectedTag))
+            {
+                int tagNode = m_Graph.TagIndex(m_SelectedTag);
+                EditorGUILayout.LabelField("tag  " + m_SelectedTag, EditorStyles.boldLabel);
+                DependencyGraph.Node node = tagNode >= 0 ? m_Graph.nodes[tagNode] : null;
+                var worn = 0;
+                var asked = 0;
+                for (int i = 0; i < m_Graph.edges.Count; i++)
+                {
+                    DependencyGraph.Edge edge = m_Graph.edges[i];
+                    if (edge.to != tagNode)
+                        continue;
+                    if (edge.kind == DependencyGraph.EdgeKind.Wears)
+                        worn += edge.count;
+                    else if (edge.kind == DependencyGraph.EdgeKind.Asks)
+                        asked += edge.count;
+                }
+                EditorGUILayout.LabelField("on " + worn + " · asked by " + asked,
+                    EditorStyles.miniLabel);
+                if (worn == 0 && asked > 0)
+                {
+                    // NOT AUTOMATICALLY A BUG, and saying so is the difference between a useful
+                    // warning and one people learn to ignore: an effect or a component can put a
+                    // tag on at runtime, and the scan only reads assets.
+                    EditorGUILayout.HelpBox("No asset wears it. Either something grants it at "
+                        + "runtime (an effect, a component), or everything asking for it will "
+                        + "search for ever.", MessageType.Warning);
+                }
+                else if (asked == 0 && worn > 0)
+                {
+                    EditorGUILayout.HelpBox("Worn, asked by nothing in assets — for a reader "
+                        + "that does not exist yet, or one living in code.", MessageType.None);
+                }
+                EditorGUILayout.Space(4f);
+                EditorGUILayout.LabelField("Declared in", EditorStyles.boldLabel);
+                DrawEdges(tagNode, outgoing: true);
+                EditorGUILayout.Space(4f);
+                EditorGUILayout.LabelField("Worn and asked by", EditorStyles.boldLabel);
+                DrawEdges(tagNode, outgoing: false);
+                EditorGUILayout.EndScrollView();
+                GUILayout.EndArea();
+                return;
+            }
 
             if (m_Selected == null)
             {
@@ -297,11 +364,14 @@ namespace PowerOfFire.DrawToPlay.Editor
                 GUILayout.Label("■", GUILayout.Width(14f));
                 GUI.color = Color.white;
                 if (GUILayout.Button(new GUIContent(node.label
-                        + (edge.count > 1 ? "  ×" + edge.count : ""), edge.first),
+                        + (edge.count > 1 ? "  ×" + edge.count : ""),
+                        string.Join("\n", edge.details)),
                     EditorStyles.miniButton))
                 {
                     m_Selected = node.asset;
-                    EditorGUIUtility.PingObject(node.asset);
+                    m_SelectedTag = node.tag;
+                    if (node.asset != null)
+                        EditorGUIUtility.PingObject(node.asset);
                 }
                 EditorGUILayout.EndHorizontal();
             }

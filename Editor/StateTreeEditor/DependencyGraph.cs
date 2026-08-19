@@ -19,13 +19,18 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// </summary>
     internal sealed class DependencyGraph
     {
-        internal enum NodeKind { Registry, Def, Tree, Graph, Prefab, Other }
+        internal enum NodeKind { Registry, Def, Tree, Graph, Prefab, Tag, Other }
 
-        internal enum EdgeKind { Reference, Row, Request }
+        internal enum EdgeKind { Reference, Row, Request, Wears, Asks }
 
         internal sealed class Node
         {
+            /// <summary>The asset this node is, or null for a TAG — which is a name, not a file,
+            /// and is exactly why the map could not draw one before.</summary>
             public Object asset;
+
+            /// <summary>The tag this node is, when it is one.</summary>
+            public string tag;
             public string label;
             public string type;
             public NodeKind kind;
@@ -34,18 +39,26 @@ namespace PowerOfFire.DrawToPlay.Editor
             public int incoming;
         }
 
-        internal struct Edge
+        internal sealed class Edge
         {
             public int from;
             public int to;
             public EdgeKind kind;
             public int count;
             public string first;
+
+            /// <summary>EVERY use behind this line, not just the first. One box per file keeps
+            /// the picture readable; the entities are what an author acts on, so they are kept
+            /// and shown where there is room for them — "the manifest wears it 3 times" is not
+            /// an answer, "place.raider, place.keeper, place.relic" is.</summary>
+            public readonly List<string> details = new List<string>();
         }
 
         internal readonly List<Node> nodes = new List<Node>();
         internal readonly List<Edge> edges = new List<Edge>();
-        internal readonly Dictionary<Object, int> lookup = new Dictionary<Object, int>();
+        /// <summary>Nodes by KEY, because not every node is an object: an asset is keyed by
+        /// itself, a tag by its name.</summary>
+        internal readonly Dictionary<object, int> lookup = new Dictionary<object, int>();
 
         private readonly Dictionary<long, int> m_EdgeLookup = new Dictionary<long, int>();
 
@@ -86,6 +99,27 @@ namespace PowerOfFire.DrawToPlay.Editor
                 for (int i = 0; i < pair.Value.Count; i++)
                     graph.Connect(pair.Value[i].context, owner, EdgeKind.Request,
                         pair.Value[i].description + " → " + pair.Key);
+            }
+
+            // TAGS ARE NODES (M31), because "which vocabulary holds it" was never the question —
+            // "who wears this and who is looking for it" is. Supply and demand are drawn as two
+            // different edges, so a tag with carriers and no askers, or askers and no carriers,
+            // is a shape you can see rather than a count you have to go and check.
+            foreach (var pair in index.tagUses)
+            {
+                int tag = graph.TagNode(pair.Key);
+                if (index.rowOwners.TryGetValue("name:" + pair.Key, out Object vocabulary))
+                    graph.Link(tag, graph.NodeFor(vocabulary), EdgeKind.Reference,
+                        "'" + pair.Key + "' is declared here");
+
+                for (int i = 0; i < pair.Value.Count; i++)
+                {
+                    AssetWireScan.WireUse use = pair.Value[i];
+                    if (use.context == null)
+                        continue;
+                    graph.Link(graph.NodeFor(use.context), tag,
+                        use.wears ? EdgeKind.Wears : EdgeKind.Asks, use.description);
+                }
             }
 
             graph.Layout();
@@ -129,32 +163,64 @@ namespace PowerOfFire.DrawToPlay.Editor
             return asset != null && lookup.TryGetValue(asset, out int found) ? found : -1;
         }
 
+        /// <summary>The node this tag already has, or -1.</summary>
+        internal int TagIndex(string tag)
+        {
+            return !string.IsNullOrEmpty(tag) && lookup.TryGetValue("tag:" + tag, out int found)
+                ? found : -1;
+        }
+
+        /// <summary>The node for a tag, made on first sight.</summary>
+        internal int TagNode(string tag)
+        {
+            if (lookup.TryGetValue("tag:" + tag, out int found))
+                return found;
+            var node = new Node
+            {
+                tag = tag,
+                label = tag,
+                type = "tag",
+                kind = NodeKind.Tag
+            };
+            lookup["tag:" + tag] = nodes.Count;
+            nodes.Add(node);
+            return nodes.Count - 1;
+        }
+
         private void Connect(Object from, Object to, EdgeKind kind, string description)
         {
             if (from == null || to == null)
                 return;
-            int a = NodeFor(from);
-            int b = NodeFor(to);
+            Link(NodeFor(from), NodeFor(to), kind, description);
+        }
+
+        /// <summary>One edge between two nodes already made — the form tags need, since a tag
+        /// node is not an asset.</summary>
+        internal void Link(int a, int b, EdgeKind kind, string description)
+        {
             // A FILE THAT REFERS TO ITSELF is what a sub-asset roll-up produces (a tree's task
             // naming its own tree), and drawing it would be a loop that means nothing.
-            if (a == b)
+            if (a < 0 || b < 0 || a == b)
                 return;
 
             long id = ((long)a << 34) | ((long)b << 4) | (long)kind;
             if (m_EdgeLookup.TryGetValue(id, out int existing))
             {
-                Edge edge = edges[existing];
-                edge.count++;
-                edges[existing] = edge;
+                Edge held = edges[existing];
+                held.count++;
+                if (held.details.Count < 24 && !held.details.Contains(description))
+                    held.details.Add(description);
                 return;
             }
             m_EdgeLookup[id] = edges.Count;
-            edges.Add(new Edge { from = a, to = b, kind = kind, count = 1, first = description });
+            var edge = new Edge { from = a, to = b, kind = kind, count = 1, first = description };
+            edge.details.Add(description);
+            edges.Add(edge);
             nodes[a].outgoing++;
             nodes[b].incoming++;
         }
 
-        private int NodeFor(Object asset)
+        internal int NodeFor(Object asset)
         {
             if (lookup.TryGetValue(asset, out int found))
                 return found;
