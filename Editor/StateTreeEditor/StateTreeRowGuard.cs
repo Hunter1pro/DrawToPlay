@@ -75,6 +75,56 @@ namespace PowerOfFire.DrawToPlay.Editor
             return false;
         }
 
+        /// <summary>
+        /// Everything OUTSIDE a file that names anything INSIDE it — the asset-level form of the
+        /// same question, kept here beside the row form because they answer from one index and
+        /// must not drift.
+        ///
+        /// A use held by the file itself is not a reason to keep it: a registry naming its own
+        /// rows would otherwise veto its own deletion for ever.
+        /// </summary>
+        internal static void Breakers(AssetWireScan.Index index, Object[] contents, string path,
+            List<AssetWireScan.WireUse> into)
+        {
+            if (into == null || contents == null || index == null)
+                return;
+
+            for (int i = 0; i < contents.Length; i++)
+            {
+                Object held = contents[i];
+                if (held == null)
+                    continue;
+
+                Keep(AssetWireScan.UsersOfAsset(index, held), contents, path, into);
+
+                if (!(held is StateTreeRegistryAsset registry))
+                    continue;
+                for (int r = 0; r < registry.Count; r++)
+                {
+                    StateTreeRegistryEntry row = registry.EntryAt(r);
+                    if (row == null)
+                        continue;
+                    Keep(AssetWireScan.UsersOfRow(index, row), contents, path, into);
+                    if (row is WorldTagDef)
+                        Keep(AssetWireScan.UsersOfTag(index, row.name), contents, path, into);
+                }
+            }
+        }
+
+        private static void Keep(List<AssetWireScan.WireUse> uses, Object[] contents, string path,
+            List<AssetWireScan.WireUse> into)
+        {
+            for (int i = 0; i < uses.Count; i++)
+            {
+                Object context = uses[i].context;
+                if (context == null || System.Array.IndexOf(contents, context) >= 0)
+                    continue;
+                if (!string.IsNullOrEmpty(path) && AssetDatabase.GetAssetPath(context) == path)
+                    continue;
+                into.Add(uses[i]);
+            }
+        }
+
         private static void Reveal(StateTreeRegistryEntry row)
         {
             List<AssetWireScan.WireUse> uses = Uses(row);

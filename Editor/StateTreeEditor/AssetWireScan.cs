@@ -679,11 +679,19 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>The asset kinds whose reverse edges the map answers for — the toolset's
         /// own. Everything else (materials, clips, prefab refs) stays out of the index.</summary>
+        /// <summary>
+        /// What counts as a wire worth remembering. DEFS and PREFABS joined the list when the
+        /// delete gate asked its first honest question: a kind row holds its def and its prefab
+        /// as plain references, so deleting either broke a row while the index said the file was
+        /// free to go — the exact silent break the gate exists to stop.
+        /// </summary>
         private static bool IsToolsetAsset(UnityEngine.Object asset)
         {
             return asset is StateTreeAsset
                 || asset is StateTreeRegistryAsset
-                || asset is GraphTaskAsset;
+                || asset is GraphTaskAsset
+                || asset is ServiceDef
+                || asset is GameObject;
         }
 
         private static bool IsToolsetClass(object value)

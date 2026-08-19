@@ -89,6 +89,37 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(AssetWireScan.UsersOfTag(index, "player"), Is.Empty);
         }
 
+        [Test]
+        public void DeletingAFileIsRefusedByWhatPointsIntoIt_ButNotByItself()
+        {
+            // The asset-level gate reads the same index: everything OUTSIDE the file that names
+            // anything INSIDE it. A registry naming its own rows must not veto its own deletion.
+            var cues = Make<CueRegistry>("Cues");
+            var impact = new CueDef { id = "cue.impact", name = "impact" };
+            cues.entries.Add(impact);
+
+            var effects = Make<EffectRegistry>("Effects");
+            var hit = new EffectDef { id = "effect.hit", name = "strike-hit" };
+            hit.cue.entryId = "cue.impact";
+            hit.cue.entryName = "impact";
+            effects.entries.Add(hit);
+
+            var index = new AssetWireScan.Index();
+            AssetWireScan.ScanRegistry(cues, index);
+            AssetWireScan.ScanRegistry(effects, index);
+
+            var breakers = new List<AssetWireScan.WireUse>();
+            StateTreeRowGuard.Breakers(index, new Object[] { cues }, "", breakers);
+            Assert.That(breakers.Count, Is.EqualTo(1),
+                "the effect names a row of this file, so the file does not go");
+            Assert.That(breakers[0].context, Is.SameAs(effects));
+
+            breakers.Clear();
+            StateTreeRowGuard.Breakers(index, new Object[] { effects }, "", breakers);
+            Assert.That(breakers, Is.Empty,
+                "nothing names the effects catalog, so deleting it breaks nobody");
+        }
+
         private T Make<T>(string name) where T : ScriptableObject
         {
             var asset = ScriptableObject.CreateInstance<T>();
