@@ -212,6 +212,21 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             StateTreeInventoryUtil.SetCount(m_Player.Context, "sword", 1);
             StateTreeInventoryUtil.SetCount(m_Player.Context, "potion", 2);
+
+            // THE BAG AS A SUBSYSTEM (M32): the atoms ask it now, so the spine mounts one —
+            // seeding stays direct because these tests are about the ENCODING, which is the
+            // one thing still allowed to speak it.
+            var bagObject = new GameObject("Bag");
+            bagObject.hideFlags = HideFlags.HideAndDontSave;
+            m_Objects.Add(bagObject);
+            var def = ScriptableObject.CreateInstance<ServiceDef>();
+            def.name = "inventory";
+            def.serviceName = "inventory";
+            def.registry = m_Registry;
+            m_Assets.Add(def);
+            var bag = bagObject.AddComponent<InventoryService>();
+            bag.definition = def;
+            m_Player.Provide(bag);
         }
 
         /// <summary>The §3.5 tree, wired exactly as the State Tree window would wire it.</summary>

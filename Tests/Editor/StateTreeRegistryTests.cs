@@ -48,6 +48,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             ItemRegistry registry = MakeRegistry(out ItemDef sword);
             StateTreeContextHost player = MakePlayer();
+            MountBag(player, registry);
 
             var add = ScriptableObject.CreateInstance<InventoryAddTask>();
             add.item.entryId = sword.id;
@@ -74,6 +75,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             ItemRegistry registry = MakeRegistry(out _);
             StateTreeContextHost player = MakePlayer();
+            MountBag(player, registry);
 
             var add = ScriptableObject.CreateInstance<InventoryAddTask>();
             add.item.entryId = "no-such-id";
@@ -104,6 +106,28 @@ namespace PowerOfFire.DrawToPlay.Tests
             registry.entries.Add(sword);
             m_Assets.Add(registry);
             return registry;
+        }
+
+
+        /// <summary>
+        /// THE BAG IS A SUBSYSTEM NOW (M32): the inventory atoms ask it instead of writing the
+        /// encoding themselves, so a tree that gives or spends items needs one mounted. Two
+        /// lines of fixture, and the test exercises the path the game actually runs.
+        /// </summary>
+        private InventoryService MountBag(StateTreeContextHost host, ItemRegistry items)
+        {
+            var go = new GameObject("Bag");
+            go.hideFlags = HideFlags.HideAndDontSave;
+            m_Objects.Add(go);
+            var def = ScriptableObject.CreateInstance<ServiceDef>();
+            def.name = "inventory";
+            def.serviceName = "inventory";
+            def.registry = items;
+            m_Assets.Add(def);
+            var service = go.AddComponent<InventoryService>();
+            service.definition = def;
+            host.Provide(service);
+            return service;
         }
 
         private StateTreeContextHost MakePlayer()

@@ -106,6 +106,8 @@ namespace PowerOfFire.DrawToPlay
         {
             if (widget == null)
                 return;
+            // A DRAW IS NOT A USE: a bag on screen during a level swap draws empty rather
+            // than complaining — the carrier accessor is for verbs, which need one.
             StateTreeContextHost player = m_Player;
             if (player == null || player.Context == null)
             {
@@ -132,28 +134,109 @@ namespace PowerOfFire.DrawToPlay
             widget.Redraw(Stacks(player.Context), lines);
         }
 
-        /// <summary>Every skin this def declares it spawns, redrawn to the present.</summary>
+        /// <summary>Every bag this service is showing, redrawn to the present.</summary>
         private void RedrawSpawnedBags()
         {
-            ServiceDef def = definition;
-            if (def == null || def.spawns == null)
+            for (int i = m_Bags.Count - 1; i >= 0; i--)
+            {
+                if (m_Bags[i] == null)
+                {
+                    m_Bags.RemoveAt(i);   // a destroyed skin forgets itself
+                    continue;
+                }
+                RedrawInto(m_Bags[i]);
+            }
+        }
+
+        /// <summary>
+        /// THE SKIN IS HELD, NOT HUNTED (M32). This used to re-find its own screen on every
+        /// change — ShownView by name, then GetComponentInChildren for the widget — which is a
+        /// search per redraw and the wrong answer the day two bags are open.
+        ///
+        /// The UI service says when it shows something and when it hides it. That is the moment
+        /// to take a reference and the moment to drop one, so the bag the service redraws is
+        /// exactly the bag it was given.
+        /// </summary>
+        private void OnUiShown(UiDef row, GameObject view)
+        {
+            if (row == null || view == null || !Spawns(row.name))
                 return;
+            var widget = view.GetComponentInChildren<InventoryWidgetView>(true);
+            if (widget == null || m_Bags.Contains(widget))
+                return;
+            m_Bags.Add(widget);
+            RedrawInto(widget);
+        }
+
+        private void OnUiHidden(UiDef row)
+        {
+            if (row == null || !Spawns(row.name))
+                return;
+            for (int i = m_Bags.Count - 1; i >= 0; i--)
+            {
+                if (m_Bags[i] == null || m_Bags[i].gameObject == null
+                    || !m_Bags[i].gameObject.activeInHierarchy)
+                    m_Bags.RemoveAt(i);
+            }
+        }
+
+        /// <summary>
+        /// HOOKING WHEN THERE IS SOMETHING TO HOOK. Injected fields fill on this service's own
+        /// heartbeat, so OnEnable is too early to subscribe to the UI service — and the bag is
+        /// SHOWN on the first tick, which is a screen that would appear before anybody was
+        /// listening. So the hook is made the moment the service exists, and it adopts what is
+        /// already on screen in the same breath: one search, once, instead of one per redraw.
+        /// </summary>
+        protected override void Update()
+        {
+            base.Update();
+
             UiService ui = Ui;
+            if (ReferenceEquals(ui, m_Hooked))
+                return;
+
+            Unhook();
             if (ui == null)
                 return;
-            for (int i = 0; i < def.spawns.Count; i++)
+
+            m_Hooked = ui;
+            ui.shown += OnUiShown;
+            ui.hidden += OnUiHidden;
+
+            ServiceDef def = definition;
+            for (int i = 0; def != null && i < def.spawns.Count; i++)
             {
                 var spawn = def.spawns[i];
                 if (spawn == null || string.IsNullOrEmpty(spawn.entryName))
                     continue;
-                GameObject view = ui.ShownView(spawn.entryName);
-                InventoryWidgetView widget = view != null
-                    ? view.GetComponentInChildren<InventoryWidgetView>(true)
-                    : null;
-                if (widget != null)
-                    RedrawInto(widget);
+                OnUiShown(ui.Find(spawn.entryName), ui.ShownView(spawn.entryName));
             }
         }
+
+        private void Unhook()
+        {
+            if (m_Hooked == null)
+                return;
+            m_Hooked.shown -= OnUiShown;
+            m_Hooked.hidden -= OnUiHidden;
+            m_Hooked = null;
+        }
+
+        private UiService m_Hooked;
+
+        /// <summary>Is this one of the screens this def says it owns?</summary>
+        private bool Spawns(string uiRowName)
+        {
+            ServiceDef def = definition;
+            for (int i = 0; def != null && i < def.spawns.Count; i++)
+            {
+                if (def.spawns[i] != null && def.spawns[i].entryName == uiRowName)
+                    return true;
+            }
+            return false;
+        }
+
+        private readonly List<InventoryWidgetView> m_Bags = new List<InventoryWidgetView>();
 
         protected override void OnEnable()
         {
@@ -170,12 +253,16 @@ namespace PowerOfFire.DrawToPlay
             // subsystem was making other systems run on its behalf.
             changed += RedrawSpawnedBags;
             equipmentChanged += RedrawSpawnedBags;
+
+
         }
 
         protected override void OnDisable()
         {
             changed -= RedrawSpawnedBags;
             equipmentChanged -= RedrawSpawnedBags;
+            Unhook();
+            m_Bags.Clear();
             base.OnDisable();
         }
 
@@ -189,14 +276,20 @@ namespace PowerOfFire.DrawToPlay
                 : null;
         }
 
+        /// <summary>Put some in the bag; returns the new total.</summary>
         public int Add(StateTreeContext scope, string itemName, int count = 1)
         {
             if (scope == null || string.IsNullOrEmpty(itemName) || count <= 0)
                 return Count(scope, itemName);
-            int total = StateTreeInventoryUtil.Count(scope, itemName) + count;
-            StateTreeInventoryUtil.SetCount(scope, itemName, total);
-            changed?.Invoke();
-            return total;
+            return Write(scope, itemName, StateTreeInventoryUtil.Count(scope, itemName) + count);
+        }
+
+        /// <summary>The same, on whoever is carrying this bag — the form a caller wants when it
+        /// has no business knowing which scope the counts live on.</summary>
+        public int Add(string itemName, int count = 1)
+        {
+            StateTreeContextHost carrier = Carrier();
+            return carrier != null ? Add(carrier.Context, itemName, count) : 0;
         }
 
         /// <summary>All-or-nothing: false leaves the bag untouched.</summary>
@@ -207,9 +300,47 @@ namespace PowerOfFire.DrawToPlay
             int held = StateTreeInventoryUtil.Count(scope, itemName);
             if (held < count)
                 return false;
-            StateTreeInventoryUtil.SetCount(scope, itemName, held - count);
-            changed?.Invoke();
+            Write(scope, itemName, held - count);
             return true;
+        }
+
+        /// <summary>The same, on whoever is carrying this bag.</summary>
+        public bool Remove(string itemName, int count = 1)
+        {
+            StateTreeContextHost carrier = Carrier();
+            return carrier != null && Remove(carrier.Context, itemName, count);
+        }
+
+        /// <summary>
+        /// State what is carried, rather than change it by a delta — what a RESTORE means, and
+        /// the only reason a public setter exists at all. Announced and redrawn like every
+        /// other write, because a loaded bag is a changed bag.
+        /// </summary>
+        public int SetCount(StateTreeContext scope, string itemName, int count)
+        {
+            if (scope == null || string.IsNullOrEmpty(itemName))
+                return 0;
+            return Write(scope, itemName, Mathf.Max(0, count));
+        }
+
+        /// <summary>What the carrier holds.</summary>
+        public int Count(string itemName)
+        {
+            StateTreeContextHost carrier = m_Player;   // a read needs no carrier to complain
+            return carrier != null ? Count(carrier.Context, itemName) : 0;
+        }
+
+        /// <summary>
+        /// THE ONE WRITE (M32). Every change to a bag goes through here: the encoding is set in
+        /// exactly one place, and the event that redraws every screen and every listener fires
+        /// from the same line. Four callers writing a static could not say that, which is why
+        /// picking something up did not always redraw the bag that was open.
+        /// </summary>
+        private int Write(StateTreeContext scope, string itemName, int total)
+        {
+            StateTreeInventoryUtil.SetCount(scope, itemName, total);
+            changed?.Invoke();
+            return Mathf.Max(0, total);
         }
 
         public int Count(StateTreeContext scope, string itemName)
@@ -272,8 +403,8 @@ namespace PowerOfFire.DrawToPlay
             ItemDef row = Row(itemName);
             if (row == null || string.IsNullOrEmpty(row.useEffect.entryName))
                 return false;
-            StateTreeContextHost player = m_Player;
-            if (player == null || player.Context == null)
+            StateTreeContextHost player = Carrier();
+            if (player == null)
                 return false;
             EffectDef effect = FindInClosure(row.useEffect.entryName) as EffectDef;
             if (effect == null)
@@ -282,12 +413,18 @@ namespace PowerOfFire.DrawToPlay
                     + row.useEffect.entryName + "', which resolves to no row.", this);
                 return false;
             }
-            var host = player.GetComponent<AbilityHost>();
-            if (host == null)
+            if (m_CarrierAbilities == null)
+            {
+                // A CARRIER THAT CANNOT BE AFFECTED is a rig fault, not an empty pocket: the
+                // item would be spent on nothing, so it is not spent at all.
+                Debug.LogError("[Inventory] '" + player.name + "' carries the bag but has no "
+                    + "AbilityHost, so '" + itemName + "' has nothing to apply its effect to.",
+                    this);
                 return false;
+            }
             if (!Remove(player.Context, itemName))
                 return false;
-            host.ApplyEffect(effect);
+            m_CarrierAbilities.ApplyEffect(effect);
             return true;
         }
 
@@ -322,15 +459,14 @@ namespace PowerOfFire.DrawToPlay
             ItemDef row = Row(itemName);
             if (row == null || string.IsNullOrEmpty(row.slot.entryId))
                 return false;
-            StateTreeContextHost player = m_Player;
-            if (player == null || player.Context == null
-                || !Has(player.Context, itemName))
+            StateTreeContextHost player = Carrier();
+            if (player == null || !Has(player.Context, itemName))
                 return false;
 
             Unequip(row.slot.entryId);
 
             var worn = new WornItem { slotId = row.slot.entryId, itemName = itemName };
-            var attributes = player.GetComponent<AttributeComponent>();
+            AttributeComponent attributes = m_CarrierAttributes;
             for (int i = 0; attributes != null && i < row.wornEffects.Count; i++)
             {
                 if (row.wornEffects[i] == null
@@ -375,9 +511,9 @@ namespace PowerOfFire.DrawToPlay
             {
                 if (!string.Equals(m_Worn[i].slotId, slotId, StringComparison.Ordinal))
                     continue;
-                StateTreeContextHost player = m_Player;
-                var attributes = player != null
-                    ? player.GetComponent<AttributeComponent>() : null;
+                // Reverting a grant on a body that is already gone is a no-op, not an error:
+                // the modifiers died with it. See ForgetWornOnPlayerChange.
+                AttributeComponent attributes = m_Player != null ? m_CarrierAttributes : null;
                 for (int j = 0; j < m_Worn[i].handles.Count && attributes != null; j++)
                     attributes.RemoveModifier(m_Worn[i].handles[j]);
                 m_Worn.RemoveAt(i);
@@ -418,11 +554,60 @@ namespace PowerOfFire.DrawToPlay
 
         // ---- resolution ----------------------------------------------------------------
 
-        /// <summary>OPTIONAL, because the player is a spawned citizen: absent between
-        /// levels is a normal state, not a wiring error. A replaced player refills on the
-        /// next ask — the injector treats a dead host as an empty slot.</summary>
+        /// <summary>The scope the bag belongs to. Optional at the FIELD, because a player is
+        /// a spawned citizen and the gap between levels is real; required at every USE, which
+        /// is what <see cref="Carrier"/> enforces.</summary>
         [InjectHost(StateTreeContextKind.Player, optional: true)]
         private StateTreeContextHost m_Player;
+
+        private StateTreeContextHost m_Carrier;
+        private AbilityHost m_CarrierAbilities;
+        private AttributeComponent m_CarrierAttributes;
+        private bool m_ToldThemAboutTheCarrier;
+
+        /// <summary>
+        /// WHO IS CARRYING THIS BAG — and what carrying it implies, resolved WITH it.
+        ///
+        /// An inventory without a carrier is not a degraded inventory: it is a level in
+        /// transition or a wiring fault, and returning false to every caller told them neither.
+        /// So the answer is given once, loudly, and re-armed the moment a carrier appears —
+        /// a level swap must not fill the console, and a missing rig must not be silent.
+        ///
+        /// The ability host and the attributes come with it, because they are the same object's
+        /// parts and looking them up per use was a GetComponent inside a verb.
+        /// </summary>
+        private StateTreeContextHost Carrier([System.Runtime.CompilerServices.CallerMemberName]
+            string doing = "")
+        {
+            StateTreeContextHost player = m_Player;
+            if (player == null || player.Context == null)
+            {
+                if (!m_ToldThemAboutTheCarrier)
+                {
+                    m_ToldThemAboutTheCarrier = true;
+                    Debug.LogError("[Inventory] '" + doing + "' was asked with no carrier — no "
+                        + "Player-scope host is mounted, so there is nobody to carry anything. "
+                        + "Between levels this is momentary; otherwise the player scope is "
+                        + "missing.", this);
+                }
+                m_Carrier = null;
+                m_CarrierAbilities = null;
+                m_CarrierAttributes = null;
+                return null;
+            }
+
+            if (!ReferenceEquals(player, m_Carrier))
+            {
+                m_Carrier = player;
+                m_CarrierAbilities = player.GetComponent<AbilityHost>();
+                m_CarrierAttributes = player.GetComponent<AttributeComponent>();
+                m_ToldThemAboutTheCarrier = false;
+            }
+            return m_Carrier;
+        }
+
+        /// <summary>The blackboard the counts live on — the carrier's, or null.</summary>
+        public StateTreeContext Bag => Carrier()?.Context;
 
         private StateTreeRegistryEntry FindInClosure(string entryName)
         {

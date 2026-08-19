@@ -24,9 +24,16 @@ namespace PowerOfFire.DrawToPlay
             return (int)f;
         }
 
-        /// <summary>Write a count; zero-or-less REMOVES the key, so "none left" and "never
-        /// had one" are the same absent state every condition already handles.</summary>
-        public static void SetCount(StateTreeContext scope, string itemId, int count)
+        /// <summary>
+        /// Write a count; zero-or-less REMOVES the key, so "none left" and "never had one" are
+        /// the same absent state every condition already handles.
+        ///
+        /// INTERNAL SINCE M32: four callers used to write this — the service, two graph atoms
+        /// and the save restore — so nothing owned the encoding and no change to a bag could be
+        /// announced, validated or drawn. <see cref="InventoryService"/> is the writer now, and
+        /// everyone else asks it.
+        /// </summary>
+        internal static void SetCount(StateTreeContext scope, string itemId, int count)
         {
             if (scope == null || string.IsNullOrEmpty(itemId))
                 return;
