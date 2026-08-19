@@ -184,50 +184,6 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        /// <summary>
-        /// HOOKING WHEN THERE IS SOMETHING TO HOOK. Injected fields fill on this service's own
-        /// heartbeat, so OnEnable is too early to subscribe to the UI service — and the bag is
-        /// SHOWN on the first tick, which is a screen that would appear before anybody was
-        /// listening. So the hook is made the moment the service exists, and it adopts what is
-        /// already on screen in the same breath: one search, once, instead of one per redraw.
-        /// </summary>
-        protected override void Update()
-        {
-            base.Update();
-
-            UiService ui = Ui;
-            if (ReferenceEquals(ui, m_Hooked))
-                return;
-
-            Unhook();
-            if (ui == null)
-                return;
-
-            m_Hooked = ui;
-            ui.shown += OnUiShown;
-            ui.hidden += OnUiHidden;
-
-            ServiceDef def = definition;
-            for (int i = 0; def != null && i < def.spawns.Count; i++)
-            {
-                var spawn = def.spawns[i];
-                if (spawn == null || string.IsNullOrEmpty(spawn.entryName))
-                    continue;
-                OnUiShown(ui.Find(spawn.entryName), ui.ShownView(spawn.entryName));
-            }
-        }
-
-        private void Unhook()
-        {
-            if (m_Hooked == null)
-                return;
-            m_Hooked.shown -= OnUiShown;
-            m_Hooked.hidden -= OnUiHidden;
-            m_Hooked = null;
-        }
-
-        private UiService m_Hooked;
-
         /// <summary>Is this one of the screens this def says it owns?</summary>
         private bool Spawns(string uiRowName)
         {
@@ -261,13 +217,51 @@ namespace PowerOfFire.DrawToPlay
 
         }
 
-        protected override void OnDisable()
+        /// <summary>
+        /// EVERYTHING THIS SUBSYSTEM IS CONNECTED TO, in one method (M32.6).
+        ///
+        /// The base calls this once its collaborators are injected, its def is validated and
+        /// its screens are shown — and calls it again if any of that is replaced. So this reads
+        /// as a list of what the bag is made of: it redraws itself when it changes, and it is
+        /// handed its bags by the UI service, including the one already on screen.
+        /// </summary>
+        protected override void OnConnected()
+        {
+            // IT REDRAWS ITSELF: every mutation raises these — its own verbs, a pickup, a save
+            // restore — so nobody outside needs to ask it to refresh.
+            changed += RedrawSpawnedBags;
+            equipmentChanged += RedrawSpawnedBags;
+
+            UiService ui = Ui;
+            if (ui == null)
+                return;
+            ui.shown += OnUiShown;
+            ui.hidden += OnUiHidden;
+
+            // The screens are up by now (the base shows them before connecting), so the bag
+            // that is already open is taken here rather than waited for.
+            ServiceDef def = definition;
+            for (int i = 0; def != null && i < def.spawns.Count; i++)
+            {
+                var spawn = def.spawns[i];
+                if (spawn == null || string.IsNullOrEmpty(spawn.entryName))
+                    continue;
+                OnUiShown(ui.Find(spawn.entryName), ui.ShownView(spawn.entryName));
+            }
+        }
+
+        protected override void OnDisconnected()
         {
             changed -= RedrawSpawnedBags;
             equipmentChanged -= RedrawSpawnedBags;
-            Unhook();
+
+            UiService ui = Ui;
+            if (ui != null)
+            {
+                ui.shown -= OnUiShown;
+                ui.hidden -= OnUiHidden;
+            }
             m_Bags.Clear();
-            base.OnDisable();
         }
 
         // ---- the carried counts: the API the example service had, kept verbatim --------

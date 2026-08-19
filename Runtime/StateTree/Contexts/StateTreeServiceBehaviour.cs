@@ -67,6 +67,11 @@ namespace PowerOfFire.DrawToPlay
 
         protected virtual void OnDisable()
         {
+            if (m_Connected)
+            {
+                m_Connected = false;
+                OnDisconnected();
+            }
             StopFlows();
             Disconnect();
         }
@@ -152,7 +157,7 @@ namespace PowerOfFire.DrawToPlay
             // [InjectService]/[InjectHost] fields, never re-asks — the field IS the
             // pattern. (Order proven the hard way: spawns showing before this line ran
             // read a null UiService on boots where the quiet Start pass missed.)
-            StateTreeServiceInjector.Inject(this, gameObject, true);
+            StateTreeServiceInjector.Inject(this, gameObject, true, out bool wired);
 
             if (!m_FlowsStarted)
             {
@@ -165,6 +170,23 @@ namespace PowerOfFire.DrawToPlay
                     StartFlows();
                     ShowSpawns(def);
                 }
+            }
+
+            // ONE WIRING POINT (M32.6). A subsystem used to connect itself in three places —
+            // OnEnable for its own events, Update to catch a collaborator that had not arrived
+            // yet, and a lazy resolve inside a verb — so "when is this wired?" had three
+            // answers and a frame of delay. Now the base answers it: everything declared is
+            // injected, the def is validated, the flows are running and the screens are shown
+            // BEFORE OnConnected is called, and anything arriving later re-runs it.
+            if (wired && m_Connected)
+            {
+                OnDisconnected();
+                m_Connected = false;
+            }
+            if (!m_Connected)
+            {
+                m_Connected = true;
+                OnConnected();
             }
 
             ServePendingRequests();
@@ -290,6 +312,31 @@ namespace PowerOfFire.DrawToPlay
         protected virtual void OnRequest(ServiceRequest request, string value)
         {
         }
+
+        /// <summary>
+        /// EVERYTHING IS HERE AND NOW (M32.6) — the one place a subsystem wires itself.
+        ///
+        /// Called once the base has injected every declared collaborator, validated the def,
+        /// started the flow tree and shown the declared screens; called AGAIN, after
+        /// <see cref="OnDisconnected"/>, whenever a collaborator arrives or is replaced (a
+        /// level swap hands the service a new UI service, a new player). So a subclass may
+        /// take references, subscribe, and adopt what is on screen, in one method, with no
+        /// null checks about whether the world has finished assembling itself.
+        ///
+        /// The contract that makes it worth using: what is injected is non-null here, and
+        /// nothing wired here outlives the matching <see cref="OnDisconnected"/>.
+        /// </summary>
+        protected virtual void OnConnected()
+        {
+        }
+
+        /// <summary>Undo exactly what <see cref="OnConnected"/> did. Called before a re-connect
+        /// and when the service is disabled — the Dispose half of the pair.</summary>
+        protected virtual void OnDisconnected()
+        {
+        }
+
+        private bool m_Connected;
 
         /// <summary>
         /// A SUBSYSTEM'S OWN BUTTONS ARE ROWS TOO (M32). They used to be declared in code

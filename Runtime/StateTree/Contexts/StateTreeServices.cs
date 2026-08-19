@@ -109,10 +109,25 @@ namespace PowerOfFire.DrawToPlay
         /// is not yet a wiring error — the loud pass follows once the scene has settled.</summary>
         public static bool Inject(object target, GameObject owner, bool quiet)
         {
+            return Inject(target, owner, quiet, out _);
+        }
+
+        /// <summary>
+        /// The same, reporting whether anything was actually WIRED this pass (M32.6).
+        ///
+        /// A service needs to know that, and not because it is curious: the moment a
+        /// collaborator arrives — or is replaced on a level swap — is the moment its
+        /// subscriptions have to be made again. Without this signal every service invented its
+        /// own way of noticing, which is how one subsystem came to hook things in OnEnable, in
+        /// Update, and lazily inside a verb, three answers to one question.
+        /// </summary>
+        public static bool Inject(object target, GameObject owner, bool quiet, out bool filled)
+        {
+            filled = false;
             if (target == null)
                 return true;
 
-            BindHostRefs(target, owner, quiet);
+            BindHostRefs(target, owner, quiet, ref filled);
 
             FieldInfo[] fields = InjectedFields(target.GetType());
             for (int i = 0; i < fields.Length; i++)
@@ -137,15 +152,17 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 }
                 field.SetValue(target, service);
+                filled = true;
             }
 
-            return BindOwnerFields(target, owner, quiet);
+            return BindOwnerFields(target, owner, quiet, ref filled);
         }
 
         /// <summary>Bind every [InjectOwner] field to the owner's typed world object. False
         /// when any stays unbound (loud pass): by design there is no missing-owner flow, so
         /// the caller refuses the whole program.</summary>
-        private static bool BindOwnerFields(object target, GameObject owner, bool quiet)
+        private static bool BindOwnerFields(object target, GameObject owner, bool quiet,
+            ref bool filled)
         {
             FieldInfo[] fields = OwnerFields(target.GetType());
             var allBound = true;
@@ -173,6 +190,7 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 }
                 field.SetValue(target, facet);
+                filled = true;
             }
             return allBound;
         }
@@ -212,7 +230,8 @@ namespace PowerOfFire.DrawToPlay
             return value is UnityEngine.Object unityValue ? unityValue != null : value != null;
         }
 
-        private static void BindHostRefs(object target, GameObject owner, bool quiet)
+        private static void BindHostRefs(object target, GameObject owner, bool quiet,
+            ref bool filled)
         {
             FieldInfo[] fields = HostRefFields(target.GetType());
             for (int i = 0; i < fields.Length; i++)
@@ -242,6 +261,7 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 }
                 field.SetValue(target, host);
+                filled = true;
             }
         }
 
