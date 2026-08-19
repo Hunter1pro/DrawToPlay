@@ -15,6 +15,7 @@ namespace PowerOfFire.DrawToPlay
     {
         [Tooltip("The tag to look for — an activation tag of the running ability, or a "
             + "granted tag of an active status ('Struck', 'Poisoned', 'Guarded').")]
+        [WorldTag]
         public string tag = "";
 
         [Tooltip("Invert: pass while the owner does NOT hold the tag.")]

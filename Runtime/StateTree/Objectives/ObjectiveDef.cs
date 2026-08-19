@@ -53,6 +53,7 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("A WORLD TAG: MoveTo's zone identity, EnemyKill's victim filter (empty = "
             + "any reported kill), and for every kind the thing the offscreen arrow points "
             + "at — the nearest citizen carrying it.")]
+        [WorldTag]
         public string targetTag = "";
 
         [Tooltip("MoveTo: arrive distance when the zone itself does not say (a zone's own "

@@ -10,9 +10,11 @@ namespace PowerOfFire.DrawToPlay
 
         [Tooltip("A world tag that permits being afloat, for an actor with no bag to carry an "
             + "artifact in — a raider that arrived in its own boat. Empty = no tag route.")]
+        [WorldTag("State")]
         public string requiresTag = "";
 
         [Tooltip("The tag the level's water volumes carry.")]
+        [WorldTag("World")]
         public string waterTag = "water";
 
         [StateTreeKey(StateTreeKeyKind.String)]

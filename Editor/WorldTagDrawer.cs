@@ -47,7 +47,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             WorldTagAttribute marked = Marked();
             var offers = new List<WorldTagDef>();
-            StateTreeOffers.TagsFor(owner.targetObject, offers, marked?.group ?? "");
+            bool declared = Offers(owner.targetObject, marked, offers);
 
             SerializedProperty id = IdOf(property, marked);
             WorldTagDef row = Row(offers, property.stringValue, id);
@@ -71,8 +71,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             text.BindProperty(property);
             text.SetEnabled(row == null);
             text.tooltip = row == null
-                ? "No declared vocabulary holds this tag, so it is still free text. ⛭ offers "
-                    + "what this asset declares."
+                ? "No vocabulary here holds this tag, so it is still free text. ⛭ offers what "
+                    + (declared ? "this asset declares." : "the project speaks.")
                 : "Picked from '" + row.group + "' — the name follows the row. ⛭ to change it.";
             line.Add(text);
 
@@ -91,14 +91,22 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             WorldTagAttribute marked = Marked();
             var offers = new List<WorldTagDef>();
-            StateTreeOffers.TagsFor(owner.targetObject, offers, marked?.group ?? "");
+            bool declared = Offers(owner.targetObject, marked, offers);
 
             var menu = new GenericMenu();
             if (offers.Count == 0)
             {
                 menu.AddDisabledItem(new GUIContent(owner.targetObject is LevelObjectRegistry
                     ? "this manifest lists no tag vocabulary — add one to its Tags"
-                    : "this asset declares no tag vocabulary"));
+                    : "nothing here declares a tag vocabulary"));
+            }
+            else if (!declared)
+            {
+                // SAID OUT LOUD: a component in a scene has no Depends On to read, so it is
+                // offered the project's vocabularies rather than nothing. That is a weaker
+                // guarantee than an asset's, and the menu should not pretend otherwise.
+                menu.AddDisabledItem(new GUIContent("— project-wide (this object declares "
+                    + "nothing) —"));
             }
 
             SerializedProperty live = owner.FindProperty(path);
@@ -134,6 +142,55 @@ namespace PowerOfFire.DrawToPlay.Editor
                 idProperty.stringValue = id ?? "";
             owner.ApplyModifiedProperties();
             Build(container, owner, path, label);
+        }
+
+        /// <summary>
+        /// WHOSE VOCABULARY APPLIES — and the answer is not always the object being drawn.
+        ///
+        /// A registry, a def, a tree and a manifest declare their own. A TASK does not: it is a
+        /// sub-asset of the tree that owns it, and the tree is what declared the Data — so the
+        /// file's main asset is asked next, which is the same rule an author would use looking
+        /// at it. A component in a prefab or a scene declares nothing at all and never can, so
+        /// it is offered the project's vocabularies, and the menu says so rather than implying
+        /// a neighbourhood it does not have.
+        /// </summary>
+        private static bool Offers(Object target, WorldTagAttribute marked, List<WorldTagDef> into)
+        {
+            string group = marked?.group ?? "";
+
+            StateTreeOffers.TagsFor(target, into, group);
+            if (into.Count > 0)
+                return true;
+
+            string path = target != null ? AssetDatabase.GetAssetPath(target) : "";
+            if (!string.IsNullOrEmpty(path))
+            {
+                Object main = AssetDatabase.LoadMainAssetAtPath(path);
+                if (main != null && main != target)
+                {
+                    StateTreeOffers.TagsFor(main, into, group);
+                    if (into.Count > 0)
+                        return true;
+                }
+            }
+
+            // The fallback, for the objects that have no way to declare: every vocabulary the
+            // project holds.
+            foreach (string guid in AssetDatabase.FindAssets("t:WorldTagRegistry"))
+            {
+                var vocabulary = AssetDatabase.LoadAssetAtPath<WorldTagRegistry>(
+                    AssetDatabase.GUIDToAssetPath(guid));
+                if (vocabulary == null)
+                    continue;
+                for (int i = 0; i < vocabulary.Count; i++)
+                {
+                    if (vocabulary.EntryAt(i) is WorldTagDef row && !string.IsNullOrEmpty(row.name)
+                        && (string.IsNullOrEmpty(group) || row.group == group)
+                        && !into.Contains(row))
+                        into.Add(row);
+                }
+            }
+            return false;
         }
 
         /// <summary>The row this field is wired to: by id when it has one, else the row that

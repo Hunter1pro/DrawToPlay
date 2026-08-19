@@ -34,24 +34,30 @@ namespace PowerOfFire.DrawToPlay
         public string displayName = "";
 
         [Tooltip("What this ability IS — the identity other channels match against.")]
+        [WorldTag]
         public List<string> abilityTags = new List<string>();
 
         [Tooltip("While this runs, abilities carrying any of these tags cannot start.")]
+        [WorldTag]
         public List<string> blockTags = new List<string>();
 
         [Tooltip("Starting this cancels any active ability carrying one of these tags.")]
+        [WorldTag]
         public List<string> cancelTags = new List<string>();
 
         [Tooltip("The OWNER holding any of these refuses the activation — a state of the actor, "
             + "not of another ability. 'No chopping while afloat', 'no casting while silenced'.")]
+        [WorldTag]
         public List<string> blockedByTags = new List<string>();
 
         [Tooltip("The OWNER must hold ALL of these, or the activation is refused — the twin of "
             + "the line above, and what makes an ability belong to a MODE: a cannon exists only "
             + "while aboard.")]
+        [WorldTag]
         public List<string> requiredTags = new List<string>();
 
         [Tooltip("Held by the owner while this runs — queryable via AbilityHost.HasTag.")]
+        [WorldTag]
         public List<string> activationTags = new List<string>();
 
         [Tooltip("What the ability DOES — a tree, run by the owner's AbilityHost. Null is "

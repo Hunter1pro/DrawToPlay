@@ -26,6 +26,7 @@ namespace PowerOfFire.DrawToPlay
         public string hiddenChild = "";
 
         [Tooltip("The tag granted while afloat, which land abilities are blocked by.")]
+        [WorldTag("State")]
         public string tag = BoardingKeys.AboardTag;
 
         [System.NonSerialized] private AttributeComponent.ModifierHandle m_Speed;

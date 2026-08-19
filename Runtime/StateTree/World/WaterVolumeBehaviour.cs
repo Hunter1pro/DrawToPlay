@@ -35,6 +35,7 @@ namespace PowerOfFire.DrawToPlay
 
         [Tooltip("The tag actors look for. A level may hold several volumes; they all "
             + "answer to this one name.")]
+        [WorldTag("World")]
         public string waterTag = "water";
 
         protected override void OnEnable()

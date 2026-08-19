@@ -33,6 +33,7 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Spawns only on markers whose tag matches EXACTLY. Empty = untagged markers
         /// only — tagged spots are reserved for the entries that name them.</summary>
+        [WorldTag]
         public string markerTag = "";
 
         /// <summary>Spawn as an elite: crown, x3 HP, +1 level, poise, guaranteed drops

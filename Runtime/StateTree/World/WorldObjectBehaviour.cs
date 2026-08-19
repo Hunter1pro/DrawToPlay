@@ -29,6 +29,7 @@ namespace PowerOfFire.DrawToPlay
     /// </remarks>
     public class WorldObjectBehaviour : MonoBehaviour
     {
+        [WorldTag]
         public List<string> tags = new List<string>();
 
         /// <summary>Stable identity for saves and cross-session references. Minted once in the

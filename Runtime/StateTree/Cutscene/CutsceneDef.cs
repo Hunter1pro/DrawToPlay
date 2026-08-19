@@ -35,6 +35,7 @@ namespace PowerOfFire.DrawToPlay
 
         [Tooltip("The world tag that finds the actor. Nearest match wins when a level has "
             + "several.")]
+        [WorldTag]
         public string tag = "";
 
         [Tooltip("The scene cannot play without this one. Off for a part that is nice to have "

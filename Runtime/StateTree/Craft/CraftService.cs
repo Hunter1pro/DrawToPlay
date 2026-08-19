@@ -29,6 +29,7 @@ namespace PowerOfFire.DrawToPlay
         public float benchRange = 2.4f;
 
         [Tooltip("The tag a station carries.")]
+        [WorldTag("World")]
         public string stationTag = "station";
 
         /// <summary>The one verb, as a symbol — the attribute above, the switch below and the

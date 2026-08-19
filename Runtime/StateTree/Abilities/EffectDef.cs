@@ -104,12 +104,14 @@ namespace PowerOfFire.DrawToPlay
 
         [Tooltip("Duration: tags held on the target while it is active — the 'poisoned', "
             + "'burning' facts conditions gate on (AbilityHost.HasTag).")]
+        [WorldTag]
         public List<string> grantedTags = new List<string>();
 
         [Tooltip("The APPLICATION gate: refuse to land while the target holds any of these "
             + "tags. I-frames as data — a 'guarded' status grants Guarded, a hit row lists "
             + "it here, and a guard-piercing hit is a row WITHOUT it. Gates application "
             + "only: a status already running keeps ticking through the tag.")]
+        [WorldTag]
         public List<string> blockedByTags = new List<string>();
 
         /// <summary>The cue shown when this effect APPLIES — a picked row of the cue registry
