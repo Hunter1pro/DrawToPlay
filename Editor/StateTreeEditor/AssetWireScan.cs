@@ -306,6 +306,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                     index.requestOwners[derived[i].key] = def;
             }
 
+            // AN ANNOUNCEMENT IS A NAME OTHERS READ, so whoever names it depends on this def
+            // exactly as a request's caller does — same index, same ⛓, same edge on the map, and
+            // the same reason its key cannot be freely retyped once something reads it.
+            for (int i = 0; def.announcements != null && i < def.announcements.Count; i++)
+            {
+                ServiceAnnouncement announced = def.announcements[i];
+                if (announced != null && !string.IsNullOrEmpty(announced.key)
+                    && !index.requestOwners.ContainsKey(announced.key))
+                    index.requestOwners[announced.key] = def;
+            }
+
             if (def.registry != null)
             {
                 index.AddAssetUse(def.registry, new WireUse

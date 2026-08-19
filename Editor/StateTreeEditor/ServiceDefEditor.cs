@@ -404,7 +404,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 EditorGUILayout.BeginHorizontal();
                 using (new EditorGUI.DisabledScope(true))
                     EditorGUILayout.TextField(row.key, row.description);
-                CallersButton(row);
+                CallersButton(row.key);
                 EditorGUILayout.EndHorizontal();
             }
 
@@ -432,10 +432,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
                 EditorGUILayout.BeginHorizontal();
-                string key = EditorGUILayout.DelayedTextField("Key", row.key);
-                if (key != row.key)
-                    Commit(() => row.key = key);
-                CallersButton(row);
+                ServiceRequest keyRow = row;
+                DrawKey("Key", "What callers write to ask for this.", row.key,
+                    value => keyRow.key = value);
                 if (RemoveButton())
                 {
                     int index = i;
@@ -445,6 +444,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     break;
                 }
                 EditorGUILayout.EndHorizontal();
+                DrawRenamePanel(row.key, value => keyRow.key = value);
 
                 string description = EditorGUILayout.DelayedTextField("Description",
                     row.description);
@@ -600,9 +600,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                     continue;
                 EditorGUILayout.BeginVertical(EditorStyles.helpBox);
                 EditorGUILayout.BeginHorizontal();
-                string key = EditorGUILayout.DelayedTextField("Key", announced.key);
-                if (key != announced.key)
-                    Commit(() => announced.key = key);
+                ServiceAnnouncement keyed = announced;
+                DrawKey("Key", "The name others read this under.", announced.key,
+                    value => keyed.key = value);
                 if (RemoveButton())
                 {
                     int index = i;
@@ -612,6 +612,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     break;
                 }
                 EditorGUILayout.EndHorizontal();
+                DrawRenamePanel(announced.key, value => keyed.key = value);
                 EditorGUILayout.BeginHorizontal();
                 BoundTextField("Payload Type",
                     "The contract class this key carries — the project already declares "
@@ -889,16 +890,98 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// cannot be listed is a promise nobody can audit, and the answer "nobody yet" is
         /// worth seeing too: it names a request that exists for no one.
         /// </summary>
-        private static void CallersButton(ServiceRequest row)
+        /// <summary>
+        /// A KEY SOMETHING ALREADY CALLS IS A LINK, and a link you can retype is a link that
+        /// silently stops matching — the rule every wired field in this toolset follows, applied
+        /// where it was missing: a request key and an announcement key are contracts other assets
+        /// hold BY NAME.
+        ///
+        /// Locked is derived, never stored: it means "the usage index found callers". A key
+        /// nobody calls yet is free text, because a name being invented is not a contract. And
+        /// the way to change a locked one is ✎, which renames it everywhere at once.
+        /// </summary>
+        private void DrawKey(string label, string tooltip, string current,
+            System.Action<string> set)
         {
-            if (!GUILayout.Button(new GUIContent("⛓", "Who writes this request?"),
-                GUILayout.Width(24f)))
+            List<AssetWireScan.WireUse> callers = ServiceKeyRename.Callers(current);
+            bool linked = callers.Count > 0;
+
+            if (linked)
+            {
+                using (new EditorGUI.DisabledScope(true))
+                {
+                    EditorGUILayout.TextField(new GUIContent(label, tooltip + " — LINKED: "
+                        + callers.Count + " place(s) name it. ✎ renames it everywhere."), current);
+                }
+            }
+            else
+            {
+                string typed = EditorGUILayout.DelayedTextField(new GUIContent(label,
+                    tooltip + " — nothing names it yet, so it is still free text."), current);
+                if (typed != current)
+                    Commit(() => set(typed));
+            }
+
+            CallersButton(current);
+            if (linked && GUILayout.Button(new GUIContent("✎", "Rename it here AND in every "
+                + "place that names it."), GUILayout.Width(24f)))
+            {
+                m_RenamingKey = current;
+                m_RenameTo = current;
+                GUI.FocusControl(null);
+            }
+        }
+
+        /// <summary>The rename, spelled out before it happens: the new name, who moves with it,
+        /// and a way out. Nothing is written until Rename is pressed.</summary>
+        private void DrawRenamePanel(string current, System.Action<string> set)
+        {
+            if (m_RenamingKey != current || string.IsNullOrEmpty(current))
                 return;
 
-            AssetWireScan.Index index = AssetWireScan.Get();
+            List<AssetWireScan.WireUse> callers = ServiceKeyRename.Callers(current);
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            m_RenameTo = EditorGUILayout.TextField("Rename to", m_RenameTo);
+
+            var names = new List<string>();
+            for (int i = 0; i < callers.Count; i++)
+            {
+                string where = callers[i].context != null ? callers[i].context.name : "?";
+                if (!names.Contains(where))
+                    names.Add(where);
+            }
+            EditorGUILayout.LabelField("moves with it: " + string.Join(", ", names),
+                EditorStyles.wordWrappedMiniLabel);
+
+            EditorGUILayout.BeginHorizontal();
+            bool valid = !string.IsNullOrEmpty(m_RenameTo) && m_RenameTo != current;
+            using (new EditorGUI.DisabledScope(!valid))
+            {
+                if (GUILayout.Button("Rename everywhere", GUILayout.Width(150f)))
+                {
+                    string from = current;
+                    string to = m_RenameTo;
+                    int moved = ServiceKeyRename.Apply(target, () => set(to), from, to);
+                    Debug.Log("[ServiceDef] '" + from + "' → '" + to + "', with " + moved
+                        + " caller asset(s) repointed.", target);
+                    m_RenamingKey = null;
+                    GUIUtility.ExitGUI();
+                }
+            }
+            if (GUILayout.Button("Cancel", GUILayout.Width(70f)))
+                m_RenamingKey = null;
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+
+        private static void CallersButton(string key)
+        {
+            if (!GUILayout.Button(new GUIContent("⛓", "Who names this?"), GUILayout.Width(24f)))
+                return;
+
+            List<AssetWireScan.WireUse> callers = ServiceKeyRename.Callers(key);
             var menu = new GenericMenu();
-            if (index.requestCallers.TryGetValue(row.key, out var callers)
-                && callers.Count > 0)
+            if (callers.Count > 0)
             {
                 for (int i = 0; i < callers.Count; i++)
                 {
@@ -910,12 +993,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
             else
             {
-                menu.AddDisabledItem(new GUIContent("no authored caller writes '"
-                    + row.key + "'"));
+                menu.AddDisabledItem(new GUIContent("no authored caller names '" + key + "'"));
                 menu.AddDisabledItem(new GUIContent("(skins and C# callers do not scan)"));
             }
             menu.ShowAsContext();
         }
+
+        private string m_RenamingKey;
+
+        private string m_RenameTo = "";
 
         private static System.Type ResolveServiceType(string typeName)
         {
