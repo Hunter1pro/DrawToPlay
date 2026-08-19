@@ -24,8 +24,18 @@ namespace PowerOfFire.DrawToPlay
     /// with two names in it, because a silent overwrite of an identity is a save-corruption
     /// seed.
     /// </summary>
-    public sealed class WorldService : StateTreeServiceBehaviour
+    public sealed class WorldService : StateTreeService
     {
+
+        /// <summary>Built by its scope's installer (M33) — the level's index of who is here.
+        /// It adopts whatever registered before it existed, which is the same sweep its
+        /// OnEnable and Start used to do twice.</summary>
+        public WorldService(StateTreeContextHost scope, ServiceDef definition)
+            : base(scope, definition)
+        {
+            AdoptStrays();
+        }
+
         /// <summary>Mirror every log line to the Unity console. The ring records regardless.</summary>
         public bool logToConsole;
 
@@ -60,18 +70,11 @@ namespace PowerOfFire.DrawToPlay
         /// forgets it here.</summary>
         public event Action<WorldObjectBehaviour> citizenRemoved;
 
-        protected override void OnEnable()
-        {
-            base.OnEnable();
-            AdoptStrays();
-        }
 
-        /// <summary>The base retry connects to the host after every OnEnable has run; the
-        /// second sweep catches citizens whose own quiet first attempt ran before this service
-        /// was reachable.</summary>
-        protected override void Start()
+        /// <summary>The second sweep, once the world is assembled: a citizen that registered
+        /// before this service existed is adopted here rather than lost.</summary>
+        protected override void OnStarted()
         {
-            base.Start();
             AdoptStrays();
         }
 
@@ -373,9 +376,9 @@ namespace PowerOfFire.DrawToPlay
                 m_Log.RemoveAt(0);
 
             if (asWarning)
-                Debug.LogWarning("[World] " + line, this);
+                Debug.LogWarning("[World] " + line);
             else if (logToConsole)
-                Debug.Log("[World] " + line, this);
+                Debug.Log("[World] " + line);
         }
 
         private static string Join(List<string> parts)

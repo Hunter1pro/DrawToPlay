@@ -48,12 +48,13 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Level = MakeHost("Level", StateTreeContextKind.Level, m_Root.transform);
             m_Player = MakeHost("Player", StateTreeContextKind.Player, m_Level.transform);
 
-            m_World = m_Level.gameObject.AddComponent<WorldService>();
-            m_World.Connect();
+            m_World = new WorldService(m_Level, null);
 
-            m_Director = m_Root.gameObject.AddComponent<CutsceneService>();
-            m_Director.definition = def;
-            m_Director.Connect();
+
+            m_Level.Provide(m_World);
+
+            m_Director = new CutsceneService(m_Root, def);
+            m_Root.Provide(m_Director);
         }
 
         [TearDown]

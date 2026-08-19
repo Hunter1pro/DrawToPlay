@@ -49,12 +49,11 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Level.Register();
             m_Hosts.Add(m_Level);
 
-            m_World = levelGo.AddComponent<WorldService>();
-            m_World.Connect();
+            m_World = new WorldService(m_Level, null);
+            m_Level.Provide(m_World);
 
-            m_Service = levelGo.AddComponent<ObjectiveService>();
-            m_Service.definition = def;
-            m_Service.Connect();
+            m_Service = new ObjectiveService(m_Level, def);
+            m_Level.Provide(m_Service);
 
             var playerGo = new GameObject("PlayerHost");
             playerGo.hideFlags = HideFlags.HideAndDontSave;

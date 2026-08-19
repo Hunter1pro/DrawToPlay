@@ -56,9 +56,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Root.Register();
             m_Hosts.Add(m_Root);
 
-            m_Service = rootGo.AddComponent<UiService>();
-            m_Service.definition = def;
-            m_Service.Connect();
+            m_Service = new UiService(m_Root, def);
+            m_Root.Provide(m_Service);
         }
 
         [TearDown]

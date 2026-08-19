@@ -301,8 +301,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             root.Register();
             m_Hosts.Add(root);
 
-            var world = go.AddComponent<WorldService>();
-            world.Connect();
+            var world = new WorldService(root, null);
+            root.Provide(world);
             return world;
         }
 

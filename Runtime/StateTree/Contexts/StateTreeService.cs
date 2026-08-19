@@ -76,6 +76,18 @@ namespace PowerOfFire.DrawToPlay
 
             ServePendingRequests();
             m_Flows?.TickTree(deltaTime);
+            OnTick(deltaTime);
+        }
+
+        /// <summary>
+        /// The subsystem's own frame, after its requests are served and its flows have ticked.
+        ///
+        /// For the ones that genuinely watch something — what the player is standing at, whether
+        /// an objective's zone has been reached. Most services have none, and a service that
+        /// wants one is saying "I poll", which is worth being explicit about.
+        /// </summary>
+        protected virtual void OnTick(float deltaTime)
+        {
         }
 
         /// <summary>

@@ -11,28 +11,27 @@ namespace PowerOfFire.DrawToPlay
     /// on (a per-actor host + shared catalog) and the opposite of the per-objective
     /// container-of-132-registrations the Unity side paid for.
     /// </summary>
-    [AddComponentMenu("Draw To Play/Services/Ability Service")]
-    public sealed class AbilityService : StateTreeServiceBehaviour
+    public sealed class AbilityService : StateTreeService
     {
-        [Tooltip("The declaration this service runs: scope, the ability registry, and the "
-            + "nesting rules its rows obey.")]
-        public ServiceDef definition;
+
+        /// <summary>Built by its scope's installer (M33): what acting IS, as rows.</summary>
+        public AbilityService(StateTreeContextHost scope, ServiceDef definition)
+            : base(scope, definition)
+        {
+            if (definition == null)
+                Debug.LogError("[AbilityService] built with no ServiceDef — no ability can "
+                    + "resolve.");
+            else if (abilities == null)
+                Debug.LogError("[AbilityService] the ServiceDef's registry is not an "
+                    + "AbilityRegistry.", definition);
+        }
+
 
         /// <summary>The catalog, through the def — null when the def is missing or names a
         /// registry of some other kind.</summary>
         public AbilityRegistry abilities =>
             definition != null ? definition.registry as AbilityRegistry : null;
 
-        protected override void OnEnable()
-        {
-            base.OnEnable();
-            if (definition == null)
-                Debug.LogError("[AbilityService] no ServiceDef assigned — no ability can "
-                    + "resolve.", this);
-            else if (abilities == null)
-                Debug.LogError("[AbilityService] the ServiceDef's registry is not an "
-                    + "AbilityRegistry.", this);
-        }
 
         /// <summary>A row by name, or null with the caller left to complain — the caller
         /// knows what it was doing; this method does not.</summary>

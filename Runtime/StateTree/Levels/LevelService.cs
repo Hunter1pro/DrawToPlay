@@ -31,9 +31,16 @@ namespace PowerOfFire.DrawToPlay
     /// verbs through thin atoms (<see cref="EnterExpeditionTask"/>,
     /// <see cref="ReturnFromExpeditionTask"/>, <see cref="LoadLevelTask"/>).
     /// </summary>
-    [AddComponentMenu("Draw To Play/Level Service")]
-    public sealed class LevelService : StateTreeServiceBehaviour
+    public sealed class LevelService : StateTreeService
     {
+
+        /// <summary>Built by its scope's installer (M33): which level is up, and the inbox
+        /// everything that wants to travel writes to.</summary>
+        public LevelService(StateTreeContextHost scope, ServiceDef definition)
+            : base(scope, definition)
+        {
+        }
+
         /// <summary>Root-scope key holding the incoming level's label while a transition
         /// runs; absent otherwise. Views watch it; trees may too.</summary>
         public const string LoadingKey = "level:loading";
@@ -74,7 +81,7 @@ namespace PowerOfFire.DrawToPlay
         {
             if (string.IsNullOrEmpty(levelName))
             {
-                Debug.LogWarning("[LevelService] RequestLevel with no name — ignored.", this);
+                Debug.LogWarning("[LevelService] RequestLevel with no name — ignored.");
                 return;
             }
             WriteRootKey(GotoKey, levelName);
@@ -91,7 +98,7 @@ namespace PowerOfFire.DrawToPlay
                 || string.Equals(from, expeditionLevel, StringComparison.Ordinal))
             {
                 Debug.LogWarning("[LevelService] EnterExpedition refused: no current level to "
-                    + "return to (or already there).", this);
+                    + "return to (or already there).");
                 return;
             }
             returnLevel = from;
@@ -105,7 +112,7 @@ namespace PowerOfFire.DrawToPlay
             if (string.IsNullOrEmpty(returnLevel))
             {
                 Debug.LogWarning("[LevelService] ReturnFromExpedition with nothing to return "
-                    + "to — ignored.", this);
+                    + "to — ignored.");
                 return false;
             }
             RequestLevel(returnLevel);
@@ -125,15 +132,14 @@ namespace PowerOfFire.DrawToPlay
                 Debug.LogError(level != null && level.content == null
                     ? $"[LevelService] catalog row '{level.name}' has no Level asset — the "
                         + "row names a level whose content file was never set."
-                    : "[LevelService] LoadAsync called with no level / empty scenePath.",
-                    this);
+                    : "[LevelService] LoadAsync called with no level / empty scenePath.");
                 return false;
             }
             if (isLoading)
             {
                 Debug.LogError($"[LevelService] already loading — '{level.name}' refused. One "
                     + "transition at a time; the session tree's states should make this "
-                    + "unrepresentable.", this);
+                    + "unrepresentable.");
                 return false;
             }
 
@@ -157,7 +163,10 @@ namespace PowerOfFire.DrawToPlay
                 return true;
             }
 
-            CancellationToken token = destroyCancellationToken;
+            // THE SCOPE'S OWN TOKEN (M33): a load must stop when the scope this service
+            // belongs to goes, and the scope is the object that outlives or dies with it —
+            // which is what the component's destroyCancellationToken used to mean.
+            CancellationToken token = scope.destroyCancellationToken;
             isLoading = true;
             WriteRootKey(LoadingKey, level.Label);
             try
@@ -176,7 +185,7 @@ namespace PowerOfFire.DrawToPlay
                 if (load == null)
                 {
                     Debug.LogError($"[LevelService] scene '{level.scenePath}' cannot load — "
-                        + "is it in Build Settings?", this);
+                        + "is it in Build Settings?");
                     return false;
                 }
                 await load.ToUniTask(cancellationToken: token);
@@ -216,7 +225,7 @@ namespace PowerOfFire.DrawToPlay
             {
                 Debug.LogWarning($"[LevelService] scene '{level.scenePath}' has no Level "
                     + "context host — entry parameters have nowhere to land and nothing "
-                    + "scopes this level.", this);
+                    + "scopes this level.");
                 return;
             }
 
@@ -259,14 +268,14 @@ namespace PowerOfFire.DrawToPlay
 
         private void WriteRootKey(string key, string value)
         {
-            if (connectedTo != null)
-                connectedTo.Context.blackboard[key] = value ?? string.Empty;
+            if (scope != null && scope.Context != null)
+                scope.Context.blackboard[key] = value ?? string.Empty;
         }
 
         private void ClearRootKey(string key)
         {
-            if (connectedTo != null)
-                connectedTo.Context.blackboard.Remove(key);
+            if (scope != null && scope.Context != null)
+                scope.Context.blackboard.Remove(key);
         }
     }
 }

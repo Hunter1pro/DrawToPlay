@@ -14,11 +14,19 @@ namespace PowerOfFire.DrawToPlay
     /// order asserted FROM THE ROW — the load-bearing number, applied from data instead of
     /// remembered in builders.
     /// </summary>
-    [AddComponentMenu("Draw To Play/Services/Ui Service")]
-    public sealed class UiService : StateTreeServiceBehaviour
+    public sealed class UiService : StateTreeService
     {
-        [Tooltip("The declaration this service runs: scope and the UI registry.")]
-        public ServiceDef definition;
+        /// <summary>Built by its scope's installer (M33) — the screen ledger every other
+        /// subsystem asks for, so it is installed first.</summary>
+        public UiService(StateTreeContextHost scope, ServiceDef definition)
+            : base(scope, definition)
+        {
+            if (definition == null)
+                Debug.LogError("[Ui] built with no ServiceDef — no row can resolve.");
+            else if (catalog == null)
+                Debug.LogError("[Ui] the ServiceDef's registry is not a UiRegistry.", definition);
+        }
+
 
         /// <summary>The catalog, through the def — null when missing or of another kind.</summary>
         public UiRegistry catalog =>
@@ -34,15 +42,6 @@ namespace PowerOfFire.DrawToPlay
             new Dictionary<string, GameObject>(StringComparer.Ordinal);
 
         private bool m_Validated;
-
-        protected override void OnEnable()
-        {
-            base.OnEnable();
-            if (definition == null)
-                Debug.LogError("[Ui] no ServiceDef assigned — no row can resolve.", this);
-            else if (catalog == null)
-                Debug.LogError("[Ui] the ServiceDef's registry is not a UiRegistry.", this);
-        }
 
         public UiDef Find(string uiName)
         {
@@ -101,11 +100,14 @@ namespace PowerOfFire.DrawToPlay
             if (row.prefab == null)
             {
                 Debug.LogError("[Ui] row '" + row.name + "' has no prefab — nothing to "
-                    + "show.", this);
+                    + "show.");
                 return null;
             }
 
-            GameObject view = Instantiate(row.prefab, transform);
+            // PARENTED TO THE SCOPE: a screen belongs to the scope that shows it, so unloading
+                // a level takes its screens with it — which is what the component's own transform
+                // used to mean, said explicitly.
+                GameObject view = UnityEngine.Object.Instantiate(row.prefab, scope.transform);
             view.name = row.prefab.name;
             var document = view.GetComponentInChildren<UIDocument>(true);
             if (document != null)
@@ -133,9 +135,9 @@ namespace PowerOfFire.DrawToPlay
                 // The edit/play split every spawner in this toolset uses: tests and tooling
                 // own their objects' lifetimes the same way they own everything they make.
                 if (Application.isPlaying)
-                    Destroy(view);
+                    UnityEngine.Object.Destroy(view);
                 else
-                    DestroyImmediate(view);
+                    UnityEngine.Object.DestroyImmediate(view);
             }
             hidden?.Invoke(Find(uiName));
         }
@@ -205,7 +207,7 @@ namespace PowerOfFire.DrawToPlay
                 {
                     Debug.LogWarning("[Ui] rows '" + holder + "' and '" + row.name
                         + "' share sorting order " + row.sortingOrder + " — which of them "
-                        + "draws on top (and takes the press) is undefined.", this);
+                        + "draws on top (and takes the press) is undefined.");
                 }
                 else
                 {

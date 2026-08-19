@@ -18,11 +18,18 @@ namespace PowerOfFire.DrawToPlay
     /// of the three things it needed and then refused is the one bug in a crafting system a
     /// player will never forgive.
     /// </summary>
-    [AddComponentMenu("Draw To Play/Services/Craft Service")]
     [ServiceActionContract(CraftAction, "value = recipe name")]
     [ServiceActionContract(StartAction, "value = recipe name — the player performs it")]
-    public sealed class CraftService : StateTreeServiceBehaviour
+    public sealed class CraftService : StateTreeService
     {
+
+        /// <summary>Built by its scope's installer (M33): the rulebook about what three timber
+        /// are worth, with the def whose recipes it runs.</summary>
+        public CraftService(StateTreeContextHost scope, ServiceDef definition)
+            : base(scope, definition)
+        {
+        }
+
         [Tooltip("How close the player must be for a station's panel to open, in metres. "
             + "Slightly wider than the craft ability's own reach, so the offer is on screen "
             + "before the button would work rather than after.")]
@@ -40,11 +47,7 @@ namespace PowerOfFire.DrawToPlay
         /// for them. Both roads end at <see cref="CraftAction"/> — one after a swing.</summary>
         public const string StartAction = "craft-start";
 
-        [Tooltip("The declaration this service runs: scope and the recipe registry (whose "
-            + "dependsOn names the item registry its costs and results pick from).")]
-        public ServiceDef definition;
 
-        protected override ServiceDef FlowSource => definition;
 
         public CraftRecipeRegistry recipes =>
             definition != null ? definition.registry as CraftRecipeRegistry : null;
@@ -61,9 +64,8 @@ namespace PowerOfFire.DrawToPlay
         /// recipe catalog — three references a piece of screen has no business holding. Here
         /// it is one distance check on the subsystem that already owns all three.
         /// </summary>
-        protected override void Update()
+        protected override void OnTick(float deltaTime)
         {
-            base.Update();
             PushOffer();
         }
 
@@ -79,7 +81,7 @@ namespace PowerOfFire.DrawToPlay
             if (panel == null)
                 return;
 
-            CraftOffer offer = OfferAt(StateTreeContextHost.Resolve(gameObject,
+            CraftOffer offer = OfferAt(StateTreeContextHost.Resolve(scope.gameObject,
                 StateTreeContextKind.Player));
             if (offer == null)
             {
@@ -225,7 +227,7 @@ namespace PowerOfFire.DrawToPlay
                 return Refuse(result);
             }
 
-            StateTreeContextHost carrier = StateTreeContextHost.Resolve(gameObject,
+            StateTreeContextHost carrier = StateTreeContextHost.Resolve(scope.gameObject,
                 StateTreeContextKind.Player);
             if (m_Inventory == null || carrier == null || carrier.Context == null)
             {
@@ -282,7 +284,7 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         private void StartCrafting()
         {
-            StateTreeContextHost player = StateTreeContextHost.Resolve(gameObject,
+            StateTreeContextHost player = StateTreeContextHost.Resolve(scope.gameObject,
                 StateTreeContextKind.Player);
             var host = player != null ? player.GetComponent<AbilityHost>() : null;
             if (host != null && host.Activate("craft"))

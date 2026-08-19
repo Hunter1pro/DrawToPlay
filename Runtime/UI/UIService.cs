@@ -15,28 +15,24 @@ namespace PowerOfFire.DrawToPlay
     /// (<see cref="AdoptStrays"/> + screen self-registration, both idempotent), duplicate ids
     /// keep the last and warn with both names.
     /// </summary>
-    public sealed class UIService : StateTreeServiceBehaviour
+    public sealed class UIService : StateTreeService
     {
+
+        /// <summary>Built by its scope's installer (M33) — the older screen service, kept for
+        /// the demos that still use it.</summary>
+        public UIService(StateTreeContextHost scope, ServiceDef definition)
+            : base(scope, definition)
+        {
+            AdoptStrays();
+        }
+
         private readonly Dictionary<string, UIScreenBehaviour> m_ById =
             new Dictionary<string, UIScreenBehaviour>(StringComparer.Ordinal);
         private readonly List<UIScreenBehaviour> m_Screens = new List<UIScreenBehaviour>();
 
         public int registeredCount => m_Screens.Count;
 
-        protected override void OnEnable()
-        {
-            base.OnEnable();
-            AdoptStrays();
-        }
 
-        /// <summary>The base retry connects to the host after every OnEnable has run; the
-        /// second sweep catches screens whose own quiet first attempt ran before this service
-        /// was reachable.</summary>
-        protected override void Start()
-        {
-            base.Start();
-            AdoptStrays();
-        }
 
         public void Register(UIScreenBehaviour screen)
         {
@@ -50,7 +46,7 @@ namespace PowerOfFire.DrawToPlay
                     && holder != null && !ReferenceEquals(holder, screen))
                 {
                     Debug.LogWarning("UIService: screen id '" + screen.screenId + "' collides — '"
-                        + holder.name + "' replaced by '" + screen.name + "'.", this);
+                        + holder.name + "' replaced by '" + screen.name + "'.");
                 }
                 m_ById[screen.screenId] = screen;
             }

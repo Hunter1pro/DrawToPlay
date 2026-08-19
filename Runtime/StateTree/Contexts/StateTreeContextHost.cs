@@ -32,7 +32,7 @@ namespace PowerOfFire.DrawToPlay
     /// ("InventoryService state on PlayerContext") are its states; mounting several service
     /// trees is a RunSubTreeTask per service inside it, which is the wiring-by-trees rule
     /// rather than a service registry growing an API. C# service classes exist too, but only
-    /// as atoms (<see cref="StateTreeServiceBehaviour"/>): looked up through the spine, never
+    /// as atoms (<see cref="StateTreeService"/>): looked up through the spine, never
     /// orchestrating it.
     ///
     /// AN ADDRESS. <see cref="Resolve"/> finds the host a piece of running behavior means by
@@ -436,6 +436,30 @@ namespace PowerOfFire.DrawToPlay
                 if (!m_Owned.Contains(disposable))
                     m_Owned.Add(disposable);
             }
+        }
+
+        /// <summary>
+        /// Let a subsystem go — it stops being ticked, stops being resolvable, and is no longer
+        /// this scope's to dispose. The counterpart of Provide, for a test or a scope that is
+        /// swapping one implementation for another.
+        /// </summary>
+        public void Forget(object instance)
+        {
+            if (instance == null)
+                return;
+            var keys = new List<Type>();
+            foreach (KeyValuePair<Type, object> entry in m_Provided)
+            {
+                if (ReferenceEquals(entry.Value, instance))
+                    keys.Add(entry.Key);
+            }
+            for (int i = 0; i < keys.Count; i++)
+                m_Provided.Remove(keys[i]);
+
+            if (instance is StateTreeService subsystem)
+                m_Subsystems.Remove(subsystem);
+            if (instance is IDisposable disposable)
+                m_Owned?.Remove(disposable);
         }
 
         /// <summary>The subsystems this scope runs, in install order — which is dependency

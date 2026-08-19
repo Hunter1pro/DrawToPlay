@@ -14,18 +14,23 @@ namespace PowerOfFire.DrawToPlay
     /// a different game wires a different bridge. MoveTo needs no report at all: the world
     /// registry and the player's position are toolset facts, checked here.
     /// </summary>
-    [AddComponentMenu("Draw To Play/Services/Objective Service")]
     [ServiceActionContract(FocusAction, "value = the target's stableId, or empty for the "
         + "nearest one")]
-    public sealed class ObjectiveService : StateTreeServiceBehaviour
+    public sealed class ObjectiveService : StateTreeService
     {
+
+        /// <summary>Built by its scope's installer (M33): the quest line, with the zones and
+        /// objectives its def declares.</summary>
+        public ObjectiveService(StateTreeContextHost scope, ServiceDef definition)
+            : base(scope, definition)
+        {
+        }
+
         /// <summary>"SHOW ME." The line's one verb that changes nothing about the line —
         /// asked by the objective banner, by a tap on a pointer, or by any tree that wants
         /// to draw the eye to what it is asking for.</summary>
         public const string FocusAction = "objective-focus";
 
-        [Tooltip("The declaration this service runs: scope and the objective registry.")]
-        public ServiceDef definition;
 
         [Tooltip("Activated once when the service starts, empty = nothing runs until an "
             + "ActivateObjectiveTask (or code) asks. The chain takes it from there.")]
@@ -198,7 +203,7 @@ namespace PowerOfFire.DrawToPlay
             if (m_ZoneIndex.Count == 0)
                 return;
             StateTreeContextHost player =
-                StateTreeContextHost.Resolve(gameObject, StateTreeContextKind.Player);
+                StateTreeContextHost.Resolve(scope.gameObject, StateTreeContextKind.Player);
             if (player == null)
                 return;
 
@@ -299,9 +304,8 @@ namespace PowerOfFire.DrawToPlay
 
         // ---- what the toolset checks for itself ---------------------------------------
 
-        protected override void Update()
+        protected override void OnTick(float deltaTime)
         {
-            base.Update();   // the base ticks the def's flow tree — hiding it would stop them
             if (!m_AutoStarted)
             {
                 if (string.IsNullOrEmpty(startingObjective.entryName))
@@ -391,7 +395,7 @@ namespace PowerOfFire.DrawToPlay
             if (current == null || current.kind != ObjectiveKind.MoveTo)
                 return;
             StateTreeContextHost player =
-                StateTreeContextHost.Resolve(gameObject, StateTreeContextKind.Player);
+                StateTreeContextHost.Resolve(scope.gameObject, StateTreeContextKind.Player);
             if (player == null)
                 return;
             WorldObjectBehaviour zone = Nearest(current.targetTag, player.transform.position);
@@ -423,13 +427,13 @@ namespace PowerOfFire.DrawToPlay
             into?.Clear();
             if (into == null || current == null || string.IsNullOrEmpty(current.targetTag))
                 return;
-            WorldService world = StateTreeContextHost.FindService<WorldService>(gameObject);
+            WorldService world = scope.GetService<WorldService>();
             if (world == null)
                 return;
 
             StateTreeContextHost player =
-                StateTreeContextHost.Resolve(gameObject, StateTreeContextKind.Player);
-            Vector3 from = player != null ? player.transform.position : transform.position;
+                StateTreeContextHost.Resolve(scope.gameObject, StateTreeContextKind.Player);
+            Vector3 from = player != null ? player.transform.position : scope.transform.position;
 
             m_Buffer.Clear();
             world.CollectByTag(current.targetTag, m_Buffer);
@@ -517,15 +521,15 @@ namespace PowerOfFire.DrawToPlay
             if (current == null || string.IsNullOrEmpty(current.targetTag))
                 return null;
             StateTreeContextHost player =
-                StateTreeContextHost.Resolve(gameObject, StateTreeContextKind.Player);
-            Vector3 from = player != null ? player.transform.position : transform.position;
+                StateTreeContextHost.Resolve(scope.gameObject, StateTreeContextKind.Player);
+            Vector3 from = player != null ? player.transform.position : scope.transform.position;
             WorldObjectBehaviour nearest = Nearest(current.targetTag, from);
             return nearest != null ? nearest.transform.position : (Vector3?)null;
         }
 
         private WorldObjectBehaviour Nearest(string tag, Vector3 from)
         {
-            WorldService world = StateTreeContextHost.FindService<WorldService>(gameObject);
+            WorldService world = scope.GetService<WorldService>();
             if (world == null || string.IsNullOrEmpty(tag))
                 return null;
             m_Buffer.Clear();

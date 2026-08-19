@@ -18,19 +18,23 @@ namespace PowerOfFire.DrawToPlay
     /// intact: bind the parts by tag at play time, take the controls, play, put back what the
     /// scene moved, write the scene off so it never plays twice.
     /// </summary>
-    [AddComponentMenu("Draw To Play/Services/Cutscene Service")]
     [ServiceActionContract(PlayAction, "value = cutscene row name")]
     [ServiceActionContract(SkipAction, "value ignored — ends whatever is playing")]
-    public sealed class CutsceneService : StateTreeServiceBehaviour
+    public sealed class CutsceneService : StateTreeService
     {
+
+        /// <summary>Built by its scope's installer (M33) — the director, with the catalog of
+        /// scenes it can play.</summary>
+        public CutsceneService(StateTreeContextHost scope, ServiceDef definition)
+            : base(scope, definition)
+        {
+        }
+
         public const string PlayAction = "cutscene";
 
         public const string SkipAction = "cutscene-skip";
 
-        [Tooltip("The declaration this service runs: scope and the cutscene registry.")]
-        public ServiceDef definition;
 
-        protected override ServiceDef FlowSource => definition;
 
         public CutsceneRegistry cutscenes =>
             definition != null ? definition.registry as CutsceneRegistry : null;
@@ -218,7 +222,7 @@ namespace PowerOfFire.DrawToPlay
                 m_Held.Add(host);
             }
 
-            StateTreeContextHost player = StateTreeContextHost.Resolve(gameObject,
+            StateTreeContextHost player = StateTreeContextHost.Resolve(scope.gameObject,
                 StateTreeContextKind.Player);
             var playerHost = player != null ? player.GetComponent<AbilityHost>() : null;
             if (playerHost != null && !m_Held.Contains(playerHost))
@@ -255,7 +259,7 @@ namespace PowerOfFire.DrawToPlay
             if (stage != null)
                 return stage;
 
-            StateTreeContextHost player = StateTreeContextHost.Resolve(gameObject,
+            StateTreeContextHost player = StateTreeContextHost.Resolve(scope.gameObject,
                 StateTreeContextKind.Player);
             return player != null
                 ? StateTreeContextHost.Resolve(player.gameObject, StateTreeContextKind.Level)
@@ -267,7 +271,7 @@ namespace PowerOfFire.DrawToPlay
             result.refusal = why;
             result.line = why;
             Announce(CutsceneResult.Key, result);
-            Debug.LogWarning("[Cutscene] " + why + ".", this);
+            Debug.LogWarning("[Cutscene] " + why + ".");
             return result;
         }
 
@@ -285,14 +289,14 @@ namespace PowerOfFire.DrawToPlay
             if (stage == null)
                 return;
             if (Application.isPlaying)
-                Destroy(stage);
+                UnityEngine.Object.Destroy(stage);
             else
-                DestroyImmediate(stage);
+                UnityEngine.Object.DestroyImmediate(stage);
         }
 
         private Dictionary<string, object> Board()
         {
-            StateTreeContextHost root = StateTreeContextHost.Resolve(gameObject,
+            StateTreeContextHost root = StateTreeContextHost.Resolve(scope.gameObject,
                 StateTreeContextKind.Root);
             return root != null && root.Context != null ? root.Context.blackboard : null;
         }

@@ -108,7 +108,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     string.IsNullOrEmpty(def.serviceTypeName),
                     () => Commit(() => def.serviceTypeName = ""));
                 foreach (System.Type type in
-                    TypeCache.GetTypesDerivedFrom<StateTreeServiceBehaviour>())
+                    TypeCache.GetTypesDerivedFrom<StateTreeService>())
                 {
                     if (type.IsAbstract)
                         continue;
@@ -1026,7 +1026,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (string.IsNullOrEmpty(typeName))
                 return null;
             foreach (System.Type type in
-                TypeCache.GetTypesDerivedFrom<StateTreeServiceBehaviour>())
+                TypeCache.GetTypesDerivedFrom<StateTreeService>())
             {
                 if (type.Name == typeName || type.FullName == typeName)
                     return type;

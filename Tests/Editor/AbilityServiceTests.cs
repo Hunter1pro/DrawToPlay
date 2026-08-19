@@ -58,9 +58,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Level.Register();
             m_Hosts.Add(m_Level);
 
-            m_Service = levelGo.AddComponent<AbilityService>();
-            m_Service.definition = m_Def;
-            m_Service.Connect();
+            m_Service = new AbilityService(m_Level, m_Def);
+            m_Level.Provide(m_Service);
         }
 
         [TearDown]
@@ -722,8 +721,10 @@ namespace PowerOfFire.DrawToPlay.Tests
             AbilityHost victim = MakeActor("victim2", withHealth: true);
             float before = victim.GetComponent<AttributeComponent>().Value(AttributeNames.Health);
 
-            var world = m_Level.gameObject.AddComponent<WorldService>();
-            world.Connect();
+            var world = new WorldService(m_Level, null);
+
+
+            m_Level.Provide(world);
             attacker.RegisterToWorld();
 
             var apply = ScriptableObject.CreateInstance<ApplyEffectTask>();
@@ -767,8 +768,9 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             // [InjectOwner] is a WORLD contract — the owner must be a citizen the world knows,
             // with the host found as its sibling facet (the M21 composed-object rule).
-            var world = m_Level.gameObject.AddComponent<WorldService>();
-            world.Connect();
+            var world = new WorldService(m_Level, null);
+
+            m_Level.Provide(world);
             host.RegisterToWorld();
 
             var task = ScriptableObject.CreateInstance<ActivateAbilityTask>();

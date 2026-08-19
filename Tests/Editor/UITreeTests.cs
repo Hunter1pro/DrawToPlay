@@ -196,8 +196,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             StateTreeContextHost level = MakeHost("Level", StateTreeContextKind.Level, root);
             m_Player = MakeHost("P1", StateTreeContextKind.Player, level);
 
-            var ui = m_Player.gameObject.AddComponent<UIService>();
-            ui.Connect();
+            var ui = new UIService(m_Player, null);
+            m_Player.Provide(ui);
 
             m_InvScreen = MakeScreen("inv", m_Player);
             m_TipScreen = MakeScreen("tooltip", m_Player);

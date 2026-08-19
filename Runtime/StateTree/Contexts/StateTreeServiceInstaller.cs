@@ -29,6 +29,11 @@ namespace PowerOfFire.DrawToPlay
             + "def names its own service type.")]
         public List<ServiceDef> install = new List<ServiceDef>();
 
+        [Tooltip("Subsystems that have no def yet, by type name — the world index, the level "
+            + "loader. A declaration is better and these should grow one; this is the honest "
+            + "way to say a service exists before it has one.")]
+        public List<string> undeclared = new List<string>();
+
         [Tooltip("The scope they belong to. Empty uses the host on this object.")]
         public StateTreeContextHost scope;
 
@@ -43,20 +48,22 @@ namespace PowerOfFire.DrawToPlay
             }
 
             for (int i = 0; i < install.Count; i++)
-                Build(host, install[i]);
+                Build(host, install[i], install[i] != null ? install[i].serviceTypeName : "");
+            for (int i = 0; i < undeclared.Count; i++)
+                Build(host, null, undeclared[i]);
         }
 
-        private void Build(StateTreeContextHost host, ServiceDef def)
+        private void Build(StateTreeContextHost host, ServiceDef def, string typeName)
         {
-            if (def == null)
+            if (def == null && string.IsNullOrEmpty(typeName))
                 return;
 
-            Type type = Resolve(def.serviceTypeName);
+            Type type = Resolve(typeName);
             if (type == null)
             {
-                Debug.LogError("[Install] '" + def.name + "' names the service type '"
-                    + def.serviceTypeName + "', which no assembly has. Nothing serves its "
-                    + "requests.", def);
+                Debug.LogError("[Install] '" + (def != null ? def.name : name) + "' names the "
+                    + "service type '" + typeName + "', which no assembly has. Nothing serves "
+                    + "its requests.", def);
                 return;
             }
             if (!typeof(StateTreeService).IsAssignableFrom(type))
