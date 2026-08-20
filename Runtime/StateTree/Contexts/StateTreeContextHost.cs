@@ -94,6 +94,23 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
+        /// <summary>
+        /// EVERY SCOPE THAT IS UP (M34) — for anything that wants to SEE the spine rather than
+        /// resolve one thing on it: the scope-tree window, a diagnostic, a test that asserts
+        /// what a level installed. Registration already existed; only the reading was private.
+        /// </summary>
+        public static IReadOnlyList<StateTreeContextHost> registered => s_Registered;
+
+        /// <summary>The subsystems this scope owns, in install order.</summary>
+        public IReadOnlyList<StateTreeService> subsystems => m_Subsystems;
+
+        /// <summary>What this scope answers for, by capability — provided instances and
+        /// anything a recipe has constructed so far.</summary>
+        public IEnumerable<KeyValuePair<Type, object>> provided => m_Provided;
+
+        /// <summary>The tree this scope runs, or null.</summary>
+        public StateTreeAsset runningTree => m_Executor != null ? tree : null;
+
         public bool isRunning => m_Executor != null && m_Executor.isRunning;
 
         public string activeNodeId => m_Executor != null ? m_Executor.activeNodeId : "";
