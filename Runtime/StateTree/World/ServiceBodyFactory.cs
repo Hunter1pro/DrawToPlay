@@ -106,6 +106,7 @@ namespace PowerOfFire.DrawToPlay
             }
 
             Link(view, body, row);
+            Number(view, def, row);
             Tint(view, def, row);
 
             var host = view.GetComponent<StateTreeContextHost>();
@@ -245,6 +246,56 @@ namespace PowerOfFire.DrawToPlay
                 Set(reference, "entryId", entryId);
                 Set(reference, "entryName", entryName);
             }
+        }
+
+        /// <summary>
+        /// WHAT THIS ONE IS WORTH (M34): the placement's attribute values, applied to the body
+        /// the def just built.
+        ///
+        /// The BASE is what moves, not the current value — a pool starts full at the number the
+        /// row gives, and anything a modifier adds later still stacks on top. A name the def
+        /// does not declare is refused rather than invented: the row is picked from what the
+        /// kind says it has, and a value for something else is a typo that would otherwise sit
+        /// there doing nothing.
+        /// </summary>
+        private static void Number(GameObject view, ServiceDef def, LevelObjectDef row)
+        {
+            if (row.attributes == null || row.attributes.Count == 0)
+                return;
+
+            var attributes = view.GetComponentInChildren<AttributeComponent>(true);
+            if (attributes == null)
+            {
+                Warn(view, "carries attribute values but has no AttributeComponent to put them "
+                    + "on.");
+                return;
+            }
+
+            for (int i = 0; i < row.attributes.Count; i++)
+            {
+                PlacementAttribute set = row.attributes[i];
+                if (set == null || string.IsNullOrEmpty(set.attribute))
+                    continue;
+                if (!Declares(def, set.attribute))
+                {
+                    Warn(view, "sets '" + set.attribute + "', which '" + def.serviceName
+                        + "' does not declare it has — the value is ignored.");
+                    continue;
+                }
+                attributes.Ensure(set.attribute, set.value);
+                attributes.SetBase(set.attribute, set.value);
+                attributes.SetCurrent(set.attribute, set.value);
+            }
+        }
+
+        private static bool Declares(ServiceDef def, string attribute)
+        {
+            for (int i = 0; def != null && i < def.attributes.Count; i++)
+            {
+                if (def.attributes[i] != null && def.attributes[i].Name == attribute)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>Wear the colour of the row this object is an instance of, when the def says

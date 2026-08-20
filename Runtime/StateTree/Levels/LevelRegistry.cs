@@ -114,6 +114,17 @@ namespace PowerOfFire.DrawToPlay
         [GraphTaskParameters(nameof(tree))]
         public GraphTaskParameterSet parameters = new GraphTaskParameterSet();
 
+        /// <summary>
+        /// WHAT THIS ONE IS WORTH (M34) — attribute values for this placement alone.
+        ///
+        /// The same argument as the parameters above, applied to the def's data half: one
+        /// resource def serves the whole ridge because each stand says how much timber it is,
+        /// and a second prefab is never the answer to a different number. Empty is the ordinary
+        /// case — the body's own seeds stand.
+        /// </summary>
+        public System.Collections.Generic.List<PlacementAttribute> attributes =
+            new System.Collections.Generic.List<PlacementAttribute>();
+
         public Vector2 position;
 
         /// <summary>

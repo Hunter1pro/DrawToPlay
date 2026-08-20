@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace PowerOfFire.DrawToPlay.Tests
 {
@@ -161,6 +162,69 @@ namespace PowerOfFire.DrawToPlay.Tests
             // dereferenceable on the thing it built — whatever the body is made of.
             Assert.That(StateTreeContracts.Facet(built, choppable),
                 Is.SameAs(built.GetComponentInChildren<TestVitals>()));
+        }
+
+        [Test]
+        public void APlacementSetsItsOwnNumbers_AndOnlyWhatTheDefDeclares()
+        {
+            GameObject prefab = Prefab("Tree");
+            prefab.AddComponent<WorldObjectBehaviour>();
+            AttributeComponent seeded = prefab.AddComponent<AttributeComponent>();
+            // SEEDED, not Ensured: the runtime dictionary is not serialized, so a copy of this
+            // prefab would carry nothing. The seeds list is what travels — which is exactly why
+            // a placement value has to be applied to the INSTANCE.
+            var seed = new AttributeComponent.Seed { baseValue = 3f };
+            seed.attribute.entryId = "attribute.health";
+            seed.attribute.entryName = "health";
+            seeded.seeds.Add(seed);
+
+            ServiceDef stand = Def("resource", prefab);
+            var has = new ServiceAttribute { writable = true };
+            has.attribute.entryId = "attribute.health";
+            has.attribute.entryName = "health";
+            stand.attributes.Add(has);
+
+            // ONE DEF, TWO NUMBERS: the sapling says 2, the old trunk says 5, and the third
+            // says nothing and keeps the prefab's seed.
+            GameObject sapling = ServiceBodyFactory.Build(stand, Placement("t1", ("health", 2f)),
+                null, Vector3.zero, Quaternion.identity);
+            GameObject trunk = ServiceBodyFactory.Build(stand, Placement("t2", ("health", 5f)),
+                null, Vector3.zero, Quaternion.identity);
+            GameObject plain = ServiceBodyFactory.Build(stand, new LevelObjectDef { id = "t3" },
+                null, Vector3.zero, Quaternion.identity);
+            m_Junk.Add(sapling);
+            m_Junk.Add(trunk);
+            m_Junk.Add(plain);
+
+            Assert.That(sapling.GetComponent<AttributeComponent>().Value("health"),
+                Is.EqualTo(2f).Within(0.001f));
+            Assert.That(trunk.GetComponent<AttributeComponent>().Value("health"),
+                Is.EqualTo(5f).Within(0.001f),
+                "a second prefab was the old answer to a different number");
+            Assert.That(plain.GetComponent<AttributeComponent>().Value("health"),
+                Is.EqualTo(3f).Within(0.001f), "silence keeps what the body was seeded with");
+
+            // AND A NUMBER FOR SOMETHING THE DEF DOES NOT HAVE is refused out loud, because a
+            // value sitting there doing nothing is the worst kind of typo.
+            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(
+                "does not declare it has"));
+            GameObject wrong = ServiceBodyFactory.Build(stand, Placement("t4", ("mana", 9f)),
+                null, Vector3.zero, Quaternion.identity);
+            m_Junk.Add(wrong);
+            Assert.That(wrong.GetComponent<AttributeComponent>().Has("mana"), Is.False);
+        }
+
+        private static LevelObjectDef Placement(string id, params (string name, float value)[] set)
+        {
+            var row = new LevelObjectDef { id = id };
+            for (int i = 0; i < set.Length; i++)
+            {
+                row.attributes.Add(new PlacementAttribute
+                {
+                    attribute = set[i].name, value = set[i].value
+                });
+            }
+            return row;
         }
 
         [Test]
