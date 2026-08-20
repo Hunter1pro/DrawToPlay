@@ -127,11 +127,7 @@ namespace PowerOfFire.DrawToPlay
 
         private void OnDisable()
         {
-            if (m_Wired != null)
-            {
-                m_Wired.completedObjective -= OnCompleted;
-                m_Wired = null;
-            }
+            Bind(null);
         }
 
         /// <summary>The completion BEAT (HT's checkmark moment): a green tick with the
@@ -143,51 +139,98 @@ namespace PowerOfFire.DrawToPlay
             m_FlashUntil = Time.time + 1.2f;
         }
 
+        /// <summary>
+        /// WHAT IS LEFT TO DO PER FRAME (M34): the arrows, and only the arrows.
+        ///
+        /// This method used to compute the banner's text from three service properties every
+        /// frame — a view knowing the domain's shape and polling it. The sentence is BOUND now
+        /// (see Bind), so what remains here is genuinely per-frame work: where off-screen
+        /// targets are on this frame's camera, and the completion flash that overlays the bound
+        /// text for a beat.
+        /// </summary>
         private void Update()
         {
             ObjectiveService service = ResolveService();
             if (!ReferenceEquals(service, m_Wired))
-            {
-                if (m_Wired != null)
-                    m_Wired.completedObjective -= OnCompleted;
-                m_Wired = service;
-                if (m_Wired != null)
-                    m_Wired.completedObjective += OnCompleted;
-            }
+                Bind(service);
 
             if (Time.time < m_FlashUntil && m_FlashText != null)
             {
+                // THE FLASH IS AN IMPERATIVE, not state: it overrides the bound text for a
+                // beat, so the binding is suspended rather than fought with.
+                m_Name.ClearBinding("text");
                 m_Name.text = m_FlashText;
                 m_Name.style.color = k_FlashColor;
                 HideArrowsFrom(0);
                 return;
             }
+            if (m_FlashText != null)
+            {
+                m_FlashText = null;
+                BindTitle();
+            }
 
             ObjectiveDef current = service != null ? service.current : null;
             if (current == null)
             {
-                m_Name.text = "";
-                m_Zone.text = "";
                 HideArrowsFrom(0);
                 return;
             }
-
-            ZoneDef zoneRow = service.activeZoneRow;
-            m_Zone.text = zoneRow != null && zoneRow.asset != null
-                ? (string.IsNullOrEmpty(zoneRow.asset.displayName)
-                    ? zoneRow.asset.name : zoneRow.asset.displayName)
-                : "";
-            m_Name.style.color = current.accentColor;
-
-            var counted = current.kind == ObjectiveKind.EnemyKill
-                || current.kind == ObjectiveKind.Pickup;
-            m_Name.text = string.IsNullOrEmpty(current.displayName)
-                ? current.name
-                : current.displayName;
-            if (counted && current.count > 1)
-                m_Name.text += "  " + service.progress + " / " + current.count;
-
             UpdateArrows(service, current);
+        }
+
+        /// <summary>
+        /// THE ONE WIRING (M34): the labels bind to what the subsystem publishes, and the only
+        /// thing this view subscribes to is "the sentence moved" — for the accent colour, which
+        /// is a style rather than a bindable text property.
+        /// </summary>
+        private void Bind(ObjectiveService service)
+        {
+            if (m_Wired != null)
+            {
+                m_Wired.completedObjective -= OnCompleted;
+                m_Wired.bannerChanged -= OnBannerChanged;
+            }
+            m_Wired = service;
+            if (m_Wired == null)
+            {
+                m_Name.ClearBinding("text");
+                m_Zone.ClearBinding("text");
+                m_Name.text = "";
+                m_Zone.text = "";
+                return;
+            }
+
+            m_Wired.completedObjective += OnCompleted;
+            m_Wired.bannerChanged += OnBannerChanged;
+            BindTitle();
+            OnBannerChanged();
+        }
+
+        private void BindTitle()
+        {
+            if (m_Wired == null)
+                return;
+            m_Name.dataSource = m_Wired.banner;
+            m_Name.SetBinding("text", new DataBinding
+            {
+                dataSourcePath = new Unity.Properties.PropertyPath(
+                    nameof(ObjectiveBanner.title)),
+                bindingMode = BindingMode.ToTarget
+            });
+            m_Zone.dataSource = m_Wired.banner;
+            m_Zone.SetBinding("text", new DataBinding
+            {
+                dataSourcePath = new Unity.Properties.PropertyPath(
+                    nameof(ObjectiveBanner.zone)),
+                bindingMode = BindingMode.ToTarget
+            });
+        }
+
+        private void OnBannerChanged()
+        {
+            if (m_Wired != null)
+                m_Name.style.color = m_Wired.banner.accent;
         }
 
         /// <summary>

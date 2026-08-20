@@ -48,6 +48,53 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>An objective completed — fired before the chain activates the next.</summary>
         public event Action<ObjectiveDef> completedObjective;
 
+        /// <summary>
+        /// THE SENTENCE, PUBLISHED (M34): what the line is asking for right now, as a thing a
+        /// skin binds to instead of recomputing every frame. Refreshed by this service when its
+        /// own state moves — the view is told, never asked.
+        /// </summary>
+        public ObjectiveBanner banner { get; } = new ObjectiveBanner();
+
+        /// <summary>Raised when the banner's text changed — a skin that binds needs no more
+        /// than this, and one that shows a colour uses it too.</summary>
+        public event Action bannerChanged;
+
+        /// <summary>Rebuild the published sentence; raise only when it actually moved, because
+        /// a change event per frame is a poll wearing a different hat.</summary>
+        private void RefreshBanner()
+        {
+            ObjectiveDef row = current;
+            string title = "";
+            string zone = "";
+            Color accent = Color.white;
+
+            if (row != null)
+            {
+                title = string.IsNullOrEmpty(row.displayName) ? row.name : row.displayName;
+                bool counted = row.kind == ObjectiveKind.EnemyKill
+                    || row.kind == ObjectiveKind.Pickup;
+                if (counted && row.count > 1)
+                    title += "  " + progress + " / " + row.count;
+                accent = row.accentColor;
+
+                ZoneDef zoneRow = activeZoneRow;
+                zone = zoneRow != null && zoneRow.asset != null
+                    ? (string.IsNullOrEmpty(zoneRow.asset.displayName)
+                        ? zoneRow.asset.name : zoneRow.asset.displayName)
+                    : "";
+            }
+
+            if (banner.title == title && banner.zone == zone && banner.accent == accent
+                && banner.asking == (row != null))
+                return;
+
+            banner.title = title;
+            banner.zone = zone;
+            banner.accent = accent;
+            banner.asking = row != null;
+            bannerChanged?.Invoke();
+        }
+
         /// <summary>The quest line's saveable heart: every zone's cursor, the linear
         /// line's, and what was current — row NAMES, the registry keys. A serializable
         /// plain class so any save system can carry it without knowing objectives.</summary>
@@ -137,6 +184,7 @@ namespace PowerOfFire.DrawToPlay
             if (objective != null)
                 m_LinearCursor = objective;
             changed?.Invoke();
+            RefreshBanner();
         }
 
         /// <summary>Complete the CURRENT objective and let the chain speak: its
@@ -167,6 +215,7 @@ namespace PowerOfFire.DrawToPlay
                 current = next;
             }
             changed?.Invoke();
+            RefreshBanner();
         }
 
         /// <summary>Every declared zone starts at the top of its stack. The container row
@@ -238,6 +287,7 @@ namespace PowerOfFire.DrawToPlay
                         current = m_LinearCursor;
                         progress = 0;
                         changed?.Invoke();
+                        RefreshBanner();
                     }
                 }
                 return;
@@ -254,6 +304,7 @@ namespace PowerOfFire.DrawToPlay
                 current = cursor;
                 progress = 0;
                 changed?.Invoke();
+                RefreshBanner();
             }
         }
 
@@ -270,6 +321,7 @@ namespace PowerOfFire.DrawToPlay
                 return;
             progress += 1;
             changed?.Invoke();
+            RefreshBanner();
             if (progress >= Mathf.Max(1, current.count))
                 Complete();
         }
@@ -288,6 +340,7 @@ namespace PowerOfFire.DrawToPlay
             {
                 progress = clamped;
                 changed?.Invoke();
+                RefreshBanner();
             }
             if (carried >= goal)
                 Complete();
@@ -385,6 +438,7 @@ namespace PowerOfFire.DrawToPlay
             current = Find(state.currentName);
             progress = state.progress;
             changed?.Invoke();
+            RefreshBanner();
         }
 
         /// <summary>The MoveTo watcher: nearest zone carrying the row's tag, arrived when
