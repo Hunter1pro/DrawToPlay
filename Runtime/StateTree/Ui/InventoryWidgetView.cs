@@ -205,30 +205,159 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Draw exactly this — the flow's redraw task built it, this skin shows
         /// it. Called with empty lists it shows an empty bag; it never asks for more.</summary>
+        /// <summary>
+        /// THE BAG, UPDATED IN PLACE (M34) — cells live as long as the item is carried.
+        ///
+        /// This used to clear the grid and rebuild every cell and every button on every change:
+        /// spending one ration destroyed and remade the whole panel. A cell keyed by its item
+        /// binds its count instead, so a quantity change writes one string and nothing else
+        /// moves — which also stops a press landing on an element that was replaced under the
+        /// finger.
+        ///
+        /// What is still built and destroyed is what genuinely appeared or went: an item picked
+        /// up, an item spent to zero.
+        /// </summary>
         public void Redraw(IReadOnlyList<ItemStack> stacks, IReadOnlyList<BagSlotLine> slots)
         {
             if (m_Grid == null)
                 return;
 
-            m_Slots.Clear();
-            m_Grid.Clear();
-            m_Cells.Clear();
-
-            // Keep the handed lines: the cells below read them for their worn/wear split.
+            // Keep the handed lines: the cells read them for their worn/wear split.
             m_LastSlots.Clear();
             for (int i = 0; slots != null && i < slots.Count; i++)
                 m_LastSlots.Add(slots[i]);
 
-            for (int i = 0; i < m_LastSlots.Count; i++)
-                m_Slots.Add(SlotLine(m_LastSlots[i]));
+            SyncSlots();
+            SyncCells(stacks);
+        }
 
-            if (stacks == null || stacks.Count == 0)
+        /// <summary>The equipment lines, one per declared slot, reused across changes.</summary>
+        private void SyncSlots()
+        {
+            m_LiveSlots.Clear();
+            for (int i = 0; i < m_LastSlots.Count; i++)
             {
-                m_Grid.Add(Note("empty"));
+                BagSlotLine line = m_LastSlots[i];
+                m_LiveSlots.Add(line.slotId);
+                if (!m_SlotRows.TryGetValue(line.slotId, out SlotRow row))
+                {
+                    row = BuildSlotRow(line);
+                    m_SlotRows[line.slotId] = row;
+                }
+                if (row.root.parent != m_Slots)
+                    m_Slots.Add(row.root);
+                if (m_Slots.IndexOf(row.root) != i)
+                    m_Slots.Insert(i, row.root);
+
+                bool worn = !string.IsNullOrEmpty(line.wornItemName);
+                row.model.line = line.slotLabel + ":  " + (worn
+                    ? (string.IsNullOrEmpty(line.wornItemLabel)
+                        ? line.wornItemName : line.wornItemLabel)
+                    : "—");
+                row.model.verb = worn ? "take off" : "";
+                row.button.style.display = worn ? DisplayStyle.Flex : DisplayStyle.None;
+                row.label.style.color = worn
+                    ? new Color(0.75f, 0.9f, 1f)
+                    : new Color(1f, 1f, 1f, 0.45f);
+                row.slotName = line.slotName;
+            }
+
+            Prune(m_SlotRows, m_LiveSlots, row => row.root);
+        }
+
+        /// <summary>The carried items, one cell each, reused while the item is held.</summary>
+        private void SyncCells(IReadOnlyList<ItemStack> stacks)
+        {
+            m_LiveCells.Clear();
+            var index = 0;
+            for (int i = 0; stacks != null && i < stacks.Count; i++)
+            {
+                ItemStack stack = stacks[i];
+                if (stack.definition == null)
+                    continue;
+                string itemName = stack.definition.name;
+                m_LiveCells.Add(itemName);
+
+                if (!m_CellsByItem.TryGetValue(itemName, out BagCell cell))
+                {
+                    cell = BuildCell(stack.definition);
+                    m_CellsByItem[itemName] = cell;
+                    m_Cells[itemName] = cell.root;
+                }
+                if (cell.root.parent != m_Grid)
+                    m_Grid.Add(cell.root);
+                if (m_Grid.IndexOf(cell.root) != index)
+                    m_Grid.Insert(index, cell.root);
+                index++;
+
+                cell.model.label = Label(stack.definition);
+                cell.model.count = stack.count > 1 ? "x" + stack.count : "";
+                cell.model.verb = VerbFor(stack.definition);
+                cell.button.style.display = string.IsNullOrEmpty(cell.model.verb)
+                    ? DisplayStyle.None : DisplayStyle.Flex;
+            }
+
+            Prune(m_CellsByItem, m_LiveCells, cell => cell.root);
+            foreach (string gone in m_Removed)
+                m_Cells.Remove(gone);
+
+            // "empty" is a state of the grid, not a cell: shown when nothing is carried.
+            if (m_Empty == null)
+            {
+                m_Empty = Note("empty");
+                m_Grid.Add(m_Empty);
+            }
+            m_Empty.style.display = m_LiveCells.Count == 0 ? DisplayStyle.Flex : DisplayStyle.None;
+            m_Grid.Add(m_Empty);   // keep it last
+        }
+
+        /// <summary>What this item's button says right now — the row decides, and the state of
+        /// the slots decides between wearing and taking off.</summary>
+        private string VerbFor(ItemDef definition)
+        {
+            if (!string.IsNullOrEmpty(definition.useEffect.entryName))
+                return "use";
+            if (string.IsNullOrEmpty(definition.slot.entryId))
+                return "";
+            return WornIn(definition.slot.entryId, definition.name) ? "worn ✓" : "wear";
+        }
+
+        /// <summary>One press, decided WHEN IT HAPPENS rather than when the cell was built —
+        /// which is what lets a cell outlive a change in what it offers.</summary>
+        private void PressCell(ItemDef definition)
+        {
+            if (definition == null)
+                return;
+            if (!string.IsNullOrEmpty(definition.useEffect.entryName))
+            {
+                Request(UseKey, definition.name);
                 return;
             }
-            for (int i = 0; i < stacks.Count; i++)
-                m_Grid.Add(Cell(stacks[i]));
+            if (string.IsNullOrEmpty(definition.slot.entryId))
+                return;
+            if (WornIn(definition.slot.entryId, definition.name))
+                Request(TakeoffKey, definition.slot.entryName);
+            else
+                Request(WearKey, definition.name);
+        }
+
+        /// <summary>Drop what is no longer held, and remember what went so the flash lookup
+        /// stays honest.</summary>
+        private void Prune<T>(Dictionary<string, T> held, HashSet<string> live,
+            System.Func<T, VisualElement> rootOf)
+        {
+            m_Removed.Clear();
+            foreach (KeyValuePair<string, T> pair in held)
+            {
+                if (!live.Contains(pair.Key))
+                    m_Removed.Add(pair.Key);
+            }
+            for (int i = 0; i < m_Removed.Count; i++)
+            {
+                if (held.TryGetValue(m_Removed[i], out T going))
+                    rootOf(going)?.RemoveFromHierarchy();
+                held.Remove(m_Removed[i]);
+            }
         }
 
         /// <summary>A short accent on an item's cell — the flow's "that one just did
@@ -243,12 +372,28 @@ namespace PowerOfFire.DrawToPlay
                 .StartingIn(400);
         }
 
-        // ---- drawing -------------------------------------------------------------------
+        // ---- building, once per thing --------------------------------------------------
 
-        private VisualElement SlotLine(BagSlotLine slot)
+        private sealed class SlotRow
         {
-            bool worn = !string.IsNullOrEmpty(slot.wornItemName);
-            var line = new VisualElement
+            public VisualElement root;
+            public Label label;
+            public Button button;
+            public BagSlotModel model;
+            public string slotName;
+        }
+
+        private sealed class BagCell
+        {
+            public VisualElement root;
+            public Button button;
+            public BagCellModel model;
+        }
+
+        private SlotRow BuildSlotRow(BagSlotLine slot)
+        {
+            var row = new SlotRow { model = new BagSlotModel(), slotName = slot.slotName };
+            row.root = new VisualElement
             {
                 style =
                 {
@@ -257,32 +402,22 @@ namespace PowerOfFire.DrawToPlay
                     marginBottom = 4f
                 }
             };
-            line.Add(new Label(slot.slotLabel + ":  "
-                + (worn
-                    ? (string.IsNullOrEmpty(slot.wornItemLabel)
-                        ? slot.wornItemName : slot.wornItemLabel)
-                    : "—"))
-            {
-                style =
-                {
-                    color = worn
-                        ? new Color(0.75f, 0.9f, 1f)
-                        : new Color(1f, 1f, 1f, 0.45f),
-                    fontSize = 13f, flexGrow = 1f
-                }
-            });
-            if (worn)
-            {
-                // The typed request value is the slot ROW NAME (§4d): pickable, checkable.
-                string slotName = slot.slotName;
-                line.Add(Verb("take off", () => Request(TakeoffKey, slotName)));
-            }
-            return line;
+            row.label = new Label { style = { fontSize = 13f, flexGrow = 1f } };
+            Bind(row.label, row.model, nameof(BagSlotModel.line));
+            row.root.Add(row.label);
+
+            // The typed request value is the slot ROW NAME (§4d): pickable, checkable. The
+            // caption is bound, so the same button reads "take off" only while something is on.
+            row.button = Verb("", () => Request(TakeoffKey, row.slotName));
+            Bind(row.button, row.model, nameof(BagSlotModel.verb));
+            row.root.Add(row.button);
+            return row;
         }
 
-        private VisualElement Cell(ItemStack stack)
+        private BagCell BuildCell(ItemDef definition)
         {
-            var cell = new VisualElement
+            var cell = new BagCell { model = new BagCellModel() };
+            cell.root = new VisualElement
             {
                 style =
                 {
@@ -292,8 +427,7 @@ namespace PowerOfFire.DrawToPlay
                     alignItems = Align.Center
                 }
             };
-            Round(cell, 8f);
-            m_Cells[stack.definition.name] = cell;
+            Round(cell.root, 8f);
 
             var face = new VisualElement
             {
@@ -304,11 +438,11 @@ namespace PowerOfFire.DrawToPlay
                 },
                 pickingMode = PickingMode.Ignore
             };
-            if (stack.definition.icon != null)
+            if (definition.icon != null)
             {
                 face.Add(new Image
                 {
-                    sprite = stack.definition.icon,
+                    sprite = definition.icon,
                     scaleMode = ScaleMode.ScaleToFit,
                     style = { width = cellSize * 0.62f, height = cellSize * 0.62f },
                     pickingMode = PickingMode.Ignore
@@ -321,16 +455,16 @@ namespace PowerOfFire.DrawToPlay
                     style =
                     {
                         width = cellSize * 0.4f, height = cellSize * 0.4f,
-                        backgroundColor = stack.definition.tint
+                        backgroundColor = definition.tint
                     },
                     pickingMode = PickingMode.Ignore
                 };
                 Round(swatch, 6f);
                 face.Add(swatch);
             }
-            cell.Add(face);
+            cell.root.Add(face);
 
-            var name = new Label(Label(stack.definition))
+            var name = new Label
             {
                 style =
                 {
@@ -339,34 +473,39 @@ namespace PowerOfFire.DrawToPlay
                 },
                 pickingMode = PickingMode.Ignore
             };
-            cell.Add(name);
+            Bind(name, cell.model, nameof(BagCellModel.label));
+            cell.root.Add(name);
 
-            if (stack.count > 1)
+            var count = new Label
             {
-                cell.Add(new Label("x" + stack.count)
+                style =
                 {
-                    style =
-                    {
-                        position = Position.Absolute, top = 4f, right = 6f,
-                        fontSize = 13f, color = Color.white,
-                        unityFontStyleAndWeight = FontStyle.Bold
-                    },
-                    pickingMode = PickingMode.Ignore
-                });
-            }
+                    position = Position.Absolute, top = 4f, right = 6f,
+                    fontSize = 13f, color = Color.white,
+                    unityFontStyleAndWeight = FontStyle.Bold
+                },
+                pickingMode = PickingMode.Ignore
+            };
+            Bind(count, cell.model, nameof(BagCellModel.count));
+            cell.root.Add(count);
 
-            // The verb the ROW declares becomes a REQUEST — what it does is the flow's say.
-            string itemName = stack.definition.name;
-            if (!string.IsNullOrEmpty(stack.definition.useEffect.entryName))
-                cell.Add(Verb("use", () => Request(UseKey, itemName)));
-            else if (!string.IsNullOrEmpty(stack.definition.slot.entryId))
-            {
-                string slotName = stack.definition.slot.entryName;
-                cell.Add(WornIn(stack.definition.slot.entryId, itemName)
-                    ? Verb("worn ✓", () => Request(TakeoffKey, slotName))
-                    : Verb("wear", () => Request(WearKey, itemName)));
-            }
+            ItemDef row = definition;
+            cell.button = Verb("", () => PressCell(row));
+            Bind(cell.button, cell.model, nameof(BagCellModel.verb));
+            cell.root.Add(cell.button);
             return cell;
+        }
+
+        /// <summary>One label, one property path — the whole of what a skin knows about a
+        /// value. [CreateProperty] on the model is what makes it work.</summary>
+        private static void Bind(VisualElement element, object model, string property)
+        {
+            element.dataSource = model;
+            element.SetBinding("text", new DataBinding
+            {
+                dataSourcePath = new Unity.Properties.PropertyPath(property),
+                bindingMode = BindingMode.ToTarget
+            });
         }
 
         /// <summary>Whether the last-drawn slot lines say this item sits in this slot —
@@ -381,6 +520,17 @@ namespace PowerOfFire.DrawToPlay
             }
             return false;
         }
+
+        private readonly Dictionary<string, SlotRow> m_SlotRows =
+            new Dictionary<string, SlotRow>();
+
+        private readonly Dictionary<string, BagCell> m_CellsByItem =
+            new Dictionary<string, BagCell>();
+
+        private readonly HashSet<string> m_LiveSlots = new HashSet<string>();
+        private readonly HashSet<string> m_LiveCells = new HashSet<string>();
+        private readonly List<string> m_Removed = new List<string>();
+        private Label m_Empty;
 
         private readonly List<BagSlotLine> m_LastSlots = new List<BagSlotLine>();
 
