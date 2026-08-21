@@ -260,7 +260,7 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         private static void Number(GameObject view, ServiceDef def, LevelObjectDef row)
         {
-            if (row.attributes == null || row.attributes.Count == 0)
+            if (row.attributes == null || row.attributes.isEmpty)
                 return;
 
             var attributes = view.GetComponentInChildren<AttributeComponent>(true);
@@ -271,9 +271,9 @@ namespace PowerOfFire.DrawToPlay
                 return;
             }
 
-            for (int i = 0; i < row.attributes.Count; i++)
+            for (int i = 0; i < row.attributes.values.Count; i++)
             {
-                PlacementAttribute set = row.attributes[i];
+                PlacementAttribute set = row.attributes.values[i];
                 if (set == null || string.IsNullOrEmpty(set.attribute))
                     continue;
                 if (!Declares(def, set.attribute))

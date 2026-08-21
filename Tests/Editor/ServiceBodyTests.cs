@@ -219,7 +219,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             var row = new LevelObjectDef { id = id };
             for (int i = 0; i < set.Length; i++)
             {
-                row.attributes.Add(new PlacementAttribute
+                row.attributes.values.Add(new PlacementAttribute
                 {
                     attribute = set[i].name, value = set[i].value
                 });

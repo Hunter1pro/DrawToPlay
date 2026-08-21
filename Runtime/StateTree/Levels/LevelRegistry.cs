@@ -121,9 +121,13 @@ namespace PowerOfFire.DrawToPlay
         /// resource def serves the whole ridge because each stand says how much timber it is,
         /// and a second prefab is never the answer to a different number. Empty is the ordinary
         /// case — the body's own seeds stand.
+        ///
+        /// The SET wrapper, not a raw list, exactly as the parameters above: it is what lets the
+        /// inspector draw a panel of the kind's declared options instead of a list of rows an
+        /// author has to know the names for.
         /// </summary>
-        public System.Collections.Generic.List<PlacementAttribute> attributes =
-            new System.Collections.Generic.List<PlacementAttribute>();
+        [PlacementAttributes(nameof(kind))]
+        public PlacementAttributeSet attributes = new PlacementAttributeSet();
 
         public Vector2 position;
 
