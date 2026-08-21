@@ -157,6 +157,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                 }
                 if (service.flowsRunning)
                     GUILayout.Label("flows ▶", EditorStyles.miniLabel);
+
+                // OUT AND BACK IN (M34.5), while everything around it keeps running — the thing
+                // a per-scope container could not do, offered where you can see the result.
+                StateTreeServiceInstaller installer = InstallerOf(host, def);
+                if (installer != null && GUILayout.Button(new GUIContent("↺",
+                    "Rebuild this subsystem now: its screens close, it is disposed, and a fresh "
+                    + "one is installed from the same def."), GUILayout.Width(24f)))
+                {
+                    installer.Reinstall(def);
+                    GUIUtility.ExitGUI();
+                }
                 EditorGUILayout.EndHorizontal();
             }
 
@@ -180,6 +191,27 @@ namespace PowerOfFire.DrawToPlay.Editor
                 GUILayout.Label("no subsystems", EditorStyles.miniLabel);
                 EditorGUILayout.EndHorizontal();
             }
+        }
+
+        /// <summary>The installer on this scope that owns a def, or null — a subsystem built
+        /// some other way has no handle to rebuild it by, and says so by having no button.</summary>
+        private static StateTreeServiceInstaller InstallerOf(StateTreeContextHost host,
+            ServiceDef def)
+        {
+            if (def == null || host == null)
+                return null;
+            StateTreeServiceInstaller[] installers =
+                host.GetComponents<StateTreeServiceInstaller>();
+            for (int i = 0; i < installers.Length; i++)
+            {
+                IReadOnlyList<StateTreeSubsystem> held = installers[i].installed;
+                for (int j = 0; j < held.Count; j++)
+                {
+                    if (held[j] != null && held[j].definition == def)
+                        return installers[i];
+                }
+            }
+            return null;
         }
 
         private void DrawBoard(StateTreeContextHost host, int depth)

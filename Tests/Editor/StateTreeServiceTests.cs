@@ -111,6 +111,41 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void ASubsystemCanBeTakenOutAndPutBack_WithoutItsScope()
+        {
+            (StateTreeContextHost host, InventoryService service, ServiceDef def) =
+                MakeFlowsFixture();
+
+            var installerObject = new GameObject("Installer");
+            installerObject.hideFlags = HideFlags.HideAndDontSave;
+            m_Objects.Add(installerObject);
+            var installer = installerObject.AddComponent<StateTreeServiceInstaller>();
+            installer.scope = host;
+
+            // The fixture's own instance stands in for whatever built it before; the installer
+            // is what owns a LIFETIME, so the subsystem is installed through it.
+            host.Forget(service);
+            def.serviceTypeName = nameof(InventoryService);
+            StateTreeSubsystem subsystem = installer.Install(def);
+
+            Assert.That(subsystem, Is.Not.Null);
+            Assert.That(subsystem.installed, Is.True);
+            Assert.That(host.GetService<InventoryService>(), Is.SameAs(subsystem.service),
+                "installed means resolvable from its scope");
+
+            InventoryService first = host.GetService<InventoryService>();
+            Assert.That(installer.Uninstall(def), Is.True);
+            Assert.That(host.GetService<InventoryService>(), Is.Null,
+                "taken out means gone from every scope that saw it — the scope is untouched");
+
+            StateTreeSubsystem again = installer.Reinstall(def);
+            Assert.That(again.service, Is.Not.SameAs(first),
+                "reinstalling BUILDS one, which is the point: a swapped implementation, a "
+                + "rebuilt subsystem, without restarting the level around it");
+            Assert.That(host.GetService<InventoryService>(), Is.SameAs(again.service));
+        }
+
+        [Test]
         public void Recipe_ConstructsLazily_OrderFree_ResolvingAcrossScopes()
         {
             StateTreeContextHost root = MakeHost("Root", StateTreeContextKind.Root, null);

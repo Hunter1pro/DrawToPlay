@@ -39,13 +39,9 @@ namespace PowerOfFire.DrawToPlay
 
         private void Awake()
         {
-            StateTreeContextHost host = scope != null ? scope : GetComponent<StateTreeContextHost>();
+            StateTreeContextHost host = Scope();
             if (host == null)
-            {
-                Debug.LogError("[Install] '" + name + "' has no context host to install into — "
-                    + "a subsystem belongs to a scope.", this);
                 return;
-            }
 
             for (int i = 0; i < install.Count; i++)
                 Build(host, install[i], install[i] != null ? install[i].serviceTypeName : "");
@@ -53,10 +49,70 @@ namespace PowerOfFire.DrawToPlay
                 Build(host, null, undeclared[i]);
         }
 
-        private void Build(StateTreeContextHost host, ServiceDef def, string typeName)
+        private void OnDestroy()
+        {
+            // IN REVERSE, because install order is dependency order: the screen ledger the
+            // others were handed goes last.
+            for (int i = m_Installed.Count - 1; i >= 0; i--)
+                m_Installed[i]?.Dispose();
+            m_Installed.Clear();
+        }
+
+        /// <summary>The subsystems this installer built, in install order.</summary>
+        public IReadOnlyList<StateTreeSubsystem> installed => m_Installed;
+
+        /// <summary>
+        /// Build one subsystem now — the operation behind "install this def", usable while the
+        /// game runs. Returns the handle that takes it back out.
+        /// </summary>
+        public StateTreeSubsystem Install(ServiceDef def)
+        {
+            StateTreeContextHost host = Scope();
+            return host != null
+                ? Build(host, def, def != null ? def.serviceTypeName : "")
+                : null;
+        }
+
+        /// <summary>Take one out: its screens hidden, its service forgotten and disposed.</summary>
+        public bool Uninstall(ServiceDef def)
+        {
+            for (int i = 0; i < m_Installed.Count; i++)
+            {
+                if (m_Installed[i] == null || m_Installed[i].definition != def)
+                    continue;
+                m_Installed[i].Dispose();
+                m_Installed.RemoveAt(i);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Out and back in — one subsystem rebuilt while everything around it keeps
+        /// running, which is the thing a per-scope container could not do.</summary>
+        public StateTreeSubsystem Reinstall(ServiceDef def)
+        {
+            Uninstall(def);
+            return Install(def);
+        }
+
+        private StateTreeContextHost Scope()
+        {
+            StateTreeContextHost host = scope != null ? scope : GetComponent<StateTreeContextHost>();
+            if (host == null)
+            {
+                Debug.LogError("[Install] '" + name + "' has no context host to install into — "
+                    + "a subsystem belongs to a scope.", this);
+            }
+            return host;
+        }
+
+        private readonly List<StateTreeSubsystem> m_Installed = new List<StateTreeSubsystem>();
+
+        private StateTreeSubsystem Build(StateTreeContextHost host, ServiceDef def,
+            string typeName)
         {
             if (def == null && string.IsNullOrEmpty(typeName))
-                return;
+                return null;
 
             Type type = Resolve(typeName);
             if (type == null)
@@ -64,13 +120,13 @@ namespace PowerOfFire.DrawToPlay
                 Debug.LogError("[Install] '" + (def != null ? def.name : name) + "' names the "
                     + "service type '" + typeName + "', which no assembly has. Nothing serves "
                     + "its requests.", def);
-                return;
+                return null;
             }
             if (!typeof(StateTreeService).IsAssignableFrom(type))
             {
                 Debug.LogError("[Install] '" + type.Name + "' is not a StateTreeService, so it "
                     + "cannot be installed from a def.", def);
-                return;
+                return null;
             }
 
             object instance;
@@ -85,10 +141,13 @@ namespace PowerOfFire.DrawToPlay
             {
                 Debug.LogError("[Install] '" + type.Name + "' could not be built: "
                     + (failure.InnerException ?? failure).Message, def);
-                return;
+                return null;
             }
 
             host.Provide(type, instance);
+            var subsystem = new StateTreeSubsystem(host, def, instance as StateTreeService, type);
+            m_Installed.Add(subsystem);
+            return subsystem;
         }
 
         private static Type Resolve(string typeName)
