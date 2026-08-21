@@ -316,12 +316,13 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual(1, world.CollectByTag("player", carriers),
                 "two facets of one body are one carrier — the bench counted two stations and "
                 + "the broadside saw four raiders on a two-raider sea until this was true");
-            Assert.AreSame(character, carriers[0], "the first-registered facet stands for the body");
+            Assert.AreSame(body, carriers[0].gameObject,
+                "whichever facet registered first stands for the body — enable order is Unity's");
 
             // And the singular lookup does not call the player 'not a singular tag' at every
             // startup — that line was M35's ledger entry #6.
             LogAssert.NoUnexpectedReceived();
-            Assert.AreSame(character, world.FindKnown("player"));
+            Assert.AreSame(body, world.FindKnown("player").gameObject);
 
             // A SECOND BODY is still a second carrier, and still the warning.
             WorldObjectBehaviour other = MakeWorldObject("Other", "player");
