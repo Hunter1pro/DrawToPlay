@@ -627,10 +627,89 @@ namespace PowerOfFire.DrawToPlay.Editor
                     announced.description);
                 if (description != announced.description)
                     Commit(() => announced.description = description);
+
+                DrawDeliveries(def, announced);
                 EditorGUILayout.EndVertical();
             }
             if (GUILayout.Button("+ announcement", GUILayout.Width(120f)))
                 Commit(() => def.announcements.Add(new ServiceAnnouncement()));
+        }
+
+        /// <summary>
+        /// WHO IS TOLD (M34.2) — the wiring an announcement was missing.
+        ///
+        /// An announcement is a name this subsystem writes; a reaction on one of its requests is
+        /// what carries it to a screen. Both are rows on this def, and until now connecting them
+        /// meant scrolling up, finding the right request, adding a beat and retyping the key.
+        /// Here the announcement shows what already delivers it and offers to add one — which is
+        /// the "wire it by picking" half of a device panel.
+        /// </summary>
+        private void DrawDeliveries(ServiceDef def, ServiceAnnouncement announced)
+        {
+            if (string.IsNullOrEmpty(announced.key))
+                return;
+
+            var delivered = 0;
+            for (int i = 0; i < def.requests.Count; i++)
+            {
+                ServiceRequest row = def.requests[i];
+                for (int r = 0; row != null && r < row.reactions.Count; r++)
+                {
+                    UiReaction beat = row.reactions[r];
+                    if (beat == null || beat.argumentKey != announced.key)
+                        continue;
+                    delivered++;
+                    EditorGUILayout.BeginHorizontal();
+                    GUILayout.Space(12f);
+                    GUILayout.Label("→ on '" + row.key + "', " + beat.ui.entryName + " · "
+                        + beat.verb, EditorStyles.miniLabel);
+                    if (GUILayout.Button("✕", GUILayout.Width(22f)))
+                    {
+                        ServiceRequest owner = row;
+                        UiReaction going = beat;
+                        Commit(() => owner.reactions.Remove(going));
+                        EditorGUILayout.EndHorizontal();
+                        GUIUtility.ExitGUI();
+                    }
+                    EditorGUILayout.EndHorizontal();
+                }
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Space(12f);
+            if (delivered == 0)
+            {
+                // NOT A FAULT, and worth saying which kind of quiet it is: a payload read from
+                // code (a bound skin, a task) needs no beat at all.
+                GUILayout.Label("nothing on this def delivers it", EditorStyles.miniLabel);
+            }
+            if (GUILayout.Button("+ deliver…", GUILayout.Width(90f)))
+            {
+                var menu = new GenericMenu();
+                if (def.requests.Count == 0)
+                {
+                    menu.AddDisabledItem(new GUIContent("this def declares no requests to "
+                        + "carry it"));
+                }
+                for (int i = 0; i < def.requests.Count; i++)
+                {
+                    ServiceRequest row = def.requests[i];
+                    if (row == null || string.IsNullOrEmpty(row.key))
+                        continue;
+                    ServiceRequest chosen = row;
+                    menu.AddItem(new GUIContent("when '" + row.key + "' is served"), false,
+                        () => Commit(() => chosen.reactions.Add(new UiReaction
+                        {
+                            // THE PAYLOAD RIDES WHOLE: a beat that carries an announcement is
+                            // not passing the request's value, so valueArgument stays off.
+                            argumentKey = announced.key,
+                            valueArgument = false,
+                            verb = "announce"
+                        })));
+                }
+                menu.ShowAsContext();
+            }
+            EditorGUILayout.EndHorizontal();
         }
 
         // ---- the flow-backed half, folded away --------------------------------------
