@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
+using PowerOfFire.DrawToPlay.Editor;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -163,6 +165,60 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(knob.defaultValue, Is.EqualTo(""), "no default: the def picks it");
             Assert.That(ServiceSettings.Find(typeof(CraftService),
                 nameof(CraftService.benchRange)).defaultValue, Is.EqualTo(2.4f));
+        }
+
+
+        [Test]
+        public void ThePanelOffersEveryDeclaredKnob_WithTheClassDefaultAsTheFallback()
+        {
+            ServiceDef def = Def();
+            List<DeclaredOption> offered = DeclaredOptions.OfService(def);
+
+            var names = new List<string>();
+            for (int i = 0; i < offered.Count; i++)
+                names.Add(offered[i].name);
+            Assert.That(names, Is.EqualTo(new[] { "reach", "capacity", "loud", "stationTag", "mode" }),
+                "every knob, in declaration order, with nothing overridden yet");
+
+            DeclaredOption reach = offered[0];
+            Assert.That(reach.kind, Is.EqualTo(DeclaredOptionKind.Float));
+            Assert.That(reach.fallback, Is.EqualTo(2.4f), "the default is what it shows dimmed");
+
+            DeclaredOption mode = offered[4];
+            Assert.That(mode.kind, Is.EqualTo(DeclaredOptionKind.Enum));
+            Assert.That(mode.enumType, Is.EqualTo(typeof(TunedService.Mode)));
+            Assert.That(mode.fallback, Is.EqualTo(TunedService.Mode.Gentle));
+
+            DeclaredOption tag = offered[3];
+            Assert.That(tag.kind, Is.EqualTo(DeclaredOptionKind.Tag));
+            Assert.That(tag.fallback, Is.Null,
+                "a tag with no default has nothing honest to show — the panel says 'pick one'");
+            Assert.That(tag.tagOffers, Is.Not.Null, "and offers what the def declares");
+
+            // A def that names no type offers nothing, and says so instead of guessing.
+            def.serviceTypeName = "";
+            Assert.That(DeclaredOptions.OfService(def), Is.Empty);
+        }
+
+        [Test]
+        public void TheSharedPanel_ReadsADefsRowsThroughTheSettingShape()
+        {
+            ServiceDef def = Def();
+            def.settings.values.Add(new ServiceSettingValue { name = "reach", floatValue = 6f });
+            def.settings.values.Add(new ServiceSettingValue { name = "gone", floatValue = 1f });
+
+            var so = new SerializedObject(def);
+            SerializedProperty rows = so.FindProperty("settings.values");
+            List<DeclaredOption> offered = DeclaredOptions.OfService(def);
+
+            Assert.That(DeclaredOptionsPanel.Strays(rows, offered,
+                    DeclaredOptionRowShape.ServiceSetting), Is.EquivalentTo(new[] { 1 }),
+                "'gone' names no knob the class declares — the same stray a placement shows");
+            Assert.That(DeclaredOptionsPanel.Height(offered, rows,
+                    DeclaredOptionRowShape.ServiceSetting),
+                Is.GreaterThan(DeclaredOptionsPanel.Height(offered, rows,
+                    DeclaredOptionRowShape.ServiceSetting) - 1f),
+                "and the stray costs a line");
         }
 
         private ServiceDef Def()

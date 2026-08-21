@@ -8,6 +8,8 @@ namespace PowerOfFire.DrawToPlay.Tests
 {
     /// <summary>
     /// M34.1c — the placement's options are a PANEL, not a list you add rows to.
+    /// (M36.2 — and the panel is the shared one; what is pinned here is what the KIND declares
+    /// and what the body's seed contributes, which is all this caller decides.)
     ///
     /// What the panel promises is two things the list could not: it offers every option the
     /// kind declares (so an author finds out an option exists by looking, not by knowing the
@@ -48,17 +50,17 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             ServiceDef stand = Def("resource", prefab);
 
-            float health = PlacementAttributesDrawer.Seeded(stand, "health", out bool seeded);
+            float health = DeclaredOptions.Seeded(stand, "health", out bool seeded);
             Assert.That(seeded, Is.True);
             Assert.That(health, Is.EqualTo(3f).Within(0.001f),
                 "the panel shows what this one would start at, not an empty box");
 
-            PlacementAttributesDrawer.Seeded(stand, "attack", out bool guessed);
+            DeclaredOptions.Seeded(stand, "attack", out bool guessed);
             Assert.That(guessed, Is.False,
                 "half the kinds take their numbers from the row rather than a seed, and a "
                 + "confident 0 next to those is the panel's first lie");
 
-            PlacementAttributesDrawer.Seeded(Def("bodiless", null), "health", out bool nothing);
+            DeclaredOptions.Seeded(Def("bodiless", null), "health", out bool nothing);
             Assert.That(nothing, Is.False, "a def with no body seeds nothing");
         }
 
@@ -85,12 +87,23 @@ namespace PowerOfFire.DrawToPlay.Tests
             has.attribute.entryName = "health";
             declared.Add(has);
 
-            List<int> strays = PlacementAttributesDrawer.Strays(list, declared);
+            List<DeclaredOption> options = DeclaredOptions.OfKind(KindDef(declared));
+            List<int> strays = DeclaredOptionsPanel.Strays(list, options,
+                DeclaredOptionRowShape.PlacementAttribute);
             Assert.That(strays, Is.EquivalentTo(new[] { 1 }),
                 "'mana' names nothing this kind has, so the panel says so where it can be deleted");
 
-            Assert.That(PlacementAttributesDrawer.Strays(list, null).Count, Is.EqualTo(2),
+            Assert.That(DeclaredOptionsPanel.Strays(list, null,
+                    DeclaredOptionRowShape.PlacementAttribute).Count, Is.EqualTo(2),
                 "a placement whose kind lost its def declares nothing, so every row is a stray");
+        }
+
+        /// <summary>A def that declares exactly these attributes — the kind behind a placement.</summary>
+        private ServiceDef KindDef(List<ServiceAttribute> declared)
+        {
+            ServiceDef def = Def("kind", null);
+            def.attributes.AddRange(declared);
+            return def;
         }
 
         private ServiceDef Def(string name, GameObject prefab)
