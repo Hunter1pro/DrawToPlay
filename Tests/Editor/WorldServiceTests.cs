@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace PowerOfFire.DrawToPlay.Tests
 {
@@ -291,6 +292,43 @@ namespace PowerOfFire.DrawToPlay.Tests
 
         /// <summary>Root host + WorldService on the same GameObject, connected the way
         /// placement would in play mode.</summary>
+
+        // ------------------------------------------------------------------ composed bodies
+
+        [Test]
+        public void AComposedBody_IsOneCarrierOfItsTag_NotOnePerFacet()
+        {
+            WorldService world = MakeWorld(out StateTreeContextHost root);
+
+            // The factory tags EVERY citizen on a body (M31): a raider is its character and its
+            // ability host, both wearing 'enemy', both wearing 'player' when it is the player.
+            var body = new GameObject("Player");
+            body.SetActive(false);
+            m_Objects.Add(body);
+            StubBodyCitizen character = body.AddComponent<StubBodyCitizen>();
+            character.tags.Add("player");
+            StubMindCitizen mind = body.AddComponent<StubMindCitizen>();
+            mind.tags.Add("player");
+            body.SetActive(true);
+            world.AdoptStrays();
+
+            var carriers = new List<WorldObjectBehaviour>();
+            Assert.AreEqual(1, world.CollectByTag("player", carriers),
+                "two facets of one body are one carrier — the bench counted two stations and "
+                + "the broadside saw four raiders on a two-raider sea until this was true");
+            Assert.AreSame(character, carriers[0], "the first-registered facet stands for the body");
+
+            // And the singular lookup does not call the player 'not a singular tag' at every
+            // startup — that line was M35's ledger entry #6.
+            LogAssert.NoUnexpectedReceived();
+            Assert.AreSame(character, world.FindKnown("player"));
+
+            // A SECOND BODY is still a second carrier, and still the warning.
+            WorldObjectBehaviour other = MakeWorldObject("Other", "player");
+            world.AdoptStrays();
+            Assert.AreEqual(2, world.CollectByTag("player", null));
+        }
+
         private WorldService MakeWorld(out StateTreeContextHost root)
         {
             var go = new GameObject("Root");

@@ -207,8 +207,15 @@ namespace PowerOfFire.DrawToPlay
             return best;
         }
 
-        /// <summary>Append every live object carrying the tag; returns how many. First-registered
-        /// order, which is stable across calls.</summary>
+        /// <summary>Append every live BODY carrying the tag; returns how many. First-registered
+        /// order, which is stable across calls.
+        ///
+        /// ONE ENTRY PER BODY (M35.6). A composed object is several citizens on one transform
+        /// — a raider is its character and its ability host — and the factory tags every one of
+        /// them, so the bucket holds the same body twice. Every consumer of this list wants
+        /// bodies: the bench counted two stations, the cannon's broadside saw four raiders on a
+        /// two-raider sea, and the world index called the player "not a singular tag" at every
+        /// startup. The facet a caller needs is a GetComponent away on the body it gets.</summary>
         public int CollectByTag(string tag, List<WorldObjectBehaviour> into)
         {
             int count = 0;
@@ -217,7 +224,7 @@ namespace PowerOfFire.DrawToPlay
             {
                 for (int i = 0; i < bucket.Count; i++)
                 {
-                    if (bucket[i] == null)
+                    if (bucket[i] == null || IsFacetOfEarlier(bucket, i))
                         continue;
                     ++count;
                     into?.Add(bucket[i]);
@@ -226,6 +233,19 @@ namespace PowerOfFire.DrawToPlay
 
             Emit("query collect '" + tag + "' -> " + count, false);
             return count;
+        }
+
+        /// <summary>True when an earlier live entry in the bucket sits on the same GameObject —
+        /// this one is a second facet of a body the list already has.</summary>
+        private static bool IsFacetOfEarlier(List<WorldObjectBehaviour> bucket, int index)
+        {
+            GameObject body = bucket[index].gameObject;
+            for (int i = 0; i < index; i++)
+            {
+                if (bucket[i] != null && bucket[i].gameObject == body)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>The TYPED scripted object behind a GameObject the world knows — a
@@ -337,6 +357,9 @@ namespace PowerOfFire.DrawToPlay
                     known = bucket[i];
                     continue;
                 }
+                // A second FACET of the same body is not a second carrier (M35.6).
+                if (bucket[i].gameObject == known.gameObject)
+                    continue;
                 if (m_AmbiguousKnown.Add(tag))
                 {
                     Emit("known '" + tag + "' is carried by more than one object ('"
