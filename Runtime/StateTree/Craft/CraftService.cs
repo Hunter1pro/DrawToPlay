@@ -65,7 +65,7 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>The bag the costs come out of and the result goes into. Injected and
         /// self-healing like every other service field — a level swap refills it.</summary>
-        [InjectService] private InventoryService m_Inventory;
+        [InjectService] private IBag m_Inventory;
 
         /// <summary>
         /// WHAT THE PLAYER IS STANDING AT, pushed to the panel each tick.

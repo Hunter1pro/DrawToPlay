@@ -21,7 +21,7 @@ namespace PowerOfFire.DrawToPlay
     [ServiceActionContract(UseAction, "value = item name")]
     [ServiceActionContract(WearAction, "value = item name")]
     [ServiceActionContract(TakeoffAction, "value = slot name")]
-    public sealed class InventoryService : StateTreeService
+    public sealed class InventoryService : StateTreeService, IBag
     {
         /// <summary>
         /// Built by its scope's installer (M33), with the host it belongs to and the def it

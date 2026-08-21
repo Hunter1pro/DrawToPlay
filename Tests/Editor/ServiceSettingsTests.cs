@@ -269,6 +269,54 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(again.reach, Is.EqualTo(9f));
         }
 
+
+        /// <summary>A consumer that asks for the CAPABILITY — what every count-only atom does now.</summary>
+        private sealed class Counter
+        {
+            [InjectService] public IBag bag;
+        }
+
+        [Test]
+        public void TheSwap_ADefNamesAnotherClass_AndACapabilityConsumerCannotTell()
+        {
+            var items = ScriptableObject.CreateInstance<ItemRegistry>();
+            m_Junk.Add(items);
+            items.entries.Add(new ItemDef { id = "item.wood", name = "wood", displayName = "Wood" });
+
+            var def = ScriptableObject.CreateInstance<ServiceDef>();
+            def.name = "inventory";
+            def.serviceName = "inventory";
+            def.registry = items;
+            m_Junk.Add(def);
+
+            // THE REAL BAG, then the stub — the same def, one field changed.
+            foreach (System.Type implementation in new[]
+                { typeof(InventoryService), typeof(Examples.CountingBag) })
+            {
+                def.serviceTypeName = implementation.FullName;
+                StateTreeServiceInstaller installer = Installer("Scope " + implementation.Name);
+                StateTreeSubsystem built = installer.Install(def);
+                Assert.That(built.service, Is.InstanceOf(implementation));
+
+                var consumer = new Counter();
+                StateTreeServiceInjector.Inject(consumer, installer.scope.gameObject);
+                Assert.That(consumer.bag, Is.SameAs(built.service),
+                    implementation.Name + " was provided under IBag, so a consumer asking for the "
+                    + "capability got it without naming the class");
+
+                var board = new StateTreeContext(installer.scope.gameObject);
+                consumer.bag.Add(board, "wood", 3);
+                Assert.That(consumer.bag.Count(board, "wood"), Is.EqualTo(3));
+                Assert.That(consumer.bag.Remove(board, "wood", 5), Is.False, "all-or-nothing");
+                Assert.That(consumer.bag.Has(board, "wood", 3), Is.True);
+
+                // AND TAKING IT OUT forgets every name it was provided under.
+                installer.Uninstall(def);
+                Assert.That(installer.scope.GetService<IBag>(), Is.Null);
+                Assert.That(installer.scope.GetService(implementation), Is.Null);
+            }
+        }
+
         private StateTreeServiceInstaller Installer(string scopeName)
         {
             var go = new GameObject(scopeName) { hideFlags = HideFlags.HideAndDontSave };

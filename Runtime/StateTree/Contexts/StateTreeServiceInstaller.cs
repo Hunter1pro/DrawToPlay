@@ -192,10 +192,30 @@ namespace PowerOfFire.DrawToPlay
                 host.tuning = null;
             }
 
+            // UNDER ITS CLASS, AND UNDER EVERY CAPABILITY IT DECLARES (M36.4): a consumer that
+            // asks for IBag gets whichever class the def named — which is the whole of what
+            // "swap the implementation by changing one def field" means. Only this toolset's
+            // own interfaces count; IDisposable and friends are not capabilities.
             host.Provide(type, instance);
+            foreach (Type capability in Capabilities(type))
+                host.Provide(capability, instance);
             var subsystem = new StateTreeSubsystem(host, def, instance as StateTreeService, type);
             m_Installed.Add(subsystem);
             return subsystem;
+        }
+
+        /// <summary>The interfaces a service type offers as capabilities — the ones declared in
+        /// this toolset, so a swap is asked for by something the project named.</summary>
+        public static IEnumerable<Type> Capabilities(Type serviceType)
+        {
+            Type[] interfaces = serviceType != null ? serviceType.GetInterfaces() : Type.EmptyTypes;
+            for (int i = 0; i < interfaces.Length; i++)
+            {
+                Type candidate = interfaces[i];
+                if (candidate.Namespace != null
+                    && candidate.Namespace.StartsWith("PowerOfFire.", StringComparison.Ordinal))
+                    yield return candidate;
+            }
         }
 
         private static Type Resolve(string typeName)

@@ -92,10 +92,9 @@ namespace PowerOfFire.DrawToPlay
                 return string.IsNullOrEmpty(requiresTag)
                     ? null
                     : "is no '" + requiresTag + "'";
-            InventoryService inventory =
-                StateTreeContextHost.FindService<InventoryService>(context.owner);
+            IBag inventory = StateTreeContextHost.FindService<IBag>(context.owner);
             if (inventory == null)
-                return "no InventoryService is reachable from this actor";
+                return "no bag is reachable from this actor";
             StateTreeContextHost carrier = StateTreeContextHost.Resolve(context.owner,
                 StateTreeContextKind.Player);
             if (carrier == null || carrier.Context == null)
