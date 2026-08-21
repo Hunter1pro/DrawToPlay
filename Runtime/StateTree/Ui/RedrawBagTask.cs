@@ -34,14 +34,11 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>The shown bag skin, through the UI service's ledger — the hub holds the
-        /// references so tasks can reach the systems they drive.</summary>
+        /// references so tasks can reach the systems they drive. See <see cref="UiSkin"/>,
+        /// where that walk is written once for every task that takes it.</summary>
         internal static InventoryWidgetView FindBag(StateTreeContext context, string rowName)
         {
-            UiService service = StateTreeContextHost.FindService<UiService>(context.owner);
-            GameObject view = service != null ? service.ShownView(rowName) : null;
-            return view != null
-                ? view.GetComponentInChildren<InventoryWidgetView>(true)
-                : null;
+            return UiSkin.Shown<InventoryWidgetView>(context, rowName);
         }
     }
 }

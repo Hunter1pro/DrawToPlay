@@ -57,23 +57,31 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>
+        /// WHICH SCOPE A PRESS LANDS ON. The root by default, because that is where a session
+        /// watches: one player, one screen, one board. A skin shown by a PER-PLAYER service
+        /// overrides this to <see cref="StateTreeContextKind.Player"/> — its press is that
+        /// player's, and on a split screen the other one must not hear it.
+        /// </summary>
+        protected virtual StateTreeContextKind requestScope => StateTreeContextKind.Root;
+
+        /// <summary>
         /// The view's ONE output edge (the UI wiring brief): a press becomes a REQUEST on
-        /// the root blackboard — the GotoKey shape travel proved — served by whatever flow
-        /// state watches the key. Views request; trees decide what happens, visibly.
+        /// the <see cref="requestScope"/> blackboard — the GotoKey shape travel proved —
+        /// served by whatever flow state watches the key. Views request; trees decide what
+        /// happens, visibly.
         /// </summary>
         protected void Request(string key, string value = "1")
         {
             if (string.IsNullOrEmpty(key))
                 return;
-            StateTreeContextHost root = StateTreeContextHost.Resolve(gameObject,
-                StateTreeContextKind.Root);
-            if (root == null || root.Context == null)
+            StateTreeContextHost host = StateTreeContextHost.Resolve(gameObject, requestScope);
+            if (host == null || host.Context == null)
             {
-                Debug.LogWarning("[Ui] '" + name + "' has no root scope to request '"
-                    + key + "' on — the press went nowhere.", this);
+                Debug.LogWarning("[Ui] '" + name + "' has no " + requestScope
+                    + " scope to request '" + key + "' on — the press went nowhere.", this);
                 return;
             }
-            root.Context.blackboard[key] = value ?? "";
+            host.Context.blackboard[key] = value ?? "";
         }
 
         /// <summary>Convenience reads for implementations.</summary>
