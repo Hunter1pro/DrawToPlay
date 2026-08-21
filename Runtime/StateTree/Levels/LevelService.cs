@@ -31,6 +31,10 @@ namespace PowerOfFire.DrawToPlay
     /// verbs through thin atoms (<see cref="EnterExpeditionTask"/>,
     /// <see cref="ReturnFromExpeditionTask"/>, <see cref="LoadLevelTask"/>).
     /// </summary>
+    [ServiceActionContract(GotoAction, "value = level name — the session travels there")]
+    [ServiceActionContract(ExpeditionAction,
+        "value = level name — travel there and remember the way back")]
+    [ServiceActionContract(ReturnAction, "no value — go back where the expedition started")]
     public sealed class LevelService : StateTreeService
     {
 
@@ -54,6 +58,18 @@ namespace PowerOfFire.DrawToPlay
         /// below, the dev picker directly); the session tree's travel state serves it and
         /// consumes it. One key, one mechanism.</summary>
         public const string GotoKey = "level:goto";
+
+        /// <summary>The declared travel action — <see cref="RequestLevel"/> as something a
+        /// caller can ASK for by name (M33's §4g request table) rather than only by holding
+        /// this class. A def that declares it names the level catalog beside it, so a request
+        /// for a level nobody has is refused at the door with the name in the message.</summary>
+        public const string GotoAction = "level-goto";
+
+        /// <summary>The declared form of <see cref="EnterExpedition"/>.</summary>
+        public const string ExpeditionAction = "level-expedition";
+
+        /// <summary>The declared form of <see cref="ReturnFromExpedition"/>.</summary>
+        public const string ReturnAction = "level-return";
 
         public LevelDef current { get; private set; }
 
@@ -118,6 +134,29 @@ namespace PowerOfFire.DrawToPlay
             RequestLevel(returnLevel);
             returnLevel = null;
             return true;
+        }
+
+        /// <summary>
+        /// THE VERBS, ASKED FOR (M33 §4g) — the same three the portals and the picker call
+        /// directly, reachable by a declared key so a tree or a UI row can travel without a
+        /// reference to this class. Nothing new happens here: each case is the verb.
+        /// </summary>
+        protected override void OnRequest(ServiceRequest request, string value)
+        {
+            switch (request.action)
+            {
+                case GotoAction:
+                    RequestLevel(value);
+                    break;
+
+                case ExpeditionAction:
+                    EnterExpedition(value);
+                    break;
+
+                case ReturnAction:
+                    ReturnFromExpedition();
+                    break;
+            }
         }
 
         /// <summary>
