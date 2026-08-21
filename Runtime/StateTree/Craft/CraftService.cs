@@ -28,16 +28,27 @@ namespace PowerOfFire.DrawToPlay
         public CraftService(StateTreeContextHost scope, ServiceDef definition)
             : base(scope, definition)
         {
+            // The base constructor has applied the def's settings by now (M36), so this is the
+            // final answer — and an empty one means no bench can ever be found.
+            if (string.IsNullOrEmpty(stationTag))
+            {
+                Debug.LogError("[Craft] '" + (definition != null ? definition.name : "?")
+                    + "' sets no 'stationTag' — the bench cannot be found. Pick the tag a "
+                    + "station wears on the def's Settings.");
+            }
         }
 
-        [Tooltip("How close the player must be for a station's panel to open, in metres. "
-            + "Slightly wider than the craft ability's own reach, so the offer is on screen "
-            + "before the button would work rather than after.")]
-        public float benchRange = 2.4f;
+        [ServiceSetting(2.4f, "How close the player must be for a station's panel to open, in "
+            + "metres. Slightly wider than the craft ability's own reach, so the offer is on "
+            + "screen before the button would work rather than after.")]
+        public float benchRange;
 
-        [Tooltip("The tag a station carries.")]
+        /// <summary>NO DEFAULT, on purpose (M36): a tag written in code is the pattern M31
+        /// destroyed everywhere else — invisible to the map, unrenameable, unpicked. The def
+        /// picks it from the vocabulary it declares, and a def that forgot is told so below.</summary>
+        [ServiceSetting("", "What a station is — the tag a bench wears.")]
         [WorldTag("World")]
-        public string stationTag = "station";
+        public string stationTag;
 
         /// <summary>The one verb, as a symbol — the attribute above, the switch below and the
         /// demo's def all reference this, so declaration and dispatch cannot drift.</summary>

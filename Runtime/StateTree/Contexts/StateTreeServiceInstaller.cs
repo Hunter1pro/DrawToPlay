@@ -152,23 +152,7 @@ namespace PowerOfFire.DrawToPlay
 
         private static Type Resolve(string typeName)
         {
-            if (string.IsNullOrEmpty(typeName))
-                return null;
-            Type direct = Type.GetType(typeName);
-            if (direct != null)
-                return direct;
-            foreach (System.Reflection.Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                Type[] types;
-                try { types = assembly.GetTypes(); }
-                catch { continue; }
-                for (int i = 0; i < types.Length; i++)
-                {
-                    if (types[i].Name == typeName || types[i].FullName == typeName)
-                        return types[i];
-                }
-            }
-            return null;
+            return ServiceDef.ResolveServiceType(typeName);
         }
     }
 }

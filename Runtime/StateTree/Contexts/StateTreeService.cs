@@ -35,6 +35,13 @@ namespace PowerOfFire.DrawToPlay
                 : throw new ArgumentNullException(nameof(scope),
                     "A service belongs to a scope: it reads that scope's board and dies with it.");
             m_Definition = definition;
+
+            // THE SETTINGS LAND HERE (M36): every declared default first, then the def's
+            // overrides — and the derived constructor body has not run yet, so it sees the final
+            // numbers when it does. This is the only place that is true.
+            ServiceSettings.Initialize(this);
+            if (definition != null)
+                ServiceSettings.Apply(this, definition.settings, "def '" + definition.name + "'");
         }
 
         private readonly StateTreeContextHost m_Scope;
@@ -64,6 +71,13 @@ namespace PowerOfFire.DrawToPlay
             if (!m_Started)
             {
                 m_Started = true;
+                // ITS OWN COLLABORATORS, FIRST (M36.1's find): the behaviour this class replaced
+                // filled a service's [InjectService] fields in OnEnable, and M33 deleted it
+                // without moving that here — so every such field has read null since, and the
+                // bench never opened. The first tick is the right moment: every subsystem on
+                // the scope is installed by now, in dependency order, so a miss is a real
+                // wiring error and is said out loud.
+                StateTreeServiceInjector.Inject(this, m_Scope.gameObject);
                 ServiceDef def = m_Definition;
                 if (def != null)
                 {

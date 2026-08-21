@@ -28,11 +28,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             // a subsystem whose handlers wait, and on a def-only one it is four empty
             // fields pretending to be part of the declaration.
             DrawPropertiesExcluding(serializedObject, "m_Script", "serviceTypeName",
-                "requests", "spawns", "announcements", "implements", "attributes",
+                "requests", "spawns", "announcements", "implements", "attributes", "settings",
                 "treeKind", "flows", "nestingRules", "kindSeeds");
             serializedObject.ApplyModifiedProperties();
 
             DrawServiceType(def);
+            DrawSettings(def);
             DrawImplements(def);
             DrawAttributes(def);
             DrawRequests(def);
@@ -726,6 +727,170 @@ namespace PowerOfFire.DrawToPlay.Editor
                     return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// HOW THIS KIND IS TUNED (M36) — every knob the class declares, its default dimmed
+        /// beside it, a tick where this def differs. The same shape as a placement's options
+        /// (M34.1c), one rung up; 36.2 makes the two one widget.
+        ///
+        /// A tag-typed knob is PICKED from the vocabularies this def declares — the thing that
+        /// used to be a word in the service's C#. Rows the class no longer declares are listed
+        /// after, as strays with an ✕: the runtime refuses them at construction anyway.
+        /// </summary>
+        private void DrawSettings(ServiceDef def)
+        {
+            EditorGUILayout.Space(6f);
+            EditorGUILayout.LabelField(new GUIContent("Settings — how it is tuned",
+                "What the service class declares it can be tuned by. Tick to give this def its "
+                + "own value; unticked follows the class default."), EditorStyles.boldLabel);
+
+            System.Type type = def.serviceType;
+            if (type == null)
+            {
+                EditorGUILayout.LabelField("name a service type first", EditorStyles.miniLabel);
+                return;
+            }
+            var declared = ServiceSettings.DeclaredOn(type);
+            if (declared.Count == 0)
+                EditorGUILayout.LabelField(type.Name + " declares no settings", EditorStyles.miniLabel);
+
+            for (int i = 0; i < declared.Count; i++)
+            {
+                ServiceSettings.Declared knob = declared[i];
+                ServiceSettingValue row = def.settings.Find(knob.name);
+                bool overridden = row != null;
+
+                EditorGUILayout.BeginHorizontal();
+                bool tick = EditorGUILayout.Toggle(overridden, GUILayout.Width(18f));
+                EditorGUILayout.LabelField(new GUIContent(knob.name, knob.description),
+                    GUILayout.Width(EditorGUIUtility.labelWidth - 22f));
+
+                if (tick != overridden)
+                {
+                    if (tick)
+                    {
+                        var fresh = new ServiceSettingValue { name = knob.name };
+                        ServiceSettings.Store(fresh, knob.defaultValue);
+                        Commit(() => def.settings.values.Add(fresh));
+                        row = fresh;
+                    }
+                    else
+                    {
+                        ServiceSettingValue gone = row;
+                        Commit(() => def.settings.values.Remove(gone));
+                        row = null;
+                    }
+                    overridden = row != null;
+                }
+
+                if (overridden)
+                    DrawSettingValue(def, knob, row);
+                else
+                {
+                    using (new EditorGUI.DisabledScope(true))
+                    {
+                        if (knob.isTag && string.IsNullOrEmpty(knob.defaultValue as string))
+                            EditorGUILayout.TextField("— no tag; pick one");
+                        else
+                            EditorGUILayout.TextField(System.Convert.ToString(knob.defaultValue));
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+
+            // STRAYS: stored for a knob the class no longer has.
+            for (int i = 0; i < def.settings.values.Count; i++)
+            {
+                ServiceSettingValue row = def.settings.values[i];
+                if (row == null || ServiceSettings.Find(type, row.name) != null)
+                    continue;
+                int index = i;
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField("⚠ '" + row.name + "' is not a setting " + type.Name
+                    + " declares", EditorStyles.miniLabel);
+                if (GUILayout.Button("✕", GUILayout.Width(22f)))
+                {
+                    Commit(() => def.settings.values.RemoveAt(index));
+                    GUIUtility.ExitGUI();
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+        }
+
+        /// <summary>The editable half of one overridden knob, by its declared type.</summary>
+        private void DrawSettingValue(ServiceDef def, ServiceSettings.Declared knob,
+            ServiceSettingValue row)
+        {
+            if (knob.isTag)
+            {
+                using (new EditorGUI.DisabledScope(true))
+                {
+                    EditorGUILayout.TextField(string.IsNullOrEmpty(row.stringValue)
+                        ? "(pick a tag)" : row.stringValue);
+                }
+                if (GUILayout.Button("▾", GUILayout.Width(22f)))
+                    ShowTagMenu(def, row);
+                return;
+            }
+
+            System.Type type = knob.type;
+            if (type == typeof(float))
+            {
+                float next = EditorGUILayout.FloatField(row.floatValue);
+                if (!Mathf.Approximately(next, row.floatValue))
+                    Commit(() => row.floatValue = next);
+            }
+            else if (type == typeof(int))
+            {
+                int next = EditorGUILayout.IntField(Mathf.RoundToInt(row.floatValue));
+                if (next != Mathf.RoundToInt(row.floatValue))
+                    Commit(() => row.floatValue = next);
+            }
+            else if (type == typeof(bool))
+            {
+                bool next = EditorGUILayout.Toggle(row.floatValue > 0.5f);
+                if (next != row.floatValue > 0.5f)
+                    Commit(() => row.floatValue = next ? 1f : 0f);
+            }
+            else if (type.IsEnum)
+            {
+                var current = ServiceSettings.Convert(type, row) as System.Enum
+                    ?? (System.Enum)knob.defaultValue;
+                System.Enum next = EditorGUILayout.EnumPopup(current);
+                if (!Equals(next, current))
+                    Commit(() => row.stringValue = next.ToString());
+            }
+            else
+            {
+                string next = EditorGUILayout.TextField(row.stringValue ?? "");
+                if (next != (row.stringValue ?? ""))
+                    Commit(() => row.stringValue = next);
+            }
+        }
+
+        /// <summary>The tags this def may name — what it declares, nothing else.</summary>
+        private void ShowTagMenu(ServiceDef def, ServiceSettingValue row)
+        {
+            var offers = new List<WorldTagDef>();
+            StateTreeOffers.TagsFor(def, offers);
+            var menu = new GenericMenu();
+            if (offers.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent("this def declares no tag vocabulary — "
+                    + "add one under Declares"));
+            }
+            for (int i = 0; i < offers.Count; i++)
+            {
+                WorldTagDef tag = offers[i];
+                bool taken = tag.name == row.stringValue;
+                menu.AddItem(new GUIContent(tag.name), taken, () => Commit(() =>
+                {
+                    row.stringValue = tag.name;
+                    row.entryId = tag.id;
+                }));
+            }
+            menu.ShowAsContext();
         }
 
         private void DrawFlowBacked(ServiceDef def)

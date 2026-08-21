@@ -118,6 +118,47 @@ namespace PowerOfFire.DrawToPlay
         public List<ServiceAttribute> attributes = new List<ServiceAttribute>();
 
         /// <summary>
+        /// HOW THIS KIND IS TUNED (M36) — the class's declared knobs, overridden here.
+        ///
+        /// A service class says what it can be tuned by (<see cref="ServiceSettingAttribute"/>
+        /// on a field, with the initializer as the default); this is where the project says how
+        /// much. Only what differs is stored, so a changed default flows through every def that
+        /// never touched it. The third layer, per install, sits on the installer row.
+        ///
+        /// Not attributes (those are state a body HAS and effects change) and not parameters
+        /// (those are a flow's arguments): a setting is read once, in the constructor, and never
+        /// again.
+        /// </summary>
+        public ServiceSettingSet settings = new ServiceSettingSet();
+
+        /// <summary>The class this def builds, or null while the name resolves to nothing —
+        /// what the installer constructs and what the settings panel asks for its knobs.</summary>
+        public Type serviceType => ResolveServiceType(serviceTypeName);
+
+        /// <summary>A service type by its stored name — full name first, then the bare name
+        /// across loaded assemblies, because the older defs stored either.</summary>
+        public static Type ResolveServiceType(string typeName)
+        {
+            if (string.IsNullOrEmpty(typeName))
+                return null;
+            Type direct = Type.GetType(typeName);
+            if (direct != null)
+                return direct;
+            foreach (System.Reflection.Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type[] types;
+                try { types = assembly.GetTypes(); }
+                catch { continue; }
+                for (int i = 0; i < types.Length; i++)
+                {
+                    if (types[i].Name == typeName || types[i].FullName == typeName)
+                        return types[i];
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
         /// The request for a key — AUTHORED FIRST, then derived from what this def has (M30.4).
         ///
         /// The order matters and is the whole compatibility story: a def that hand-wrote

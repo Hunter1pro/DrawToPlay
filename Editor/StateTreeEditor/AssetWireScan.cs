@@ -369,6 +369,21 @@ namespace PowerOfFire.DrawToPlay.Editor
             // def that goes quiet the day somebody adds one.
             if (def.body != null)
                 ScanValue(def.body, def, label + " · body", index, 0);
+            // A TAG-TYPED SETTING (M36) is a question asked of the world — "which things are
+            // stations" — and the row that stores it is generic, so the class it tunes is asked
+            // which of its knobs are tags. This is the edge that used to be a word in C#.
+            Type tuned = def.serviceType;
+            for (int i = 0; def.settings != null && i < def.settings.values.Count; i++)
+            {
+                ServiceSettingValue row = def.settings.values[i];
+                ServiceSettings.Declared knob = row != null
+                    ? ServiceSettings.Find(tuned, row.name) : null;
+                if (knob != null && knob.isTag)
+                {
+                    AddTag(index, row.stringValue, def, label, "settings." + row.name, null,
+                        wears: false);
+                }
+            }
             for (int i = 0; def.spawns != null && i < def.spawns.Count; i++)
             {
                 var spawn = def.spawns[i];
