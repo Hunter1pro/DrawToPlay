@@ -52,6 +52,7 @@ namespace PowerOfFire.DrawToPlay.Tests
     public sealed class ServiceSettingsTests
     {
         private readonly List<Object> m_Junk = new List<Object>();
+        private readonly List<StateTreeContextHost> m_Hosts = new List<StateTreeContextHost>();
         private StateTreeContextHost m_Scope;
 
         [SetUp]
@@ -70,6 +71,12 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             if (m_Scope != null)
                 m_Scope.Unregister();
+            for (int i = 0; i < m_Hosts.Count; i++)
+            {
+                if (!ReferenceEquals(m_Hosts[i], null))
+                    m_Hosts[i].Unregister();
+            }
+            m_Hosts.Clear();
             for (int i = 0; i < m_Junk.Count; i++)
             {
                 if (m_Junk[i] != null)
@@ -219,6 +226,61 @@ namespace PowerOfFire.DrawToPlay.Tests
                 Is.GreaterThan(DeclaredOptionsPanel.Height(offered, rows,
                     DeclaredOptionRowShape.ServiceSetting) - 1f),
                 "and the stray costs a line");
+        }
+
+
+        [Test]
+        public void OneDef_TwoScopes_TwoReaches_AndEachNumberKnowsWhereItCameFrom()
+        {
+            ServiceDef def = Def();
+            def.settings.values.Add(new ServiceSettingValue { name = "reach", floatValue = 6f });
+
+            // THE YARD takes the def as it is; THE RIDGE tunes this one install.
+            StateTreeServiceInstaller yard = Installer("Yard");
+            StateTreeServiceInstaller ridge = Installer("Ridge");
+            var tuned = new ServiceInstall(def);
+            tuned.settings.values.Add(new ServiceSettingValue { name = "reach", floatValue = 9f });
+            tuned.settings.values.Add(new ServiceSettingValue { name = "capacity", floatValue = 8f });
+
+            var inYard = (TunedService)yard.Install(def).service;
+            var onRidge = (TunedService)ridge.Install(tuned).service;
+
+            Assert.That(inYard.reach, Is.EqualTo(6f), "the def's tuning");
+            Assert.That(onRidge.reach, Is.EqualTo(9f), "this install's tuning, on top");
+            Assert.That(onRidge.reachAtConstruction, Is.EqualTo(9f),
+                "and the derived constructor body saw the install's number — the layer travels "
+                + "through the scope before the body runs");
+            Assert.That(onRidge.capacity, Is.EqualTo(8));
+            Assert.That(inYard.capacity, Is.EqualTo(256), "an install does not leak into another");
+
+            Assert.That(inYard.settingSources["reach"], Is.EqualTo(ServiceSettingSource.Def));
+            Assert.That(inYard.settingSources["capacity"], Is.EqualTo(ServiceSettingSource.Code));
+            Assert.That(onRidge.settingSources["reach"], Is.EqualTo(ServiceSettingSource.Install));
+            Assert.That(onRidge.settingSources["capacity"], Is.EqualTo(ServiceSettingSource.Install));
+            Assert.That(onRidge.settingSources["loud"], Is.EqualTo(ServiceSettingSource.Code));
+
+            // THE LAYER IS GONE the moment construction ends: a service built by hand
+            // afterwards on the same scope sees nothing of the ridge's row.
+            var byHand = new TunedService(ridge.scope, def);
+            Assert.That(byHand.reach, Is.EqualTo(6f));
+
+            // AND A REINSTALL KEEPS THE ROW — the tuning belongs to the scope, not to the instance.
+            var again = (TunedService)ridge.Reinstall(def).service;
+            Assert.That(again.reach, Is.EqualTo(9f));
+        }
+
+        private StateTreeServiceInstaller Installer(string scopeName)
+        {
+            var go = new GameObject(scopeName) { hideFlags = HideFlags.HideAndDontSave };
+            m_Junk.Add(go);
+            StateTreeContextHost host = go.AddComponent<StateTreeContextHost>();
+            host.kind = StateTreeContextKind.Level;
+            host.autoStart = false;
+            host.Register();
+            m_Hosts.Add(host);
+            StateTreeServiceInstaller installer = go.AddComponent<StateTreeServiceInstaller>();
+            installer.scope = host;
+            return installer;
         }
 
         private ServiceDef Def()

@@ -21,6 +21,9 @@ namespace PowerOfFire.DrawToPlay
     /// the message — the placement-attribute rule. A value sitting there doing nothing is the
     /// worst kind of typo.
     /// </summary>
+    /// <summary>Which layer a setting's value came from.</summary>
+    public enum ServiceSettingSource { Code, Def, Install }
+
     public static class ServiceSettings
     {
         /// <summary>One declared knob: the field, its default, its description, and whether
@@ -107,11 +110,24 @@ namespace PowerOfFire.DrawToPlay
                 declared[i].field.SetValue(service, declared[i].defaultValue);
         }
 
+        /// <summary>Every declared setting marked as coming from the class — the record the
+        /// layers above overwrite as they land.</summary>
+        public static Dictionary<string, ServiceSettingSource> Sources(object service)
+        {
+            var sources = new Dictionary<string, ServiceSettingSource>();
+            IReadOnlyList<Declared> declared = DeclaredOn(service != null ? service.GetType() : null);
+            for (int i = 0; i < declared.Count; i++)
+                sources[declared[i].name] = ServiceSettingSource.Code;
+            return sources;
+        }
+
         /// <summary>
         /// Land one layer's rows on a service. Called by the base constructor with the def's
         /// layer, then the install's, so the later call wins where both speak.
         /// </summary>
-        public static void Apply(object service, ServiceSettingSet layer, string layerLabel)
+        public static void Apply(object service, ServiceSettingSet layer, string layerLabel,
+            Dictionary<string, ServiceSettingSource> sources = null,
+            ServiceSettingSource source = ServiceSettingSource.Def)
         {
             if (service == null || layer == null || layer.isEmpty)
                 return;
@@ -140,6 +156,8 @@ namespace PowerOfFire.DrawToPlay
                     continue;
                 }
                 knob.field.SetValue(service, value);
+                if (sources != null)
+                    sources[row.name] = source;
             }
         }
 

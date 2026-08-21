@@ -43,6 +43,10 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>True until it has been taken out.</summary>
         public bool installed => service != null;
 
+        /// <summary>The installer row this was built from — its def plus this scope's tuning —
+        /// so a reinstall rebuilds the same thing, not just the same def.</summary>
+        public ServiceInstall row { get; internal set; }
+
         public void Dispose()
         {
             if (service == null)

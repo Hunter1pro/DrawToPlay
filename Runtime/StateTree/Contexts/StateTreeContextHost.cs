@@ -392,6 +392,15 @@ namespace PowerOfFire.DrawToPlay
         /// (register it once per interface it serves).</summary>
         private readonly Dictionary<Type, object> m_Provided = new Dictionary<Type, object>();
 
+        /// <summary>
+        /// THE INSTALL LAYER IN FLIGHT (M36.3): set by the installer for the length of one
+        /// subsystem's construction, taken by <see cref="StateTreeService"/>'s constructor, and
+        /// null at every other moment. It is the one piece of per-install data the (scope, def)
+        /// contract has no parameter for, carried by the scope because the scope is what both
+        /// sides already hold.
+        /// </summary>
+        internal ServiceSettingSet tuning;
+
         /// <summary>Type-only registrations (M15): capability → implementation to construct
         /// ON FIRST ASK, constructor-injected from this scope's view of the spine. This is
         /// what keeps installers order-free at MissionSystem scale — registration declares,

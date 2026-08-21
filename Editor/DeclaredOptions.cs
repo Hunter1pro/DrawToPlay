@@ -68,6 +68,30 @@ namespace PowerOfFire.DrawToPlay.Editor
             return options;
         }
 
+        /// <summary>
+        /// An INSTALL's options (M36.3): the same knobs as <see cref="OfService"/>, but the
+        /// fallback is the DEF's value where the def overrides — the layer below an install is
+        /// the def, not the class. A tag the def picked is what the install would follow.
+        /// </summary>
+        public static List<DeclaredOption> OfInstall(ServiceDef def)
+        {
+            List<DeclaredOption> options = OfService(def);
+            for (int i = 0; def != null && i < options.Count; i++)
+            {
+                DeclaredOption option = options[i];
+                ServiceSettingValue row = def.settings.Find(option.name);
+                if (row == null)
+                    continue;
+                ServiceSettings.Declared knob = ServiceSettings.Find(def.serviceType, option.name);
+                object fromDef = knob != null ? ServiceSettings.Convert(knob.type, row) : null;
+                if (option.kind == DeclaredOptionKind.Tag)
+                    fromDef = string.IsNullOrEmpty(row.stringValue) ? null : row.stringValue;
+                if (fromDef != null)
+                    option.fallback = fromDef;
+            }
+            return options;
+        }
+
         /// <summary>What a body starts an attribute at: its prefab's seed, when it has one.</summary>
         internal static float Seeded(ServiceDef def, string attribute, out bool seeded)
         {

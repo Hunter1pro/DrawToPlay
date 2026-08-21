@@ -37,15 +37,31 @@ namespace PowerOfFire.DrawToPlay
             m_Definition = definition;
 
             // THE SETTINGS LAND HERE (M36): every declared default first, then the def's
-            // overrides — and the derived constructor body has not run yet, so it sees the final
-            // numbers when it does. This is the only place that is true.
+            // overrides, then this install's — and the derived constructor body has not run
+            // yet, so it sees the final numbers when it does. This is the only place that is
+            // true. Each layer that speaks is remembered, so the scope tree can say where a
+            // number came from.
             ServiceSettings.Initialize(this);
+            m_SettingSources = ServiceSettings.Sources(this);
             if (definition != null)
-                ServiceSettings.Apply(this, definition.settings, "def '" + definition.name + "'");
+            {
+                ServiceSettings.Apply(this, definition.settings, "def '" + definition.name + "'",
+                    m_SettingSources, ServiceSettingSource.Def);
+            }
+            if (scope.tuning != null)
+            {
+                ServiceSettings.Apply(this, scope.tuning, "the install on '" + scope.name + "'",
+                    m_SettingSources, ServiceSettingSource.Install);
+            }
         }
 
         private readonly StateTreeContextHost m_Scope;
         private readonly ServiceDef m_Definition;
+        private readonly Dictionary<string, ServiceSettingSource> m_SettingSources;
+
+        /// <summary>Where each declared setting's value came from — the class, the def, or this
+        /// install. What the scope tree shows beside the number.</summary>
+        public IReadOnlyDictionary<string, ServiceSettingSource> settingSources => m_SettingSources;
 
         /// <summary>The host this subsystem lives on.</summary>
         public StateTreeContextHost scope => m_Scope;

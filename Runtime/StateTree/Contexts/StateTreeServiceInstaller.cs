@@ -26,8 +26,8 @@ namespace PowerOfFire.DrawToPlay
     public sealed class StateTreeServiceInstaller : MonoBehaviour
     {
         [Tooltip("The subsystems this scope runs, in the order they depend on each other. Each "
-            + "def names its own service type.")]
-        public List<ServiceDef> install = new List<ServiceDef>();
+            + "def names its own service type; a row may tune the def's settings for this scope.")]
+        public List<ServiceInstall> install = new List<ServiceInstall>();
 
         [Tooltip("Subsystems that have no def yet, by type name — the world index, the level "
             + "loader. A declaration is better and these should grow one; this is the honest "
@@ -44,7 +44,7 @@ namespace PowerOfFire.DrawToPlay
                 return;
 
             for (int i = 0; i < install.Count; i++)
-                Build(host, install[i], install[i] != null ? install[i].serviceTypeName : "");
+                Build(host, install[i]);
             for (int i = 0; i < undeclared.Count; i++)
                 Build(host, null, undeclared[i]);
         }
@@ -67,10 +67,14 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public StateTreeSubsystem Install(ServiceDef def)
         {
+            return Install(new ServiceInstall(def));
+        }
+
+        /// <summary>Build one subsystem with this scope's tuning on top of the def's.</summary>
+        public StateTreeSubsystem Install(ServiceInstall row)
+        {
             StateTreeContextHost host = Scope();
-            return host != null
-                ? Build(host, def, def != null ? def.serviceTypeName : "")
-                : null;
+            return host != null ? Build(host, row) : null;
         }
 
         /// <summary>Take one out: its screens hidden, its service forgotten and disposed.</summary>
@@ -91,8 +95,32 @@ namespace PowerOfFire.DrawToPlay
         /// running, which is the thing a per-scope container could not do.</summary>
         public StateTreeSubsystem Reinstall(ServiceDef def)
         {
+            ServiceInstall row = InstalledRowFor(def) ?? RowFor(def) ?? new ServiceInstall(def);
             Uninstall(def);
-            return Install(def);
+            return Install(row);
+        }
+
+        /// <summary>The row a LIVE subsystem was built from — which may have been handed in at
+        /// runtime rather than authored on this component.</summary>
+        private ServiceInstall InstalledRowFor(ServiceDef def)
+        {
+            for (int i = 0; def != null && i < m_Installed.Count; i++)
+            {
+                if (m_Installed[i] != null && m_Installed[i].definition == def)
+                    return m_Installed[i].row;
+            }
+            return null;
+        }
+
+        /// <summary>The authored row for a def, so a reinstall keeps this scope's tuning.</summary>
+        public ServiceInstall RowFor(ServiceDef def)
+        {
+            for (int i = 0; def != null && i < install.Count; i++)
+            {
+                if (install[i] != null && install[i].def == def)
+                    return install[i];
+            }
+            return null;
         }
 
         private StateTreeContextHost Scope()
@@ -108,8 +136,18 @@ namespace PowerOfFire.DrawToPlay
 
         private readonly List<StateTreeSubsystem> m_Installed = new List<StateTreeSubsystem>();
 
+        private StateTreeSubsystem Build(StateTreeContextHost host, ServiceInstall row)
+        {
+            ServiceDef def = row != null ? row.def : null;
+            StateTreeSubsystem built = Build(host, def, def != null ? def.serviceTypeName : "",
+                row != null ? row.settings : null);
+            if (built != null)
+                built.row = row;
+            return built;
+        }
+
         private StateTreeSubsystem Build(StateTreeContextHost host, ServiceDef def,
-            string typeName)
+            string typeName, ServiceSettingSet tuning = null)
         {
             if (def == null && string.IsNullOrEmpty(typeName))
                 return null;
@@ -130,6 +168,12 @@ namespace PowerOfFire.DrawToPlay
             }
 
             object instance;
+            // THIS SCOPE'S TUNING (M36.3) travels through the scope for the length of one
+            // construction: the contract every subsystem signs is (scope, def), and a third
+            // parameter would tax every class for a layer most installs never use. The base
+            // constructor takes it off the scope before the derived body runs — so that body
+            // sees the final numbers, which is the whole promise of where settings land.
+            host.tuning = tuning;
             try
             {
                 // THE CONTRACT EVERY SUBSYSTEM SIGNS: (scope, def). Anything else it needs it
@@ -142,6 +186,10 @@ namespace PowerOfFire.DrawToPlay
                 Debug.LogError("[Install] '" + type.Name + "' could not be built: "
                     + (failure.InnerException ?? failure).Message, def);
                 return null;
+            }
+            finally
+            {
+                host.tuning = null;
             }
 
             host.Provide(type, instance);

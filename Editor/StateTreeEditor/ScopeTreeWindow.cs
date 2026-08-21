@@ -169,6 +169,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                     GUIUtility.ExitGUI();
                 }
                 EditorGUILayout.EndHorizontal();
+
+                DrawSettings(service, depth + 1);
             }
 
             // Provided instances that are NOT subsystems — the plain classes an installer or a
@@ -195,6 +197,39 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>The installer on this scope that owns a def, or null — a subsystem built
         /// some other way has no handle to rebuild it by, and says so by having no button.</summary>
+        /// <summary>
+        /// WHAT IT IS TUNED TO, AND BY WHOM (M36.3): every declared setting's effective value
+        /// with the layer it came from — code · def · install. "Why is the bench reach 6 here"
+        /// is the question this window exists to answer, and a number with no provenance is a
+        /// number somebody will change in the wrong place.
+        /// </summary>
+        private static void DrawSettings(StateTreeService service, int depth)
+        {
+            var declared = ServiceSettings.DeclaredOn(service.GetType());
+            IReadOnlyDictionary<string, ServiceSettingSource> sources = service.settingSources;
+            for (int i = 0; i < declared.Count; i++)
+            {
+                ServiceSettings.Declared knob = declared[i];
+                object value = knob.field.GetValue(service);
+                string from = sources != null && sources.TryGetValue(knob.name,
+                    out ServiceSettingSource source)
+                    ? source.ToString().ToLowerInvariant()
+                    : "?";
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Space(depth * 14f);
+                GUILayout.Label(new GUIContent("· " + knob.name, knob.description),
+                    EditorStyles.miniLabel, GUILayout.Width(190f));
+                GUILayout.Label(Describe(value), EditorStyles.miniLabel, GUILayout.Width(120f));
+                GUILayout.Label(new GUIContent(from, from == "code"
+                        ? "The class default — nothing overrides it."
+                        : from == "def"
+                            ? "Set on the def, for every install of this kind."
+                            : "Set on this scope's installer row, for this install alone."),
+                    EditorStyles.centeredGreyMiniLabel, GUILayout.Width(50f));
+                EditorGUILayout.EndHorizontal();
+            }
+        }
+
         private static StateTreeServiceInstaller InstallerOf(StateTreeContextHost host,
             ServiceDef def)
         {
