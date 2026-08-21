@@ -3,25 +3,6 @@ using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
 {
-    /// <summary>A view's VERB, declared (§4g) — the TaskOutputContract twin for skins:
-    /// what <see cref="UiViewBehaviour.Call"/> answers to, readable by tools (the def
-    /// inspector's screen surface, reaction pickers) without running the view.</summary>
-    [System.AttributeUsage(System.AttributeTargets.Class, AllowMultiple = true,
-        Inherited = true)]
-    public sealed class UiVerbContractAttribute : System.Attribute
-    {
-        public readonly string verb;
-
-        /// <summary>What the argument or payload means — "item name", "ItemUseResult".</summary>
-        public readonly string argumentHint;
-
-        public UiVerbContractAttribute(string verb, string argumentHint = "")
-        {
-            this.verb = verb;
-            this.argumentHint = argumentHint;
-        }
-    }
-
     /// <summary>
     /// A view that reads its row's ARGUMENTS — the receiving end of the UI parameter
     /// channel. When the service shows a row it merges the row's declared parameters with
@@ -57,28 +38,38 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>
-        /// WHICH SCOPE A PRESS LANDS ON. The root by default, because that is where a session
-        /// watches: one player, one screen, one board. A skin shown by a PER-PLAYER service
-        /// overrides this to <see cref="StateTreeContextKind.Player"/> — its press is that
-        /// player's, and on a split screen the other one must not hear it.
+        /// THE SCOPE THAT SHOWED THIS VIEW — set by the UI service at spawn, which is the only
+        /// thing that actually knows. A press belongs to whoever put the screen up: a session's
+        /// screen answers on the session, and a per-player screen answers on that player, with
+        /// nothing about either written in the skin's C#.
         /// </summary>
-        protected virtual StateTreeContextKind requestScope => StateTreeContextKind.Root;
+        public StateTreeContextHost shownBy { get; private set; }
+
+        /// <summary>Told once, at spawn, by <see cref="UiService.Show"/>.</summary>
+        internal void ShownBy(StateTreeContextHost scope)
+        {
+            shownBy = scope;
+        }
 
         /// <summary>
-        /// The view's ONE output edge (the UI wiring brief): a press becomes a REQUEST on
-        /// the <see cref="requestScope"/> blackboard — the GotoKey shape travel proved —
-        /// served by whatever flow state watches the key. Views request; trees decide what
-        /// happens, visibly.
+        /// The view's ONE output edge (the UI wiring brief): a press becomes a REQUEST on the
+        /// showing scope's blackboard — the GotoKey shape travel proved — served by whatever
+        /// flow state watches the key. Views request; trees decide what happens, visibly.
+        ///
+        /// A view nobody claimed (a prefab dropped in a scene by hand) falls back to the root,
+        /// which is where a session watches.
         /// </summary>
         protected void Request(string key, string value = "1")
         {
             if (string.IsNullOrEmpty(key))
                 return;
-            StateTreeContextHost host = StateTreeContextHost.Resolve(gameObject, requestScope);
+            StateTreeContextHost host = shownBy != null
+                ? shownBy
+                : StateTreeContextHost.Resolve(gameObject, StateTreeContextKind.Root);
             if (host == null || host.Context == null)
             {
-                Debug.LogWarning("[Ui] '" + name + "' has no " + requestScope
-                    + " scope to request '" + key + "' on — the press went nowhere.", this);
+                Debug.LogWarning("[Ui] '" + name + "' has no scope to request '" + key
+                    + "' on — the press went nowhere.", this);
                 return;
             }
             host.Context.blackboard[key] = value ?? "";

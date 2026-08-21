@@ -93,7 +93,7 @@ namespace PowerOfFire.DrawToPlay
 
             if (m_Open.TryGetValue(row.name, out GameObject held) && held != null)
             {
-                BindArguments(held, row, arguments);
+                BindArguments(held, row, arguments, scope);
                 return held;
             }
 
@@ -113,7 +113,7 @@ namespace PowerOfFire.DrawToPlay
             if (document != null)
                 document.sortingOrder = row.sortingOrder;
             view.SetActive(true);
-            BindArguments(view, row, arguments);
+            BindArguments(view, row, arguments, scope);
             m_Open[row.name] = view;
             shown?.Invoke(row, view);
             return view;
@@ -151,7 +151,7 @@ namespace PowerOfFire.DrawToPlay
         /// when services are valid, so the injection can be loud. Re-binding an already
         /// shown view repeats it harmlessly (filled fields are left alone).</summary>
         private static void BindArguments(GameObject view, UiDef row,
-            List<GraphTaskParameterOverride> arguments)
+            List<GraphTaskParameterOverride> arguments, StateTreeContextHost scope)
         {
             var effective = new List<GraphTaskParameter>();
             for (int i = 0; row.parameters != null && i < row.parameters.Count; i++)
@@ -183,6 +183,9 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < views.Length; i++)
             {
                 StateTreeServiceInjector.Inject(views[i], views[i].gameObject);
+                // WHO SHOWED IT, before it can be pressed: a skin's one output edge lands on
+                // this scope, so it is told rather than left to guess from its parents.
+                views[i].ShownBy(scope);
                 views[i].Bind(effective);
             }
         }

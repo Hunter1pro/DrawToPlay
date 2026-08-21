@@ -27,10 +27,6 @@ namespace PowerOfFire.DrawToPlay.Tests
 
         public string closeKey = "";
 
-        /// <summary>A per-player screen answers on its player — the M10 placement, which is
-        /// what this fixture's spine is built to prove.</summary>
-        protected override StateTreeContextKind requestScope => StateTreeContextKind.Player;
-
         public override bool Call(string verb, string argument, object payload)
         {
             switch (verb)

@@ -23,6 +23,21 @@ namespace PowerOfFire.DrawToPlay.Tests
         private UiService m_Service;
         private UiRegistry m_Registry;
 
+        /// <summary>A skin with a vocabulary of one, declared the way every real one is.</summary>
+        [UiVerbContract("known", "anything")]
+        private sealed class SpeakingView : UiViewBehaviour
+        {
+            public string heard = "";
+
+            public override bool Call(string verb, string argument, object payload)
+            {
+                if (verb != "known")
+                    return false;
+                heard = argument ?? "";
+                return true;
+            }
+        }
+
         private sealed class RecordingView : UiViewBehaviour
         {
             public readonly List<string> bound = new List<string>();
@@ -84,13 +99,15 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         private UiDef MakeRow(string rowName, UiKind kind, float order,
-            bool withRecorder = false)
+            bool withRecorder = false, bool withSpeaker = false)
         {
             var template = new GameObject("Ui_" + rowName);
             template.hideFlags = HideFlags.HideAndDontSave;
             template.SetActive(false);
             if (withRecorder)
                 template.AddComponent<RecordingView>();
+            if (withSpeaker)
+                template.AddComponent<SpeakingView>();
             m_Objects.Add(template);
 
             var row = new UiDef
@@ -239,6 +256,33 @@ namespace PowerOfFire.DrawToPlay.Tests
             GameObject view = m_Service.Show(row);
             Assert.AreSame(inventory, view.GetComponent<InjectedView>().inventory,
                 "the spawned view was handed the service, not left to find it");
+        }
+
+        [Test]
+        public void AnUnansweredVerb_IsQuietWhenHiddenAndLoudWhenShown()
+        {
+            UiDef row = MakeRow("panel", UiKind.Screen, 0f, withSpeaker: true);
+            var owner = new GameObject("Owner");
+            owner.hideFlags = HideFlags.HideAndDontSave;
+            owner.transform.SetParent(m_Root.transform);
+            m_Objects.Add(owner);
+            var context = new StateTreeContext(owner);
+
+            // NOT ON SCREEN: nobody to hear it, and that is not an error — the beat that fires
+            // while a panel is closed is the ordinary case, not a bug.
+            Assert.IsFalse(UiSkin.Say(context, "panel", "known", "x", null));
+
+            m_Service.Show(row);
+            Assert.IsTrue(UiSkin.Say(context, "panel", "known", "hello", null));
+            Assert.AreEqual("hello",
+                m_Service.ShownView("panel").GetComponentInChildren<SpeakingView>(true).heard);
+
+            // SHOWN AND UNANSWERED is the other thing entirely: a typo or a missing handler,
+            // which used to look exactly like success. It now says so, with the vocabulary the
+            // skin does declare.
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(
+                "nothing answered 'unknwon'.*'known'"));
+            Assert.IsFalse(UiSkin.Say(context, "panel", "unknwon", "x", null));
         }
     }
 }

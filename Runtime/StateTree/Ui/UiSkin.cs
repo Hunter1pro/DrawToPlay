@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
@@ -19,6 +20,64 @@ namespace PowerOfFire.DrawToPlay
         public static UiViewBehaviour Shown(StateTreeContext context, string rowName)
         {
             return Shown<UiViewBehaviour>(context, rowName);
+        }
+
+        /// <summary>
+        /// SAY A VERB TO A SHOWN ROW, and be told when nobody heard it.
+        ///
+        /// A row that is not up answers false quietly — a beat with nobody to hear it is not an
+        /// error, and that half was always right. What was wrong is the other half: a row that IS
+        /// up whose skins speak none of the verb is a typo or a missing handler, and it used to
+        /// look exactly like success. Now it says so, with the vocabulary those skins DO declare
+        /// (<see cref="UiVerbContractAttribute"/>) in the message — the same "refused at the door
+        /// with the name in it" the typed request rows do.
+        ///
+        /// Returns whether any skin answered.
+        /// </summary>
+        public static bool Say(StateTreeContext context, string rowName, string verb,
+            string argument, object payload)
+        {
+            if (context == null || context.owner == null || string.IsNullOrEmpty(verb))
+                return false;
+
+            UiService service = StateTreeContextHost.FindService<UiService>(context.owner);
+            GameObject view = service != null ? service.ShownView(rowName) : null;
+            if (view == null)
+                return false;   // not on screen: nobody to hear it
+
+            var skins = view.GetComponentsInChildren<UiViewBehaviour>(true);
+            var answered = false;
+            for (int i = 0; i < skins.Length; i++)
+            {
+                if (skins[i].Call(verb, argument, payload))
+                    answered = true;
+            }
+            if (!answered)
+            {
+                Debug.LogError("[Ui] row '" + rowName + "' is on screen but nothing answered '"
+                    + verb + "' — its skins speak " + Vocabulary(skins) + ".", view);
+            }
+            return answered;
+        }
+
+        /// <summary>What the skins on a view declare they answer to, for the message above.</summary>
+        private static string Vocabulary(UiViewBehaviour[] skins)
+        {
+            var verbs = new List<string>();
+            for (int i = 0; skins != null && i < skins.Length; i++)
+            {
+                if (skins[i] == null)
+                    continue;
+                object[] declared = skins[i].GetType()
+                    .GetCustomAttributes(typeof(UiVerbContractAttribute), true);
+                for (int d = 0; d < declared.Length; d++)
+                {
+                    string spoken = ((UiVerbContractAttribute)declared[d]).verb;
+                    if (!string.IsNullOrEmpty(spoken) && !verbs.Contains(spoken))
+                        verbs.Add(spoken);
+                }
+            }
+            return verbs.Count > 0 ? "'" + string.Join("', '", verbs) + "'" : "nothing at all";
         }
 
         /// <summary>The shown row's skin of a particular kind — how a task that drives ONE

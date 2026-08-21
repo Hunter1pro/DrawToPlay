@@ -8,8 +8,12 @@ namespace PowerOfFire.DrawToPlay
     /// view's (<see cref="UiViewBehaviour.Call"/>); this task only carries the word and
     /// its argument, so the next skin and the next subsystem need no new task types. The
     /// argument comes from the field, or dynamically from a blackboard key (the request's
-    /// value) — the key wins. A hidden row or an unanswered verb is a quiet Success: a
-    /// beat with nobody to hear it is not an error.
+    /// value) — the key wins.
+    ///
+    /// A HIDDEN row is a quiet Success: a beat with nobody to hear it is not an error. A row
+    /// that is SHOWN and answers none of the verb is not the same thing — that is a typo or a
+    /// missing handler, and <see cref="UiSkin.Say"/> reports it with the vocabulary the skins
+    /// do speak. The task still succeeds: the flow is not what is broken.
     /// </summary>
     [StateTreeCategory("Tasks/UI", "Call a verb on a shown UI row's views")]
     public sealed class UiCallTask : StateTreeTaskAsset
@@ -33,11 +37,6 @@ namespace PowerOfFire.DrawToPlay
             if (context == null || context.owner == null || string.IsNullOrEmpty(verb))
                 return StateTreeStatus.Failure;
 
-            UiService service = StateTreeContextHost.FindService<UiService>(context.owner);
-            GameObject view = service != null ? service.ShownView(ui.entryName) : null;
-            if (view == null)
-                return StateTreeStatus.Success;
-
             string value = argument;
             object payload = null;
             string key = argumentKey;
@@ -57,9 +56,7 @@ namespace PowerOfFire.DrawToPlay
                 }
             }
 
-            UiViewBehaviour[] views = view.GetComponentsInChildren<UiViewBehaviour>(true);
-            for (int i = 0; i < views.Length; i++)
-                views[i].Call(verb, value, payload);
+            UiSkin.Say(context, ui.entryName, verb, value, payload);
             return StateTreeStatus.Success;
         }
     }
