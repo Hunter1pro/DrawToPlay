@@ -198,6 +198,106 @@ namespace PowerOfFire.DrawToPlay.Editor
             return null;
         }
 
+        // ---- the sentence (M41.4) -----------------------------------------------------------
+
+        /// <summary>
+        /// THE DEF, READ ALOUD — the milestone's exit made literal. "the bench (CraftService ·
+        /// Root): ask it to craft.begin → answers CraftResult, value names a row of M21Recipes,
+        /// reacts with M21Reaction_Crafted; announces craft.last (CraftResult); shows craft."
+        /// Every clause is derived from the same model the inspector, the API window and the
+        /// node dropdowns read, so what a designer reads here is exactly what they can draw
+        /// with. A def with no clause is infrastructure, and the sentence says so.
+        /// </summary>
+        public static string Sentence(ServiceDef def)
+        {
+            if (def == null)
+                return "";
+            string name = string.IsNullOrEmpty(def.serviceName) ? def.name : def.serviceName;
+            Type type = def.serviceType;
+            var head = new System.Text.StringBuilder("the ").Append(name).Append(" (")
+                .Append(type != null ? type.Name
+                    : string.IsNullOrEmpty(def.serviceTypeName) ? "no class" : def.serviceTypeName + "?")
+                .Append(" · ").Append(def.scope).Append("): ");
+
+            var clauses = new List<string>();
+            if (def.body != null && def.body.IsThing)
+            {
+                var isA = new System.Text.StringBuilder("is a body — ").Append(def.body.prefab.name);
+                if (def.body.tags.Count > 0)
+                    isA.Append(", wears ").Append(string.Join(" ", def.body.tags));
+                if (def.body.mind != ServiceBodyMind.HeldForTheWorld)
+                    isA.Append(", mind ").Append(def.body.mind);
+                clauses.Add(isA.ToString());
+            }
+            if (def.attributes.Count > 0)
+            {
+                var has = new List<string>();
+                for (int i = 0; i < def.attributes.Count; i++)
+                    has.Add(def.attributes[i].Name);
+                clauses.Add("has " + string.Join(", ", has));
+            }
+            for (int i = 0; i < def.requests.Count; i++)
+            {
+                ServiceRequest row = def.requests[i];
+                if (row == null || string.IsNullOrEmpty(row.key))
+                    continue;
+                var ask = new System.Text.StringBuilder("ask it to ").Append(row.key);
+                var how = new List<string>();
+                if (string.IsNullOrEmpty(row.action))
+                {
+                    how.Add(row.reactionGraph != null
+                        ? "served by the graph " + row.reactionGraph.name
+                        : "served by nothing yet");
+                }
+                else
+                {
+                    // A verb the class declares; "answers X" only when it answers with a
+                    // contract — most verbs are done when they are done (bag.add, level.goto).
+                    if (!Declares(type, row.action))
+                        how.Add("action '" + row.action + "' not declared by the class");
+                    Type answer = AnswerOf(def.name, row.key);
+                    if (answer != null)
+                        how.Add("answers " + answer.Name);
+                    if (row.reactionGraph != null)
+                        how.Add("reacts with " + row.reactionGraph.name);
+                }
+                if (row.namesRowOf != null)
+                    how.Add("value names a row of " + row.namesRowOf.name);
+                if (!string.IsNullOrEmpty(row.emptyMeans))
+                    how.Add("empty means " + row.emptyMeans);
+                if (how.Count > 0)
+                    ask.Append(" → ").Append(string.Join(", ", how));
+                clauses.Add(ask.ToString());
+            }
+            List<Announced> announced = Announcements(def.name);
+            for (int i = 0; i < announced.Count; i++)
+            {
+                clauses.Add("announces " + announced[i].key
+                    + (announced[i].payload != null ? " (" + PayloadLabel(announced[i].payload) + ")" : ""));
+            }
+            for (int i = 0; i < def.spawns.Count; i++)
+            {
+                if (def.spawns[i] != null && def.spawns[i].isSet)
+                    clauses.Add("shows " + def.spawns[i].entryName);
+            }
+            if (clauses.Count == 0)
+                return head.Append("offers nothing to a flow — it is infrastructure.").ToString();
+            return head.Append(string.Join("; ", clauses)).Append('.').ToString();
+        }
+
+        private static bool Declares(Type serviceType, string action)
+        {
+            if (serviceType == null)
+                return false;
+            foreach (ServiceActionContractAttribute contract in
+                serviceType.GetCustomAttributes(typeof(ServiceActionContractAttribute), true))
+            {
+                if (contract.action == action)
+                    return true;
+            }
+            return false;
+        }
+
         /// <summary>The contract an announcement carries — from the class (M41.1) — or null for
         /// a bare payload (a number, a name).</summary>
         public static Type PayloadOf(string defName, string announcementKey)

@@ -161,6 +161,33 @@ namespace PowerOfFire.DrawToPlay.Tests
                 "declaring itself would be a neighbourhood of one");
         }
 
+        /// <summary>M41.4: the two picks on an Ask row — the registry typing its value and the
+        /// graph reacting to it — are edges by being picked, and the typing registry is in the
+        /// def's neighbourhood without being declared a second time.</summary>
+        [Test]
+        public void AnAsksPicks_AreEdgesAndNeighbourhood_WithoutBeingDeclared()
+        {
+            var recipes = Make<CraftRecipeRegistry>("Recipes");
+            var reaction = Make<GraphTaskAsset>("Reaction_Crafted");
+            var def = Make<ServiceDef>("bench");
+            def.serviceName = "bench";
+            def.requests.Add(new ServiceRequest
+            {
+                key = "craft.begin", action = "craft", namesRowOf = recipes, reactionGraph = reaction
+            });
+            Assert.That(def.declares, Is.Empty, "nothing typed twice");
+
+            var reachable = new List<StateTreeRegistryAsset>();
+            StateTreeOffers.ReachableRegistries(def, reachable);
+            Assert.That(reachable, Does.Contain(recipes), "picked, therefore reachable");
+
+            var index = new AssetWireScan.Index();
+            AssetWireScan.ScanServiceDef(def, index);
+            DependencyGraph graph = DependencyGraph.Build(index);
+            Assert.That(Edge(graph, def, recipes), Is.True, "'craft.begin' names a row of");
+            Assert.That(Edge(graph, def, reaction), Is.True, "'craft.begin' reacts with");
+        }
+
         private static bool Edge(DependencyGraph graph, Object from, Object to)
         {
             int a = graph.IndexOf(from);

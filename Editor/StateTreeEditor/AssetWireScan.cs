@@ -310,8 +310,26 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (int i = 0; i < def.requests.Count; i++)
             {
                 ServiceRequest row = def.requests[i];
-                if (row != null && !string.IsNullOrEmpty(row.key))
-                    index.requestOwners[row.key] = def;
+                if (row == null || string.IsNullOrEmpty(row.key))
+                    continue;
+                index.requestOwners[row.key] = def;
+                // THE TWO PICKS ON A ROW (M41.4) — the registry that types the value and the
+                // graph that reacts — are what a designer composes with, so they are edges on
+                // the map exactly as a declared catalog is: derived from the pick, typed once.
+                if (row.namesRowOf != null)
+                {
+                    index.AddAssetUse(row.namesRowOf, new WireUse
+                    {
+                        context = def, description = label + " · '" + row.key + "' names a row of"
+                    });
+                }
+                if (row.reactionGraph != null)
+                {
+                    index.AddAssetUse(row.reactionGraph, new WireUse
+                    {
+                        context = def, description = label + " · '" + row.key + "' reacts with"
+                    });
+                }
             }
 
             // THE DERIVED ONES COUNT AS DECLARED (M30.4): a caller writing 'health.add' is

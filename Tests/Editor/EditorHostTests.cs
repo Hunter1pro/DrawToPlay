@@ -44,7 +44,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             VisualElement root = Host(kind);
             Assert.That(Field(root, "body"), Is.Not.Null,
                 "the body — whose tags are a UI Toolkit drawer — is a PropertyField, not IMGUI");
-            Assert.That(Field(root, "declares"), Is.Not.Null);
+            Assert.That(Field(root, "declares"), Is.Null,
+                "M41.4: 'declares' is drawn under Reads, beside the catalogs derived from picks");
         }
 
         /// <summary>M41.2: the inspector is four verbs, shown only where they apply. A bench
@@ -61,13 +62,17 @@ namespace PowerOfFire.DrawToPlay.Tests
                 "Assets/DrawToPlayExamples/Demo/M21/Registries/M21UiService.asset");
             var kind = AssetDatabase.LoadAssetAtPath<ServiceDef>(
                 "Assets/DrawToPlayExamples/Demo/M21/Registries/M21Kind_Station.asset");
+            var shrine = AssetDatabase.LoadAssetAtPath<ServiceDef>(
+                "Assets/DrawToPlayExamples/Demo/M21/Registries/M21Kind_Shrine.asset");
 
-            foreach (ServiceDef def in new[] { bench, ui, kind })
+            // ONE ASSET TYPE, DIFFERENT SECTIONS (M41.4): a bench, an infrastructure service, a
+            // kind and a class-less kind with an ask are the same editor with the same shape.
+            foreach (ServiceDef def in new[] { bench, ui, kind, shrine })
             {
                 VisualElement root = Host(def);
                 Assert.That(Field(root, "body"), Is.Not.Null, def.name + ": the body is a PropertyField");
-                Assert.That(root.Query<IMGUIContainer>().ToList().Count, Is.EqualTo(2),
-                    def.name + ": Asks/Announces/Shows above the body, Is and the rest below");
+                Assert.That(root.Query<IMGUIContainer>().ToList().Count, Is.EqualTo(3),
+                    def.name + ": the sentence, Asks/Announces/Shows above the body, Is and the rest below");
             }
 
             Assert.That(bench.body.IsThing, Is.False, "a bench builds nothing…");

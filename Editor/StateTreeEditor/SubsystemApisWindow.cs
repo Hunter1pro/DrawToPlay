@@ -93,6 +93,13 @@ namespace PowerOfFire.DrawToPlay.Editor
             };
             fold.style.marginBottom = 6f;
 
+            // THE SENTENCE (M41.4): the def read aloud, the same words its inspector shows.
+            var sentence = new Label(DeclaredApi.Sentence(def));
+            sentence.style.whiteSpace = WhiteSpace.Normal;
+            sentence.style.opacity = 0.8f;
+            sentence.style.marginBottom = 2f;
+            fold.Add(sentence);
+
             var ping = new Button(() => EditorGUIUtility.PingObject(def)) { text = "ping def" };
             ping.style.alignSelf = Align.FlexStart;
             fold.Add(ping);

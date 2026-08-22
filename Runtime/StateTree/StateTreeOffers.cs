@@ -51,9 +51,16 @@ namespace PowerOfFire.DrawToPlay
                         Add(tree.registries[i], into);
                     break;
                 case ServiceDef service:
-                    // What it MANAGES and what its flows read; what it DECLARES arrived above,
-                    // through the interface, because a def is not the only thing that may say it.
+                    // What it MANAGES; what it DECLARES arrived above, through the interface,
+                    // because a def is not the only thing that may say it. And what its PICKS
+                    // already reference (M41.4): a registry that types an Ask's value is in
+                    // the neighbourhood by being picked — derived, never typed twice.
                     Add(service.registry, into);
+                    for (int i = 0; i < service.requests.Count; i++)
+                    {
+                        if (service.requests[i] != null)
+                            Add(service.requests[i].namesRowOf, into);
+                    }
                     break;
             }
         }

@@ -26,7 +26,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static readonly HashSet<string> k_Bespoke = new HashSet<string>
         {
             "m_Script", "serviceTypeName", "requests", "spawns", "body",
-            "attributes", "settings", "treeKind", "nestingRules", "kindSeeds"
+            "attributes", "settings", "declares", "treeKind", "nestingRules", "kindSeeds"
         };
 
         /// <summary>
@@ -41,6 +41,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         public override VisualElement CreateInspectorGUI()
         {
             var root = new VisualElement();
+
+            // THE SENTENCE FIRST (M41.4): what this def offers a designer, read aloud from the
+            // same model every section below and every node dropdown reads.
+            root.Add(new IMGUIContainer(DrawSentence));
 
             // The identity every service has. The FLOW-BACKED half (tree kind, flows,
             // nesting rules, kind seeds) is folded away below: it is meaningful only for
@@ -68,6 +72,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         private PropertyField m_Body;
+
+        private void DrawSentence()
+        {
+            var def = (ServiceDef)target;
+            if (def == null)
+                return;
+            EditorGUILayout.HelpBox(DeclaredApi.Sentence(def), MessageType.None);
+        }
 
         /// <summary>A def with no class, no rows, no screen and no body is infrastructure, and
         /// says so in one sentence rather than five empty sections.</summary>
@@ -125,6 +137,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 DrawAttributes(def);
                 DrawDerived(def);
             }
+            DrawReads(def);
             DrawTreeKind(def);
 
             EditorGUILayout.Space(6f);
@@ -133,6 +146,56 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             DrawScreenSurface(def);
             serializedObject.ApplyModifiedProperties();
+        }
+
+        /// <summary>
+        /// READS — the catalogs this def's pickers may name (M41.4). The derived half first,
+        /// read-only: the registry it manages and every registry an Ask's value names a row
+        /// of, reachable by being picked. Then what cannot be derived and must be said: the
+        /// attribute table behind a name in Has, the vocabulary behind a tag-typed setting —
+        /// a pick by NAME resolves inside a neighbourhood, so the neighbourhood is the one
+        /// thing a name cannot say about itself. That list is <c>declares</c>.
+        /// </summary>
+        private void DrawReads(ServiceDef def)
+        {
+            var derived = new List<string>();
+            if (def.registry != null)
+                derived.Add(def.registry.name + " (its registry)");
+            for (int i = 0; i < def.requests.Count; i++)
+            {
+                ServiceRequest row = def.requests[i];
+                if (row != null && row.namesRowOf != null && row.namesRowOf != def.registry)
+                    derived.Add(row.namesRowOf.name + " ('" + row.key + "')");
+            }
+            bool says = def.declares.Count > 0;
+            if (derived.Count == 0 && !says && def.attributes.Count == 0
+                && !HasTagSetting(def))
+                return;
+
+            EditorGUILayout.Space(6f);
+            EditorGUILayout.LabelField("Reads — the catalogs its picks may name", EditorStyles.boldLabel);
+            if (derived.Count > 0)
+            {
+                EditorGUILayout.LabelField("    from its picks: " + string.Join(", ", derived),
+                    EditorStyles.miniLabel);
+            }
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("declares"),
+                new GUIContent("and by name", "The catalogs a pick BY NAME needs — the attribute "
+                    + "table behind Has, the vocabulary behind a tag-typed setting. A name "
+                    + "cannot say which catalog it lives in; this list does."), true);
+        }
+
+        private static bool HasTagSetting(ServiceDef def)
+        {
+            System.Type type = def.serviceType;
+            if (type == null)
+                return false;
+            foreach (ServiceSettings.Declared knob in ServiceSettings.DeclaredOn(type))
+            {
+                if (knob.isTag)
+                    return true;
+            }
+            return false;
         }
 
         private void Commit(System.Action edit)
