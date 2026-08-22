@@ -60,7 +60,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// this writes; the sketch stays, so drift between the three can be reported later.
     /// </summary>
     [CreateAssetMenu(fileName = "SubsystemSketch", menuName = "Draw To Play/Subsystem Sketch")]
-    public sealed class SubsystemSketch : ScriptableObject
+    public sealed class SubsystemSketch : ScriptableObject, IStateTreeNeighbourhood
     {
         [Tooltip("The subsystem's name — 'clock'. Names the def, the class (ClockService) and "
             + "the capability (IClock).")]
@@ -104,6 +104,19 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         [Tooltip("The class file this sketch wrote, once it has — never rewritten.")]
         public string generatedClassPath = "";
+
+        /// <summary>What the ⛃ pickers on this sketch may offer: the catalog it manages and what
+        /// it declares — the same neighbourhood rule the def it writes will live under.</summary>
+        public IReadOnlyList<StateTreeRegistryAsset> DeclaredCatalogs
+        {
+            get
+            {
+                var all = new List<StateTreeRegistryAsset>(declares);
+                if (catalog != null && !all.Contains(catalog))
+                    all.Add(catalog);
+                return all;
+            }
+        }
 
         /// <summary>'clock' → 'ClockService'.</summary>
         public string className => Capitalize(serviceName) + "Service";
