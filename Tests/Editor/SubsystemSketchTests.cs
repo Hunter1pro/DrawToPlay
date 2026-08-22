@@ -26,21 +26,22 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Junk.Clear();
         }
 
-        /// <summary>The clock — the milestone's exit, as a sketch.</summary>
-        private SubsystemSketch Clock()
+        /// <summary>A sundial — the clock's shape under a name the project does not have, because the
+        /// clock itself exists now and the validators say so, which is their job.</summary>
+        private SubsystemSketch Sundial()
         {
             var sketch = ScriptableObject.CreateInstance<SubsystemSketch>();
             m_Junk.Add(sketch);
-            sketch.serviceName = "clock";
+            sketch.serviceName = "sundial";
             sketch.scope = StateTreeContextKind.Root;
-            sketch.capability = "clock";
+            sketch.capability = "sundial";
             sketch.requests.Add(new SketchRequest
             {
-                key = "clock.set", action = "set", valueHint = "hour, 0–23"
+                key = "sundial.set", action = "set", valueHint = "hour, 0–23"
             });
             sketch.announcements.Add(new SketchAnnouncement
             {
-                key = "clock.dawn", description = "the hour crossed the start of day"
+                key = "sundial.dawn", description = "the hour crossed the start of day"
             });
             sketch.settings.Add(new SketchSetting
             {
@@ -55,19 +56,19 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
-        public void TheClockSketch_ValidatesGreen()
+        public void TheSundialSketch_ValidatesGreen()
         {
-            SubsystemSketch clock = Clock();
+            SubsystemSketch clock = Sundial();
             List<SketchFinding> findings = SubsystemSketchValidator.Validate(clock);
             Assert.That(findings, Is.Empty, string.Join("\n", findings));
-            Assert.That(clock.className, Is.EqualTo("ClockService"));
-            Assert.That(clock.capabilityName, Is.EqualTo("IClock"));
+            Assert.That(clock.className, Is.EqualTo("SundialService"));
+            Assert.That(clock.capabilityName, Is.EqualTo("ISundial"));
         }
 
         [Test]
         public void ATakenKey_ATakenClass_AndABadName_AreBlocked()
         {
-            SubsystemSketch clock = Clock();
+            SubsystemSketch clock = Sundial();
 
             // THE KEY IS SERVED ALREADY: 'level.goto' belongs to the M21 level def.
             clock.requests.Add(new SketchRequest { key = "level.goto", action = "goto" });
@@ -88,9 +89,9 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(findings.Exists(f => f.blocks && f.message.Contains("not one lowercase word")), Is.True);
 
             // A SETTING THAT IS NOT A NAME, and two actions spelt the same.
-            clock.serviceName = "clock";
+            clock.serviceName = "sundial";
             clock.settings.Add(new SketchSetting { name = "seconds per day" });
-            clock.requests.Add(new SketchRequest { key = "clock.reset", action = "set" });
+            clock.requests.Add(new SketchRequest { key = "sundial.reset", action = "set" });
             findings = SubsystemSketchValidator.Validate(clock);
             Assert.That(findings.Exists(f => f.blocks && f.message.Contains("needs a C# name")), Is.True);
             Assert.That(findings.Exists(f => f.blocks && f.message.Contains("action 'set' is sketched twice")), Is.True);
@@ -99,7 +100,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         [Test]
         public void APickedRowFromAnUndeclaredCatalog_IsAdviceNotABlock()
         {
-            SubsystemSketch clock = Clock();
+            SubsystemSketch clock = Sundial();
             var attributes = AssetDatabase.LoadAssetAtPath<AttributeRegistry>(
                 AssetDatabase.GUIDToAssetPath(AssetDatabase.FindAssets("t:AttributeRegistry M21")[0]));
             var health = attributes.FindByName("health");
@@ -119,6 +120,51 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(SubsystemSketchValidator.Validate(clock), Is.Empty);
             Assert.That(clock.DeclaredCatalogs, Does.Contain(attributes),
                 "and the ⛃ pickers on the sketch offer what it declares");
+        }
+
+        [Test]
+        public void TheGeneratedClass_DeclaresWhatTheSketchSaid()
+        {
+            SubsystemSketch clock = Sundial();
+            clock.settings.Add(new SketchSetting
+            {
+                name = "stationTag", kind = SketchSettingKind.Tag, description = "what a station is"
+            });
+            clock.requests.Add(new SketchRequest { key = "sundial.fast-forward", action = "fast-forward" });
+            string source = SubsystemGenerator.ClassSource(clock);
+
+            Assert.That(source, Does.Contain("public sealed class SundialService : StateTreeService, ISundial"));
+            Assert.That(source, Does.Contain("[ServiceActionContract(SetAction, \"hour, 0–23\")]"));
+            Assert.That(source, Does.Contain("public const string SetAction = \"set\";"));
+            Assert.That(source, Does.Contain("public const string FastForwardAction = \"fast-forward\";"),
+                "a hyphenated action spells a PascalCase const");
+            Assert.That(source, Does.Contain("public const string DawnKey = \"sundial.dawn\";"));
+            Assert.That(source, Does.Contain("[ServiceSetting(120.0f, \"How long a day takes.\")]"));
+            Assert.That(source, Does.Contain("public float secondsPerDay;"));
+            Assert.That(source, Does.Contain("[ServiceSetting(6, \"\")]"));
+            Assert.That(source, Does.Contain("public int startHour;"));
+            Assert.That(source, Does.Contain("[WorldTag]"), "a tag setting is a picked setting");
+            Assert.That(source, Does.Contain("case SetAction:"));
+            Assert.That(source, Does.Contain("is not implemented yet"),
+                "every verb starts out loud — a request that does nothing looks like one that worked");
+
+            Assert.That(SubsystemGenerator.CapabilitySource(clock), Does.Contain("public interface ISundial"));
+            Assert.That(SubsystemGenerator.ConstName("craft-start", "Action"), Is.EqualTo("CraftStartAction"));
+            Assert.That(SubsystemGenerator.ConstName("3d", "Key"), Is.EqualTo("The3dKey"));
+        }
+
+        [Test]
+        public void TheDefDeclaresTheHomeOfEveryPickedRow()
+        {
+            SubsystemSketch clock = Sundial();
+            var attributes = AssetDatabase.LoadAssetAtPath<AttributeRegistry>(
+                AssetDatabase.GUIDToAssetPath(AssetDatabase.FindAssets("t:AttributeRegistry M21")[0]));
+            var health = attributes.FindByName("health");
+            clock.attributes.Add(new StateTreeEntryRef<AttributeDef> { entryId = health.id, entryName = health.name });
+
+            List<StateTreeRegistryAsset> declared = SubsystemGenerator.DeclaredCatalogs(clock);
+            Assert.That(declared, Does.Contain(attributes),
+                "the def may NAME health only if it declares the catalog health lives in");
         }
     }
 }

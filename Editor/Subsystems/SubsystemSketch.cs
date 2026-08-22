@@ -98,6 +98,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         [Tooltip("Catalogs the def declares it may name rows of (attributes, tags, contracts).")]
         public List<StateTreeRegistryAsset> declares = new List<StateTreeRegistryAsset>();
 
+        [Header("Where the code goes")]
+        [Tooltip("The folder the class, the capability and their test are written into. It must "
+            + "be inside a RUNTIME assembly — an Editor folder would make an uninstallable service.")]
+        public string codeFolder = "Assets/DrawToPlayExamples/Scripts/Subsystems";
+
+        [Tooltip("The folder the generated test goes into — an Editor test assembly.")]
+        public string testFolder = "Assets/DrawToPlay/Tests/Editor";
+
         [Header("What was generated")]
         [Tooltip("The def this sketch wrote, once it has.")]
         public ServiceDef generatedDef;

@@ -195,7 +195,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             var sketch = ScriptableObject.CreateInstance<SubsystemSketch>();
             sketch.serviceName = System.IO.Path.GetFileNameWithoutExtension(path)
                 .Replace("Sketch", "").Replace("Subsystem", "").ToLowerInvariant();
-            AssetDatabase.CreateAsset(sketch, path);
+            // NEVER OVER AN EXISTING SKETCH: CreateAsset on a taken path replaces the asset,
+            // and a replaced sketch forgets the def and class it wrote.
+            AssetDatabase.CreateAsset(sketch, AssetDatabase.GenerateUniqueAssetPath(path));
             AssetDatabase.SaveAssets();
             Selection.activeObject = sketch;
             Refresh();
