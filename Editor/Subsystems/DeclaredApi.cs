@@ -307,7 +307,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             foreach (string guid in AssetDatabase.FindAssets("t:" + nameof(ServiceDef)))
             {
                 var def = AssetDatabase.LoadAssetAtPath<ServiceDef>(AssetDatabase.GUIDToAssetPath(guid));
-                if (def != null && !string.IsNullOrEmpty(def.serviceTypeName))
+                // A class, or asks served by graphs alone (M41.3) — both are subsystems.
+                if (def != null && (!string.IsNullOrEmpty(def.serviceTypeName) || def.requests.Count > 0))
                     s_Subsystems.Add(def);
             }
             s_Subsystems.Sort((a, b) => string.Compare(a.name, b.name, StringComparison.Ordinal));

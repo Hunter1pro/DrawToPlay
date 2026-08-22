@@ -23,16 +23,19 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             public readonly Node node;
             public readonly string message;
             public readonly bool isError;
+            /// <summary>A note: nothing wrong, something worth reading on the node.</summary>
+            public readonly bool isNote;
 
-            public Finding(Node node, string message, bool isError)
+            public Finding(Node node, string message, bool isError, bool isNote = false)
             {
                 this.node = node;
                 this.message = message;
                 this.isError = isError;
+                this.isNote = isNote;
             }
 
             public override string ToString()
-                => (isError ? "error: " : "warning: ") + message;
+                => (isNote ? "note: " : isError ? "error: " : "warning: ") + message;
         }
 
         /// <summary>Collects a finding per wrong pick, to be shown by <see cref="Validate"/>.</summary>
@@ -41,6 +44,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             public readonly List<Finding> findings = new List<Finding>();
             public void LogError(string message, Node node) => findings.Add(new Finding(node, message, true));
             public void LogWarning(string message, Node node) => findings.Add(new Finding(node, message, false));
+            public void Log(string message, Node node) => findings.Add(new Finding(node, message, false, true));
         }
 
         /// <summary>The canvas pass: every finding lands on its node as a Graph Toolkit marker.</summary>
@@ -50,7 +54,9 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             for (int i = 0; i < findings.Count; i++)
             {
                 Finding finding = findings[i];
-                if (finding.isError)
+                if (finding.isNote)
+                    graphLogger.Log(finding.message, finding.node);
+                else if (finding.isError)
                     graphLogger.LogError(finding.message, finding.node);
                 else
                     graphLogger.LogWarning(finding.message, finding.node);
@@ -126,6 +132,17 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             {
                 log.LogError("Ask: '" + key + "' takes a row of '" + row.namesRowOf.name + "', and '"
                     + value + "' names none of them.", node);
+            }
+            // A ROW WITH NO CLASS VERB (M41.3) is served by its graph — said on the node, and
+            // said louder when there is no graph to serve it either.
+            if (string.IsNullOrEmpty(row.action))
+            {
+                if (row.reactionGraph == null)
+                    log.LogWarning("Ask: '" + key + "' has no class verb and no graph — nothing "
+                        + "serves it. Pick a graph on the def's row.", node);
+                else
+                    log.Log("Ask: '" + key + "' is served by the graph '"
+                        + row.reactionGraph.name + "' — no class behind it.", node);
             }
         }
 

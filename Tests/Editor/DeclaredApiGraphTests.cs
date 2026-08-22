@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
+using PowerOfFire.DrawToPlay.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -289,6 +290,50 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual("Skiff", npc.blackboard["said"],
                 "the answer to THIS ask, read from the bench's board while running on the NPC's");
             program.OnExit(npc, StateTreeStatus.Success);
+        }
+
+        // ------------------------------------------------------------------ M41.3: a subsystem with no class
+
+        /// <summary>The shrine has no class: the API lists it beside the bench, an Ask ▾ can pick
+        /// its one request, and the validator's note on the node says who serves it.</summary>
+        [Test]
+        public void TheShrine_IsASubsystemWithNoClass_ListedAndServedByItsGraph()
+        {
+            Assume.That(AssetDatabase.LoadAssetAtPath<ServiceDef>(
+                "Assets/DrawToPlayExamples/Demo/M21/Registries/M21Kind_Shrine.asset"), Is.Not.Null);
+            Assert.That(DeclaredApi.Subsystems(), Does.Contain("M21Kind_Shrine"));
+            Assert.That(DeclaredApi.RequestKeys("M21Kind_Shrine"), Does.Contain("shrine.pray"));
+            ServiceRequest pray = DeclaredApi.Request("M21Kind_Shrine", "shrine.pray");
+            Assert.That(pray.action, Is.Empty, "no class verb");
+            Assert.That(pray.reactionGraph, Is.Not.Null, "served by its graph");
+            Assert.That(DeclaredApi.Subsystem("M21Kind_Shrine").serviceType, Is.Null);
+
+            Type validator = GraphEditorType("PowerOfFire.DrawToPlay.GraphEditor.DeclaredApiValidator");
+            Type authoring = GraphEditorType("PowerOfFire.DrawToPlay.GraphEditor.M21DialogGraphAuthoring");
+            Type askNode = GraphEditorType("PowerOfFire.DrawToPlay.GraphEditor.AskSubsystemNode");
+            if (validator == null || authoring == null || askNode == null)
+                Assert.Inconclusive("graph assembly not loaded");
+            const BindingFlags any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+            string path = AssetDatabase.GenerateUniqueAssetPath("Assets/DrawToPlay/Tests/Editor/Temp_Shrine.taskgraph");
+            var problems = new List<string>();
+            object graph = authoring.GetMethod("NewGraph", any).Invoke(null, new object[] { path, problems });
+            try
+            {
+                object ask = authoring.GetMethod("Add", any).Invoke(null, new object[] { graph, askNode, 0f, 0f, problems });
+                MethodInfo write = authoring.GetMethod("Write", any);
+                write.Invoke(null, new object[] { ask, "subsystem", "M21Kind_Shrine", problems });
+                write.Invoke(null, new object[] { ask, "key", "shrine.pray", problems });
+                var found = new List<string>();
+                foreach (object finding in (IEnumerable)validator.GetMethod("Findings", any).Invoke(null, new[] { Nodes(graph) }))
+                    found.Add(finding.ToString());
+                Assert.That(found, Has.Some.StartsWith("note:").And.Contains("served by the graph"),
+                    string.Join("\n", found));
+                Assert.That(found.Exists(f => f.StartsWith("error:")), Is.False);
+            }
+            finally
+            {
+                AssetDatabase.DeleteAsset(path);
+            }
         }
 
         // ------------------------------------------------------------------ M38.4: findings on the node

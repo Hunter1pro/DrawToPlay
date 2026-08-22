@@ -383,6 +383,53 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void ADefWithAsksAndNoClass_IsInstalledAsAGraphServedService()
+        {
+            // M41.3: "a body, a tag and a task graph is enough". The installer builds the one
+            // class that adds nothing to the base, and the row's graph serves the ask.
+            var program = ScriptableObject.CreateInstance<GraphTaskAsset>();
+            program.name = "Provide";
+            program.nodes = new List<GraphTaskNode>
+            {
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.SetBlackboardFloat, stringValue = "shrine.provided",
+                    floatValue = 1f, exec = new[] { 1 }
+                },
+                new GraphTaskNode { kind = GraphTaskNodeKind.ReturnSuccess }
+            };
+            program.tickEntry = 0;
+            m_Assets.Add(program);
+
+            var def = ScriptableObject.CreateInstance<ServiceDef>();
+            def.serviceName = "shrine";
+            def.serviceTypeName = "";   // no class, on purpose
+            def.scope = StateTreeContextKind.Root;
+            def.requests.Add(new ServiceRequest { key = "shrine.pray", reactionGraph = program });
+            m_Assets.Add(def);
+
+            var rootGo = new GameObject("ShrineRoot") { hideFlags = HideFlags.HideAndDontSave };
+            m_Objects.Add(rootGo);
+            var host = rootGo.AddComponent<StateTreeContextHost>();
+            host.kind = StateTreeContextKind.Root;
+            host.autoStart = false;
+            host.Register();
+            m_Hosts.Add(host);
+            var installer = rootGo.AddComponent<StateTreeServiceInstaller>();
+            installer.scope = host;
+
+            StateTreeSubsystem subsystem = installer.Install(def);
+            Assert.That(subsystem, Is.Not.Null, "a def with asks is a subsystem, class or not");
+            Assert.That(subsystem.service, Is.InstanceOf<GraphServedService>());
+
+            host.Context.blackboard["shrine.pray"] = "";
+            for (int i = 0; i < 3; i++)
+                subsystem.service.Tick(0.02f);
+            Assert.IsTrue(host.Context.blackboard.ContainsKey("shrine.provided"), "the graph served it");
+            Assert.IsFalse(host.Context.blackboard.ContainsKey("shrine.pray"), "and consumed the key");
+        }
+
+        [Test]
         public void TypedRequest_GoesThroughTheDefsRows()
         {
             (StateTreeContextHost host, InventoryService service, _) = MakeGraphServedFixture();

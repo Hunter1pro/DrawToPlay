@@ -152,6 +152,11 @@ namespace PowerOfFire.DrawToPlay
             if (def == null && string.IsNullOrEmpty(typeName))
                 return null;
 
+            // NO CLASS, BUT ASKS (M41.3): a def served by its graphs alone is a subsystem too,
+            // built as the one class that adds nothing to the base.
+            if (string.IsNullOrEmpty(typeName) && def != null && def.requests.Count > 0)
+                typeName = typeof(GraphServedService).FullName;
+
             Type type = Resolve(typeName);
             if (type == null)
             {
