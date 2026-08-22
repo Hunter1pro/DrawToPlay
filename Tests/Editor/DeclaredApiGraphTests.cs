@@ -1,4 +1,7 @@
+using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -31,7 +34,7 @@ namespace PowerOfFire.DrawToPlay.Tests
     [TestFixture]
     public sealed class DeclaredApiGraphTests
     {
-        private readonly List<Object> m_Junk = new List<Object>();
+        private readonly List<UnityEngine.Object> m_Junk = new List<UnityEngine.Object>();
         private StateTreeContextHost m_Root;
 
         [SetUp]
@@ -53,7 +56,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             for (int i = 0; i < m_Junk.Count; i++)
             {
                 if (m_Junk[i] != null)
-                    Object.DestroyImmediate(m_Junk[i]);
+                    UnityEngine.Object.DestroyImmediate(m_Junk[i]);
             }
             m_Junk.Clear();
         }
@@ -102,10 +105,10 @@ namespace PowerOfFire.DrawToPlay.Tests
         [Test]
         public void TheKeepersGift_BakedFromAnAsk_IsTheBagsDeclaredRequest()
         {
-            Object[] parts = AssetDatabase.LoadAllAssetsAtPath(
+            UnityEngine.Object[] parts = AssetDatabase.LoadAllAssetsAtPath(
                 "Assets/DrawToPlayExamples/Demo/M21/Dialogs/M21Dialog_Keeper.taskgraph");
             RequestTask gift = null;
-            foreach (Object part in parts)
+            foreach (UnityEngine.Object part in parts)
             {
                 if (part is RequestTask request && request.key == "bag.add")
                     gift = request;
@@ -126,12 +129,12 @@ namespace PowerOfFire.DrawToPlay.Tests
         [Test]
         public void TheDawnReaction_BakedByPicking_HoldsNoTypedString()
         {
-            Object[] parts = AssetDatabase.LoadAllAssetsAtPath(
+            UnityEngine.Object[] parts = AssetDatabase.LoadAllAssetsAtPath(
                 "Assets/DrawToPlayExamples/Demo/M21/Reactions/M21Reaction_Dawn.taskgraph");
             AnnouncementCondition when = null;
             UiCallTask say = null;
             GraphTaskAsset program = null;
-            foreach (Object part in parts)
+            foreach (UnityEngine.Object part in parts)
             {
                 when ??= part as AnnouncementCondition;
                 say ??= part as UiCallTask;
@@ -144,6 +147,97 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(say.verb, Is.EqualTo("say"), "a verb the HUD's skin declares");
             Assert.That(program.inputBindings.Count, Is.EqualTo(1),
                 "the hour reaches the verb's argument by a WIRE from Announced Payload, not a typed key");
+        }
+        // ------------------------------------------------------------------ M38.4: findings on the node
+
+        /// <summary>
+        /// A pick no def declares says so ON THE NODE. The validator lives behind the graph
+        /// firewall, so it is reached by reflection on a throwaway graph: a When Announced whose
+        /// key the clock does not announce, and a Say To Screen whose verb no hud skin declares,
+        /// both flagged; the graph the waystation authors, clean.
+        /// </summary>
+        [Test]
+        public void APickNoDefDeclares_IsAFindingOnItsNode_AndTheAuthoredGraphIsClean()
+        {
+            Type validator = GraphEditorType("PowerOfFire.DrawToPlay.GraphEditor.DeclaredApiValidator");
+            Type authoring = GraphEditorType("PowerOfFire.DrawToPlay.GraphEditor.M21DialogGraphAuthoring");
+            Type baker = GraphEditorType("PowerOfFire.DrawToPlay.GraphEditor.TaskGraphBaker");
+            Type whenNode = GraphEditorType("PowerOfFire.DrawToPlay.GraphEditor.WhenAnnouncedNode");
+            Type sayNode = GraphEditorType("PowerOfFire.DrawToPlay.GraphEditor.SayToUiNode");
+            if (validator == null || authoring == null || baker == null || whenNode == null || sayNode == null)
+                Assert.Inconclusive("graph assembly not loaded");
+
+            const BindingFlags any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+            MethodInfo findings = validator.GetMethod("Findings", any);
+            MethodInfo newGraph = authoring.GetMethod("NewGraph", any);
+            MethodInfo add = authoring.GetMethod("Add", any);
+            MethodInfo write = authoring.GetMethod("Write", any);
+            MethodInfo load = baker.GetMethod("LoadGraphAtPath", any);
+
+            // The authored dawn reaction names only what the defs declare.
+            object dawn = load.Invoke(null, new object[] { "Assets/DrawToPlayExamples/Demo/M21/Reactions/M21Reaction_Dawn.taskgraph" });
+            Assume.That(dawn, Is.Not.Null, "the waystation's dawn graph exists");
+            Assert.That(Count(findings.Invoke(null, new[] { Nodes(dawn) })), Is.EqualTo(0),
+                "the graph authored by picking is clean");
+
+            string path = AssetDatabase.GenerateUniqueAssetPath("Assets/DrawToPlay/Tests/Editor/Temp_Undeclared.taskgraph");
+            var problems = new List<string>();
+            object graph = newGraph.Invoke(null, new object[] { path, problems });
+            try
+            {
+                Assume.That(graph, Is.Not.Null, string.Join("; ", problems));
+                object when = add.Invoke(null, new object[] { graph, whenNode, 0f, 0f, problems });
+                write.Invoke(null, new object[] { when, "subsystem", "ClockService", problems });
+                write.Invoke(null, new object[] { when, "key", "clock.dusk", problems });
+                object say = add.Invoke(null, new object[] { graph, sayNode, 0f, 100f, problems });
+                write.Invoke(null, new object[] { say, "ui", "hud", problems });
+                write.Invoke(null, new object[] { say, "verb", "shout", problems });
+                Assert.That(problems, Is.Empty);
+
+                var found = new List<string>();
+                foreach (object finding in (IEnumerable)findings.Invoke(null, new[] { Nodes(graph) }))
+                    found.Add(finding.GetType().GetField("node").GetValue(finding).GetType().Name + ": " + finding);
+
+                Assert.That(found.Count, Is.EqualTo(2), string.Join("\n", found));
+                Assert.That(found, Has.Some.StartsWith("WhenAnnouncedNode: error").And.Contains("clock.dusk"),
+                    "the undeclared announcement is an error on the When node");
+                Assert.That(found, Has.Some.StartsWith("SayToUiNode: error").And.Contains("shout"),
+                    "the undeclared verb is an error on the Say node");
+            }
+            finally
+            {
+                AssetDatabase.DeleteAsset(path);
+            }
+        }
+
+        private static Type GraphEditorType(string fullName)
+        {
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type type = assembly.GetType(fullName);
+                if (type != null)
+                    return type;
+            }
+            return null;
+        }
+
+        private static object Nodes(object graph)
+        {
+            // Graph.GetNodes() → IEnumerable<INode>; the validator takes IReadOnlyList<INode>.
+            var enumerable = (IEnumerable)graph.GetType().GetMethod("GetNodes").Invoke(graph, null);
+            Type nodeType = GraphEditorType("Unity.GraphToolkit.Editor.INode");
+            var list = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(nodeType));
+            foreach (object node in enumerable)
+                list.Add(node);
+            return list;
+        }
+
+        private static int Count(object findings)
+        {
+            int count = 0;
+            foreach (object _ in (IEnumerable)findings)
+                count++;
+            return count;
         }
     }
 }

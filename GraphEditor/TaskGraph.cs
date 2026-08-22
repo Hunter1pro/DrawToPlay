@@ -120,6 +120,8 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             // Dropdown ports take their choices from data the node cannot see until it is part of
             // a graph, so they are settled here rather than at definition time.
             ChoicePortRefresh.Refresh(nodes);
+            // A pick that no def declares any more says so on the node (M38.4).
+            DeclaredApiValidator.Validate(nodes, graphLogger);
             ValidateEntries<OnEnterNode>(graphLogger, nodes, "On Enter");
             ValidateEntries<OnTickNode>(graphLogger, nodes, "On Tick");
             ValidateEntries<OnExitNode>(graphLogger, nodes, "On Exit");

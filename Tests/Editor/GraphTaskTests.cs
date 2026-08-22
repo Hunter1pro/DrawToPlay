@@ -240,6 +240,59 @@ namespace PowerOfFire.DrawToPlay.Tests
             graph.OnExit(context, StateTreeStatus.Cancelled);
         }
 
+        // ------------------------------------------------------------------ M38.4: the beat
+
+        /// <summary>The program publishes the instruction it is AT, and a run is listed while it
+        /// runs: what a canvas lights, the way a state tree's active state is lit. The beat is the
+        /// suspended Wait while the chain waits, and the registry is empty again after OnExit.
+        /// Every run is a copy that remembers the authored program, so a copy of a copy still
+        /// points the canvas at the root.</summary>
+        [Test]
+        public void TheBeat_IsTheSuspendedNode_AndTheRunIsListedWhileItRuns()
+        {
+            GraphTaskAsset authored = MakeGraph(
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.DoTask, task = MakeTask("pre", 1),
+                    exec = new[] { 1, 1 }
+                },
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.Wait, floatValue = 0.25f, exec = new[] { 2 }
+                },
+                SetFloat("done", 1f, -1));
+            authored.tickEntry = 0;
+
+            GraphTaskAsset run = GraphTaskAsset.Copy(authored);
+            m_Assets.Add(run);
+            GraphTaskAsset again = GraphTaskAsset.Copy(run);
+            m_Assets.Add(again);
+            Assert.AreSame(authored, run.source, "a run remembers the program it was copied from");
+            Assert.AreSame(authored, again.source, "a copy of a copy still names the authored one");
+            Assert.IsNull(authored.source, "the authored program is nobody's copy");
+
+            var running = new List<GraphTaskAsset>();
+            GraphTaskAsset.CollectRunning(running);
+            CollectionAssert.DoesNotContain(running, run, "not listed before OnEnter");
+            Assert.AreEqual(-1, run.activeNode, "no beat before the first instruction");
+
+            StateTreeContext context = MakeContext();
+            run.OnEnter(context);
+            GraphTaskAsset.CollectRunning(running);
+            CollectionAssert.Contains(running, run, "listed between OnEnter and OnExit");
+
+            run.OnTick(context, 0.1f);
+            Assert.AreEqual(1, run.activeNode, "the beat is the Wait the chain is suspended in");
+            run.OnTick(context, 0.1f);
+            Assert.AreEqual(1, run.activeNode, "still the Wait");
+            run.OnTick(context, 0.1f);
+            Assert.AreEqual(2, run.activeNode, "the chain moved on to the Set after the wait");
+
+            run.OnExit(context, StateTreeStatus.Cancelled);
+            GraphTaskAsset.CollectRunning(running);
+            CollectionAssert.DoesNotContain(running, run, "unlisted after OnExit");
+        }
+
         // ------------------------------------------------------------------ required: latent DoTask
 
         /// <summary>A DoTask that returns Running suspends the graph; the next tick ticks the SAME

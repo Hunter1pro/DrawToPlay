@@ -608,6 +608,50 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Node the next tick resumes at, -1 when the chain is not suspended.</summary>
         private int m_LatentNode = -1;
 
+        private int m_ActiveNode = -1;
+
+        /// <summary>
+        /// THE BEAT (M38.4) — the instruction this activation is at: the node the chain last
+        /// executed, which is the suspended latent while one is in flight. -1 before the first
+        /// instruction. What a canvas tints, the way a state tree's active state is tinted.
+        /// </summary>
+        public int activeNode => m_ActiveNode;
+
+        /// <summary>The program this one was copied from, for a run that is a copy (a reaction
+        /// graph run by a subsystem): the canvas belongs to the source, so the beat is reported
+        /// against it. Null for a program running as itself.</summary>
+        public GraphTaskAsset source { get; private set; }
+
+        /// <summary>The copy every run is made from: a program is never run as the authored asset
+        /// (its activation state would leak between runners), and every copy remembers the
+        /// authored one so the canvas can light the beat. A copy of a copy still points at the
+        /// root.</summary>
+        public static GraphTaskAsset Copy(GraphTaskAsset program)
+        {
+            if (program == null)
+                return null;
+            GraphTaskAsset copy = Instantiate(program);
+            copy.source = program.source != null ? program.source : program;
+            return copy;
+        }
+
+        private static readonly HashSet<GraphTaskAsset> s_Running = new HashSet<GraphTaskAsset>();
+
+        /// <summary>Every program between OnEnter and OnExit right now — what a highlight walks
+        /// instead of searching the scene.</summary>
+        public static void CollectRunning(List<GraphTaskAsset> into)
+        {
+            into.Clear();
+            lock (s_Running)
+            {
+                foreach (GraphTaskAsset program in s_Running)
+                {
+                    if (program != null)
+                        into.Add(program);
+                }
+            }
+        }
+
         /// <summary>
         /// What this activation has RETURNED so far — the values the <c>SetOutput*</c> instructions
         /// wrote, in first-written order, one entry per name. A LIST rather than a dictionary because
@@ -845,6 +889,9 @@ namespace PowerOfFire.DrawToPlay
         public override void OnEnter(StateTreeContext context)
         {
             ResetActivation();
+            m_ActiveNode = -1;
+            lock (s_Running)
+                s_Running.Add(this);
 
             if (context != null)
             {
@@ -884,6 +931,8 @@ namespace PowerOfFire.DrawToPlay
         public override void OnExit(StateTreeContext context, StateTreeStatus status)
         {
             m_ExitStatusValue = StatusCode(status);
+            lock (s_Running)
+                s_Running.Remove(this);
 
             // The exit chain runs FIRST and the latent child is torn down after, so an exit chain
             // can still observe (and act on) the fact that something was mid-flight.
@@ -1019,6 +1068,9 @@ namespace PowerOfFire.DrawToPlay
                     return StateTreeStatus.Failure;
                 }
                 steps++;
+
+                // THE BEAT (M38.4): the instruction the program is at, for a canvas to light.
+                m_ActiveNode = index;
 
                 GraphTaskNode node = NodeAt(index);
                 if (node == null)

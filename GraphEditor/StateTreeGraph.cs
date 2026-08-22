@@ -158,6 +158,8 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
             var nodes = GetNodes().ToList();
             ChoicePortRefresh.Refresh(nodes);
+            // A pick that no def declares any more says so on the node (M38.4).
+            DeclaredApiValidator.Validate(nodes, graphLogger);
             var states = nodes.OfType<StateNode>().ToList();
             var entries = nodes.OfType<EntryNode>().ToList();
             var transitions = nodes.OfType<TransitionNode>().ToList();

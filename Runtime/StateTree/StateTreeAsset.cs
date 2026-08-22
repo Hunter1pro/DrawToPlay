@@ -74,7 +74,8 @@ namespace PowerOfFire.DrawToPlay
             var copy = Instantiate(node);
             copy.tasks = new List<StateTreeTaskAsset>(node.tasks.Count);
             foreach (var task in node.tasks)
-                copy.tasks.Add(task != null ? Instantiate(task) : null);
+                copy.tasks.Add(task is GraphTaskAsset program ? GraphTaskAsset.Copy(program)
+                    : task != null ? Instantiate(task) : null);
             copy.transitions = new List<StateTreeTransition>(node.transitions.Count);
             foreach (var tr in node.transitions)
             {

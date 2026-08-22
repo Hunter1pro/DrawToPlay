@@ -299,7 +299,7 @@ namespace PowerOfFire.DrawToPlay
             board[row.key + ".asked"] = value ?? "";
             var run = new ReactionRun
             {
-                program = UnityEngine.Object.Instantiate(row.reactionGraph),
+                program = GraphTaskAsset.Copy(row.reactionGraph),
                 context = m_Scope.Context
             };
             run.program.hideFlags = HideFlags.HideAndDontSave;

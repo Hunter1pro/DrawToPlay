@@ -58,7 +58,7 @@ namespace PowerOfFire.DrawToPlay
                 }
                 return;
             }
-            m_Instance = Instantiate(graph);
+            m_Instance = GraphTaskAsset.Copy(graph);
             // Before OnEnter, so the enter chain already reads this state's values — and on the
             // INSTANCE, so the authored graph asset is never written to.
             m_Instance.ApplyOverrides(ResolvedOverrides(context));
