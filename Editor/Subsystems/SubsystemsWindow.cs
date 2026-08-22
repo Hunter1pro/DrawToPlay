@@ -148,6 +148,19 @@ namespace PowerOfFire.DrawToPlay.Editor
                     : "not installed in any scene",
                 EditorStyles.centeredGreyMiniLabel);
 
+            // DRIFT, where the def and its class disagree — the finding the flow keeps paying
+            // after the generation is forgotten, and it applies to the nine never sketched.
+            List<SketchFinding> drift = entry.isKind ? null : SubsystemDrift.Find(entry.def, entry.sketch);
+            if (drift != null && drift.Count > 0)
+            {
+                var lines = new List<string>();
+                for (int i = 0; i < drift.Count; i++)
+                    lines.Add(drift[i].ToString());
+                GUILayout.Label(new GUIContent((SubsystemSketchValidator.Blocks(drift) ? "✕ " : "⚠ ")
+                    + drift.Count, string.Join("\n", lines)), EditorStyles.miniBoldLabel,
+                    GUILayout.Width(34f));
+            }
+
             if (entry.sketch != null && GUILayout.Button(new GUIContent("sketch",
                 "The sketch this def was generated from."), EditorStyles.miniButton,
                 GUILayout.Width(54f)))

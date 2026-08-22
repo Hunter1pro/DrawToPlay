@@ -96,6 +96,17 @@ namespace PowerOfFire.DrawToPlay.Editor
             ping.style.alignSelf = Align.FlexStart;
             fold.Add(ping);
 
+            // DRIFT (M37.4): an action the def serves that the class does not declare, a knob
+            // the def tunes that the class lost — said here, where the API is read.
+            List<SketchFinding> drift = SubsystemDrift.Find(def, null);
+            for (var i = 0; i < drift.Count; i++)
+            {
+                var line = new Label(drift[i].ToString());
+                line.style.color = drift[i].blocks ? new Color(1f, 0.45f, 0.4f) : new Color(0.95f, 0.8f, 0.4f);
+                line.style.whiteSpace = WhiteSpace.Normal;
+                fold.Add(line);
+            }
+
             // Every row on a def IS public — a subsystem's self-talk lives in its own
             // code, so this window has nothing to filter.
             var listed = 0;

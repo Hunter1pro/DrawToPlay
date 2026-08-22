@@ -33,6 +33,28 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             EditorGUILayout.Space(8f);
             DrawGenerate(sketch);
+            DrawDrift(sketch);
+        }
+
+        /// <summary>Where the sketch, the def and the class disagree — read, never fixed.</summary>
+        private static void DrawDrift(SubsystemSketch sketch)
+        {
+            if (sketch.generatedDef == null)
+                return;
+            EditorGUILayout.Space(6f);
+            EditorGUILayout.LabelField("Drift — sketch · def · class", EditorStyles.boldLabel);
+            List<SketchFinding> drift = SubsystemDrift.Find(sketch.generatedDef, sketch);
+            if (drift.Count == 0)
+            {
+                EditorGUILayout.HelpBox("The sketch, the def and " + sketch.className + " agree.",
+                    MessageType.Info);
+                return;
+            }
+            var lines = new List<string>();
+            for (int i = 0; i < drift.Count; i++)
+                lines.Add(drift[i].ToString());
+            EditorGUILayout.HelpBox(string.Join("\n", lines),
+                SubsystemSketchValidator.Blocks(drift) ? MessageType.Error : MessageType.Warning);
         }
 
         private void DrawFindings(SubsystemSketch sketch)
