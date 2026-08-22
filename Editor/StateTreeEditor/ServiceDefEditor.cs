@@ -25,7 +25,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// PropertyField so its drawer decides how it looks.</summary>
         private static readonly HashSet<string> k_Bespoke = new HashSet<string>
         {
-            "m_Script", "serviceTypeName", "requests", "spawns",
+            "m_Script", "serviceTypeName", "requests", "spawns", "body",
             "attributes", "settings", "treeKind", "nestingRules", "kindSeeds"
         };
 
@@ -56,12 +56,28 @@ namespace PowerOfFire.DrawToPlay.Editor
                 root.Add(new PropertyField(property.Copy()));
             }
 
-            root.Add(new IMGUIContainer(DrawBespokeSections));
+            // THE FOUR VERBS (M41.2): what a designer can draw with, each only when it applies.
+            // The body is a UI Toolkit drawer (tags, picks) and stays a PropertyField, placed
+            // under the IS heading between two IMGUI containers.
+            root.Add(new IMGUIContainer(DrawAsksAnnouncesShows));
+            m_Body = new PropertyField(serializedObject.FindProperty("body"));
+            root.Add(m_Body);
+            root.Add(new IMGUIContainer(DrawIsAndTheRest));
             root.Bind(serializedObject);
             return root;
         }
 
-        private void DrawBespokeSections()
+        private PropertyField m_Body;
+
+        /// <summary>A def with no class, no rows, no screen and no body is infrastructure, and
+        /// says so in one sentence rather than five empty sections.</summary>
+        private static bool OffersNothing(ServiceDef def)
+        {
+            return ActionOffers(def).Length == 0 && def.requests.Count == 0
+                && def.spawns.Count == 0 && !def.body.IsThing && def.attributes.Count == 0;
+        }
+
+        private void DrawAsksAnnouncesShows()
         {
             var def = (ServiceDef)target;
             if (def == null)
@@ -69,12 +85,46 @@ namespace PowerOfFire.DrawToPlay.Editor
             serializedObject.Update();
 
             DrawServiceType(def);
-            DrawSettings(def);
-            DrawAttributes(def);
-            DrawRequests(def);
-            DrawDerived(def);
-            DrawSpawns(def);
-            DrawAnnouncements(def);
+            bool hasClass = ResolveServiceType(def.serviceTypeName) != null;
+            bool isBody = def.body.IsThing || def.attributes.Count > 0;
+            if (m_Body != null)
+                m_Body.style.display = isBody ? DisplayStyle.Flex : DisplayStyle.None;
+
+            if (hasClass)
+                DrawSettings(def);
+            if (OffersNothing(def))
+            {
+                EditorGUILayout.Space(8f);
+                EditorGUILayout.HelpBox("This subsystem offers nothing to a flow — it is "
+                    + "infrastructure. A class that declares actions, a screen, or a body "
+                    + "would appear here as Asks, Announces, Shows and Is.", MessageType.None);
+                serializedObject.ApplyModifiedProperties();
+                return;
+            }
+            DrawAsks(def);
+            if (hasClass)
+                DrawAnnouncements(def);
+            DrawShows(def);
+            if (isBody)
+            {
+                EditorGUILayout.Space(6f);
+                EditorGUILayout.LabelField("Is — the body it builds", EditorStyles.boldLabel);
+            }
+            serializedObject.ApplyModifiedProperties();
+        }
+
+        private void DrawIsAndTheRest()
+        {
+            var def = (ServiceDef)target;
+            if (def == null)
+                return;
+            serializedObject.Update();
+            // HAS belongs to IS: a body's starting attributes, and the requests they derive.
+            if (def.body.IsThing || def.attributes.Count > 0)
+            {
+                DrawAttributes(def);
+                DrawDerived(def);
+            }
             DrawTreeKind(def);
 
             EditorGUILayout.Space(6f);
@@ -159,33 +209,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             EditorGUILayout.EndHorizontal();
         }
 
-        // ---- implements: the promises this def keeps ------------------------------------
 
-
-
-        /// <summary>The contract behind a claim, by id first — so renaming the contract renames
-        /// the claim instead of breaking it.</summary>
-        private ContractDef Resolve(StateTreeEntryRef<ContractDef> claim)
-        {
-            for (int i = 0; i < m_Contracts.Count; i++)
-            {
-                if (!string.IsNullOrEmpty(claim.entryId) && m_Contracts[i].id == claim.entryId)
-                {
-                    if (m_Contracts[i].name != claim.entryName)
-                        Commit(() => claim.entryName = m_Contracts[i].name);
-                    return m_Contracts[i];
-                }
-            }
-            for (int i = 0; i < m_Contracts.Count; i++)
-            {
-                if (!string.IsNullOrEmpty(claim.entryName) && m_Contracts[i].name == claim.entryName)
-                    return m_Contracts[i];
-            }
-            return null;
-        }
-
-        private readonly List<ContractDef> m_Contracts = new List<ContractDef>();
-        private readonly List<string> m_Missing = new List<string>();
 
         // ---- attributes: what it HAS, and what that lets anybody do ---------------------
 
@@ -343,69 +367,179 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         // ---- requests ------------------------------------------------------------------
 
-        private void DrawRequests(ServiceDef def)
+        // ---- asks: one row per declared action, plus the rows a graph serves --------------
+
+        /// <summary>
+        /// ASKS — what a flow may ask this subsystem, and what it answers (M41.2). One row per
+        /// action the CLASS declares ([ServiceActionContract]), generated: the action and its
+        /// answer are read-only, and the designer picks what is theirs — the key callers use
+        /// (default serviceName.action), the registry that types the value, what an empty value
+        /// means, the graph that reacts. An action with no row yet is offered as one button.
+        /// Below them, the rows a GRAPH serves (no action, a reaction graph) — a subsystem with
+        /// no class has only these, and that is a whole subsystem.
+        /// </summary>
+        private void DrawAsks(ServiceDef def)
         {
             EditorGUILayout.Space(6f);
-            EditorGUILayout.LabelField("Requests — what OTHER systems may ask",
+            EditorGUILayout.LabelField("Asks — what a flow may ask, and what it answers",
                 EditorStyles.boldLabel);
+
+            System.Type type = ResolveServiceType(def.serviceTypeName);
+            var contracts = type != null
+                ? (ServiceActionContractAttribute[])type.GetCustomAttributes(
+                    typeof(ServiceActionContractAttribute), true)
+                : new ServiceActionContractAttribute[0];
+            var declared = new HashSet<string>();
+            for (int i = 0; i < contracts.Length; i++)
+            {
+                declared.Add(contracts[i].action);
+                ServiceRequest row = def.requests.Find(r => r != null && r.action == contracts[i].action);
+                DrawAsk(def, contracts[i], row);
+            }
+
+            // Rows the class does not know: served by a graph (no action), or stale.
             for (int i = 0; i < def.requests.Count; i++)
             {
                 ServiceRequest row = def.requests[i];
-                if (row == null)
+                if (row == null || (!string.IsNullOrEmpty(row.action) && declared.Contains(row.action)))
                     continue;
-                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                if (string.IsNullOrEmpty(row.action))
+                    DrawGraphServedAsk(def, row, i);
+                else
+                    DrawStaleAsk(def, row, i);
+            }
 
-                EditorGUILayout.BeginHorizontal();
-                ServiceRequest keyRow = row;
-                DrawKey("Key", "What callers write to ask for this.", row.key,
-                    value => keyRow.key = value);
-                if (RemoveButton())
+            if (GUILayout.Button(new GUIContent("+ ask served by a graph",
+                "A request with no class verb: its reaction graph IS the handler."),
+                GUILayout.Width(170f)))
+                Commit(() => def.requests.Add(new ServiceRequest
                 {
-                    int index = i;
-                    Commit(() => def.requests.RemoveAt(index));
-                    EditorGUILayout.EndHorizontal();
-                    EditorGUILayout.EndVertical();
-                    break;
+                    key = (string.IsNullOrEmpty(def.serviceName) ? def.name : def.serviceName) + ".ask"
+                }));
+        }
+
+        private void DrawAsk(ServiceDef def, ServiceActionContractAttribute contract, ServiceRequest row)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.BeginHorizontal();
+            string answers = contract.answersWith != null ? "  →  " + contract.answersWith.Name : "";
+            EditorGUILayout.LabelField(new GUIContent(contract.action + answers,
+                string.IsNullOrEmpty(contract.valueHint) ? "declared by " + def.serviceTypeName
+                    : contract.valueHint), EditorStyles.boldLabel);
+            if (row == null)
+            {
+                if (GUILayout.Button("offer it", GUILayout.Width(70f)))
+                {
+                    string action = contract.action;
+                    Commit(() => def.requests.Add(new ServiceRequest
+                    {
+                        key = (string.IsNullOrEmpty(def.serviceName) ? def.name : def.serviceName)
+                            + "." + action,
+                        action = action
+                    }));
                 }
                 EditorGUILayout.EndHorizontal();
-                DrawRenamePanel(row.key, value => keyRow.key = value);
-
-                string description = EditorGUILayout.DelayedTextField("Description",
-                    row.description);
-                if (description != row.description)
-                    Commit(() => row.description = description);
-
-                var registry = (StateTreeRegistryAsset)EditorGUILayout.ObjectField(
-                    new GUIContent("Names Row Of", "The value names a row of this "
-                        + "registry — typed callers are validated against it."),
-                    row.namesRowOf, typeof(StateTreeRegistryAsset), false);
-                if (registry != row.namesRowOf)
-                    Commit(() => row.namesRowOf = registry);
-
-                EditorGUILayout.BeginHorizontal();
-                BoundTextField("Action",
-                    "The domain verb the service interprets — picked from its declared "
-                    + "vocabulary.",
-                    row.action,
-                    !string.IsNullOrEmpty(row.action)
-                        && Offered(ActionOffers(def), row.action),
-                    value => row.action = value);
-                ActionPicker(def, row);
-                EditorGUILayout.EndHorizontal();
-
+                EditorGUILayout.LabelField("    not offered to flows", EditorStyles.miniLabel);
                 EditorGUILayout.EndVertical();
+                return;
             }
-            if (GUILayout.Button("+ request", GUILayout.Width(90f)))
-                Commit(() => def.requests.Add(new ServiceRequest()));
+            if (RemoveButton())
+            {
+                ServiceRequest going = row;
+                Commit(() => def.requests.Remove(going));
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndVertical();
+                GUIUtility.ExitGUI();
+            }
+            EditorGUILayout.EndHorizontal();
+            DrawPicks(def, row, typed: true);
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawGraphServedAsk(ServiceDef def, ServiceRequest row, int index)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(new GUIContent("served by a graph",
+                "No class verb: the reaction graph below runs as the handler."), EditorStyles.boldLabel);
+            if (RemoveButton())
+            {
+                Commit(() => def.requests.RemoveAt(index));
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndVertical();
+                GUIUtility.ExitGUI();
+            }
+            EditorGUILayout.EndHorizontal();
+            DrawPicks(def, row, typed: true);
+            if (row.reactionGraph == null)
+                EditorGUILayout.HelpBox("Pick the graph that serves it — without one this ask does nothing.",
+                    MessageType.Warning);
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawStaleAsk(ServiceDef def, ServiceRequest row, int index)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(row.key + "  —  '" + row.action + "' is not an action "
+                + (string.IsNullOrEmpty(def.serviceTypeName) ? "of any class" : def.serviceTypeName + " declares"),
+                EditorStyles.boldLabel);
+            if (RemoveButton())
+            {
+                Commit(() => def.requests.RemoveAt(index));
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndVertical();
+                GUIUtility.ExitGUI();
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+
+        /// <summary>The designer's half of an ask: the key, what the value names, what an empty
+        /// value means, the description, and the graph that reacts.</summary>
+        private void DrawPicks(ServiceDef def, ServiceRequest row, bool typed)
+        {
+            ServiceRequest keyRow = row;
+            EditorGUILayout.BeginHorizontal();
+            DrawKey("Key", "What callers write to ask for this.", row.key, value => keyRow.key = value);
+            EditorGUILayout.EndHorizontal();
+            DrawRenamePanel(row.key, value => keyRow.key = value);
+
+            string description = EditorGUILayout.DelayedTextField("Description", row.description);
+            if (description != row.description)
+                Commit(() => row.description = description);
+
+            var registry = (StateTreeRegistryAsset)EditorGUILayout.ObjectField(
+                new GUIContent("Value names a row of", "Typed callers and the Ask ▾ dropdown "
+                    + "are held to this registry's rows. Empty: any string."),
+                row.namesRowOf, typeof(StateTreeRegistryAsset), false);
+            if (registry != row.namesRowOf)
+                Commit(() => row.namesRowOf = registry);
+            if (row.namesRowOf != null)
+            {
+                string empty = EditorGUILayout.DelayedTextField(new GUIContent("Empty means",
+                    "What an EMPTY value asks for — 'the station you are at'. Blank: an empty "
+                    + "value is refused like any other non-row."), row.emptyMeans);
+                if (empty != row.emptyMeans)
+                    Commit(() => row.emptyMeans = empty);
+            }
+
+            EditorGUI.BeginChangeCheck();
+            var graph = (GraphTaskAsset)EditorGUILayout.ObjectField(new GUIContent("Reacts with",
+                    "A graph run on the subsystem's scope each time this is served — the drawn "
+                    + "continuation. The value is under 'key.asked'; the answer on its own key."),
+                row.reactionGraph, typeof(GraphTaskAsset), false);
+            if (EditorGUI.EndChangeCheck())
+                Commit(() => row.reactionGraph = graph);
         }
 
 
         // ---- spawns --------------------------------------------------------------------
 
-        private void DrawSpawns(ServiceDef def)
+        private void DrawShows(ServiceDef def)
         {
             EditorGUILayout.Space(6f);
-            EditorGUILayout.LabelField("Spawns — the screen it owns",
+            EditorGUILayout.LabelField("Shows — the screen it owns",
                 EditorStyles.boldLabel);
             for (int i = 0; i < def.spawns.Count; i++)
             {
@@ -431,7 +565,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 }
                 EditorGUILayout.EndHorizontal();
             }
-            if (GUILayout.Button("+ spawn", GUILayout.Width(80f)))
+            if (GUILayout.Button("+ show", GUILayout.Width(80f)))
                 Commit(() => def.spawns.Add(new StateTreeEntryRef<UiDef>()));
         }
 
@@ -456,7 +590,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (int i = 0; i < rows.Count; i++)
             {
                 DeclaredApi.Announced row = rows[i];
-                string payload = row.payload != null ? " : " + row.payload.Name : "";
+                string payload = row.payload != null ? " : " + DeclaredApi.PayloadLabel(row.payload) : "";
                 EditorGUILayout.LabelField("    " + row.key + payload, row.description, EditorStyles.label);
             }
         }
@@ -530,37 +664,6 @@ namespace PowerOfFire.DrawToPlay.Editor
         // ---- the pickers: offers from declared contracts -------------------------------
 
 
-        private void ActionPicker(ServiceDef def, ServiceRequest row)
-        {
-            if (!GUILayout.Button("▾", GUILayout.Width(22f)))
-                return;
-            var menu = new GenericMenu();
-            menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(row.action),
-                () => Commit(() => row.action = ""));
-            System.Type type = ResolveServiceType(def.serviceTypeName);
-            if (type == null)
-            {
-                menu.AddDisabledItem(new GUIContent("set Service Type for the vocabulary"));
-            }
-            else
-            {
-                var contracts = (ServiceActionContractAttribute[])type.GetCustomAttributes(
-                    typeof(ServiceActionContractAttribute), true);
-                if (contracts.Length == 0)
-                    menu.AddDisabledItem(new GUIContent(type.Name
-                        + " declares no [ServiceActionContract]"));
-                for (int i = 0; i < contracts.Length; i++)
-                {
-                    string action = contracts[i].action;
-                    string label = string.IsNullOrEmpty(contracts[i].valueHint)
-                        ? action
-                        : action + " — " + contracts[i].valueHint;
-                    menu.AddItem(new GUIContent(label), action == row.action,
-                        () => Commit(() => row.action = action));
-                }
-            }
-            menu.ShowAsContext();
-        }
 
 
 

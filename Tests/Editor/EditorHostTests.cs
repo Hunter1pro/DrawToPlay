@@ -47,6 +47,37 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(Field(root, "declares"), Is.Not.Null);
         }
 
+        /// <summary>M41.2: the inspector is four verbs, shown only where they apply. A bench
+        /// hosts its body PropertyField hidden (it builds nothing) and its two IMGUI sections; a
+        /// Kind shows the body; an infrastructure def builds the same host and says one
+        /// sentence through it. The host shape is what can be pinned here — the IMGUI text is
+        /// painted, not queried.</summary>
+        [Test]
+        public void TheDefInspector_IsFourVerbs_OnlyWhereTheyApply()
+        {
+            var bench = AssetDatabase.LoadAssetAtPath<ServiceDef>(
+                "Assets/DrawToPlayExamples/Demo/M21/Registries/M21CraftService.asset");
+            var ui = AssetDatabase.LoadAssetAtPath<ServiceDef>(
+                "Assets/DrawToPlayExamples/Demo/M21/Registries/M21UiService.asset");
+            var kind = AssetDatabase.LoadAssetAtPath<ServiceDef>(
+                "Assets/DrawToPlayExamples/Demo/M21/Registries/M21Kind_Station.asset");
+
+            foreach (ServiceDef def in new[] { bench, ui, kind })
+            {
+                VisualElement root = Host(def);
+                Assert.That(Field(root, "body"), Is.Not.Null, def.name + ": the body is a PropertyField");
+                Assert.That(root.Query<IMGUIContainer>().ToList().Count, Is.EqualTo(2),
+                    def.name + ": Asks/Announces/Shows above the body, Is and the rest below");
+            }
+
+            Assert.That(bench.body.IsThing, Is.False, "a bench builds nothing…");
+            Assert.That(kind.body.IsThing, Is.True, "…and a station is a body");
+            Assert.That(bench.requests.Exists(r => r.action == CraftService.CraftAction), Is.True,
+                "the bench's one Ask is the class's one action, offered");
+            Assert.That(ui.requests.Count == 0 && ui.spawns.Count == 0 && !ui.body.IsThing, Is.True,
+                "the UI service offers nothing to a flow — the inspector says so in a sentence");
+        }
+
         [Test]
         public void TheSketchInspector_LetsTheEntryRefDrawerDraw()
         {

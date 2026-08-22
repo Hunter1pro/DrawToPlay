@@ -123,6 +123,17 @@ namespace PowerOfFire.DrawToPlay.Editor
             return choices;
         }
 
+        /// <summary>A payload type as a designer reads it: a contract by its name, a number or
+        /// text by what it is, nothing for a bare signal.</summary>
+        public static string PayloadLabel(Type payload)
+        {
+            if (payload == null) return "";
+            if (payload == typeof(float) || payload == typeof(int) || payload == typeof(double)) return "number";
+            if (payload == typeof(string)) return "text";
+            if (payload == typeof(bool)) return "yes/no";
+            return payload.Name;
+        }
+
         /// <summary>One thing a subsystem announces: the key, what rides with it, and what it means.</summary>
         public readonly struct Announced
         {

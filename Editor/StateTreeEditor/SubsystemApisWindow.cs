@@ -128,7 +128,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (var i = 0; i < announced.Count; i++)
             {
                 DeclaredApi.Announced row = announced[i];
-                var suffix = row.payload != null ? " : " + row.payload.Name : "";
+                var suffix = row.payload != null ? " : " + DeclaredApi.PayloadLabel(row.payload) : "";
                 fold.Add(AnnouncementRow(row.key + suffix, row.description, row.key));
             }
 
