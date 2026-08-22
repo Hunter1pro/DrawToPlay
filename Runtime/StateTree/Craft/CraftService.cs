@@ -21,7 +21,7 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     [ServiceActionContract(CraftAction, "value = recipe name, or empty for the station you are at",
         typeof(CraftResult))]
-    public sealed class CraftService : StateTreeService
+    public sealed class CraftService : StateTreeService, IBindsBody
     {
 
         /// <summary>Built by its scope's installer (M33): the rulebook about what three timber
@@ -93,6 +93,9 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         /// <summary>THE BODY BINDS ITSELF (M40.3): the player, at its start, tells the bench
         /// who is walking up to stations; nothing here looks for a player per tick.</summary>
+        /// <summary>The player is this service's body — the scope binds it (IBindsBody).</summary>
+        public StateTreeContextKind bodyKind => StateTreeContextKind.Player;
+
         public void Bind(StateTreeContextHost body) { m_Player = body; }
 
         public void Unbind(StateTreeContextHost body)

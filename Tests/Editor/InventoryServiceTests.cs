@@ -137,10 +137,9 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             // The runtime contract, honored: injected fields are valid from the first
             // tick — the heartbeat fills them — so the fixture ticks once, exactly as
-            // play mode's first Update would. And THE BODY BINDS ITSELF (M40.3): the player
-            // tells the bag it is the carrier, as OutpostPlayerBody.Start does.
+            // play mode's first Update would. The player host REGISTERED above, under a root
+            // that provides the bag, so the scope has already bound it (IBindsBody, M40.3c).
             m_Service.Tick(0f);
-            m_Service.Bind(m_Player);
         }
 
         [TearDown]
@@ -385,9 +384,9 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             Assert.IsTrue(m_Service.IsEquipped("relic"), "the bag still wears it");
             Assert.AreEqual(1, m_Service.Count("relic"), "and still carries it");
-            m_Service.Bind(next);   // the new body, at its start
+            // next.Register() above IS the birth: the scope bound itself to the bag.
             Assert.AreEqual(6f, nextVitals.Effective(AttributeNames.Health), 0.001f,
-                "the new body is granted the worn modifier when it binds");
+                "the new body is granted the worn modifier when its scope registers");
 
             m_Service.Unequip("slot.trinket");
             Assert.AreEqual(5f, nextVitals.Effective(AttributeNames.Health), 0.001f,
@@ -398,7 +397,8 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void ALoadout_RestoredBeforeAnyBody_IsGrantedWhenOneArrives()
         {
             // Load happens before the level spawns the player. The snapshot is adopted in
-            // full — counts and worn — and the grant waits for a body instead of failing.
+            // full — counts and worn — and the grant waits for a body: the next body's SCOPE
+            // binds itself to the bag when it registers (IBindsBody), nothing watches.
             m_Service.Add("relic");
             m_Service.Equip("relic");
             InventoryService.SaveState state = m_Service.CaptureState();
@@ -410,28 +410,31 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Player.Unregister();
             Object.DestroyImmediate(oldBody);
 
+            // A fresh bag takes the root's slot before any body exists, and adopts the file.
             var fresh = new InventoryService(m_Root, m_Service.definition);
+            m_Root.Provide(fresh);
             fresh.RestoreState(state);
             Assert.AreEqual(1, fresh.Count("relic"));
             Assert.IsTrue(fresh.IsEquipped("relic"), "worn, with nobody to grant to yet");
 
             var nextGo = new GameObject("Player2") { hideFlags = HideFlags.HideAndDontSave };
             m_Objects.Add(nextGo);
+            nextGo.transform.SetParent(m_Root.transform);
             var nextVitals = nextGo.AddComponent<AttributeComponent>();
             nextVitals.Ensure(AttributeNames.Health, 5f);
             nextGo.AddComponent<AbilityHost>();
             var next = nextGo.AddComponent<StateTreeContextHost>();
             next.kind = StateTreeContextKind.Player;
             next.autoStart = false;
-            next.Register();
+            next.Register();   // THE BIRTH: the scope binds itself to the bag above it
             m_Hosts.Add(next);
             m_Player = next;
             m_Vitals = nextVitals;
 
-            fresh.Bind(next);
             Assert.AreEqual(6f, nextVitals.Effective(AttributeNames.Health), 0.001f,
-                "granted when the body binds");
+                "granted when the body's scope registers");
             fresh.Dispose();
         }
+
     }
 }

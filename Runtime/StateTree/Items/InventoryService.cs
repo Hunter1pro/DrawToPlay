@@ -30,7 +30,7 @@ namespace PowerOfFire.DrawToPlay
     [ServiceActionContract(AddAction, "value = item name — one is put in the bag")]
     [ServiceActionContract(RemoveAction, "value = item name — one is taken, or nothing is")]
     [ServiceActionContract(OpenAction, "the bag panel opens — a gift wants to be seen")]
-    public sealed class InventoryService : StateTreeService, IBag
+    public sealed class InventoryService : StateTreeService, IBag, IBindsBody
     {
         /// <summary>
         /// Built by its scope's installer (M33), with the host it belongs to and the def it
@@ -481,6 +481,9 @@ namespace PowerOfFire.DrawToPlay
         /// replaced; the next body binds when it is born, and the old one's modifiers died with
         /// its components. Between bodies the bag is a full bag with nobody holding it.
         /// </summary>
+        /// <summary>The player is this service's body — the scope binds it (IBindsBody).</summary>
+        public StateTreeContextKind bodyKind => StateTreeContextKind.Player;
+
         public void Bind(StateTreeContextHost body)
         {
             if (body == null || ReferenceEquals(body, m_Carrier))

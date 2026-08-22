@@ -251,13 +251,59 @@ namespace PowerOfFire.DrawToPlay
         /// OnEnable does. Idempotent.</summary>
         public void Register()
         {
-            if (!s_Registered.Contains(this))
-                s_Registered.Add(this);
+            if (s_Registered.Contains(this))
+                return;
+            s_Registered.Add(this);
+            TellBodyBinders(bind: true);
         }
 
         public void Unregister()
         {
-            s_Registered.Remove(this);
+            if (!s_Registered.Remove(this))
+                return;
+            TellBodyBinders(bind: false);
+        }
+
+        /// <summary>
+        /// THE BODY'S BIRTH AND DEATH, told to the services that want one (M40.3c): every
+        /// <see cref="IBindsBody"/> reachable above this host whose <c>bodyKind</c> is this
+        /// host's kind is bound on register and unbound on unregister. The scope is the
+        /// lifetime; nothing else has to watch for a body to appear or go.
+        /// </summary>
+        private void TellBodyBinders(bool bind)
+        {
+            // A host unregistered AFTER it was destroyed (a test's teardown) has no parent to
+            // walk; its services were told on the destroy itself.
+            if (this == null)
+                return;
+            var binders = new List<IBindsBody>();
+            for (StateTreeContextHost walk = ParentHost; walk != null; walk = walk.ParentHost)
+                walk.CollectOwn(binders);
+            for (int i = 0; i < binders.Count; i++)
+            {
+                if (binders[i].bodyKind != kind)
+                    continue;
+                if (bind)
+                    binders[i].Bind(this);
+                else
+                    binders[i].Unbind(this);
+            }
+        }
+
+        /// <summary>Every distinct service this host provides that is a <typeparamref name="T"/>
+        /// — a service provided under several names is listed once.</summary>
+        private void CollectOwn<T>(List<T> into) where T : class
+        {
+            foreach (KeyValuePair<Type, object> entry in m_Provided)
+            {
+                if (entry.Value is T match && !into.Contains(match))
+                    into.Add(match);
+            }
+            foreach (KeyValuePair<Type, Component> entry in m_Services)
+            {
+                if (entry.Value is T match && !into.Contains(match))
+                    into.Add(match);
+            }
         }
 
         /// <summary>
