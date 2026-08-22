@@ -1,72 +1,87 @@
 using UnityEditor;
+using UnityEditor.UIElements;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace PowerOfFire.DrawToPlay.Editor
 {
     /// <summary>
-    /// THE WATER'S INSPECTOR SHOWS ONLY WHAT IS TRUE OF IT.
+    /// The water volume's inspector: the fields, with the typed extent hidden while the volume
+    /// fits itself to what is drawn, and the FITTED extent read back from the same place
+    /// Contains reads it — so the line can never disagree with the behaviour.
     ///
-    /// The component can take its extent two ways — from the shape it draws, or from a typed
-    /// size — and showing both at once was worth a question the moment it shipped: a Size of
-    /// (20, 6, 20) sat under a fitted volume that measured five metres, and there was no way
-    /// to tell from the inspector which number the rules were using. A field that does not
-    /// apply should not be on screen; the number that IS being used should be, even though
-    /// nobody can type it.
+    /// A UI Toolkit host (the project rule): the water tag is a UI Toolkit drawer, and it drew
+    /// "No GUI Implemented" inside the IMGUI version of this editor.
     /// </summary>
     [CustomEditor(typeof(WaterVolumeBehaviour))]
     public sealed class WaterVolumeEditor : UnityEditor.Editor
     {
-        public override void OnInspectorGUI()
+        public override VisualElement CreateInspectorGUI()
         {
-            serializedObject.Update();
+            var water = (WaterVolumeBehaviour)target;
+            var root = new VisualElement();
 
+            PropertyField size = null;
             SerializedProperty property = serializedObject.GetIterator();
             bool enterChildren = true;
-            var water = (WaterVolumeBehaviour)target;
             while (property.NextVisible(enterChildren))
             {
                 enterChildren = false;
                 if (property.name == "m_Script")
                     continue;
-                // The typed extent is the FALLBACK, and only exists while nothing is drawn to
-                // measure — see WaterVolumeBehaviour.fitToVisual.
-                if (property.name == "size" && water.fitToVisual)
-                    continue;
-                EditorGUILayout.PropertyField(property, true);
+                var field = new PropertyField(property.Copy());
+                if (property.name == "size")
+                    size = field;
+                root.Add(field);
             }
 
-            serializedObject.ApplyModifiedProperties();
+            var missing = new HelpBox("Fit To Visual is on, but this object draws nothing — so the "
+                + "volume falls back to the Size above. Add a mesh (a plane is the usual one) or "
+                + "turn fitting off.", HelpBoxMessageType.Warning);
+            root.Add(missing);
 
-            if (!water.fitToVisual)
-                return;
-
-            var renderer = water.GetComponentInChildren<Renderer>();
-            if (renderer == null)
-            {
-                EditorGUILayout.HelpBox("Fit To Visual is on, but this object draws nothing — "
-                    + "so the volume falls back to the Size below. Add a mesh (a plane is the "
-                    + "usual one) or turn fitting off.", MessageType.Warning);
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("size"), true);
-                serializedObject.ApplyModifiedProperties();
-                return;
-            }
-
-            // WHAT THE RULES ACTUALLY TEST, in metres, read from the same place Contains reads
-            // it — so this line can never disagree with the behaviour.
-            Bounds bounds = renderer.bounds;
-            EditorGUILayout.Space(4f);
-            using (new EditorGUI.DisabledScope(true))
-            {
-                EditorGUILayout.LabelField("Fitted extent",
-                    bounds.size.x.ToString("0.##") + " × " + Mathf.Max(0.01f, water.depth)
-                        .ToString("0.##") + " × " + bounds.size.z.ToString("0.##") + "  (metres)");
-                EditorGUILayout.LabelField("Surface height",
-                    water.SurfaceY.ToString("0.###"));
-            }
-            EditorGUILayout.HelpBox("The plane IS the water: move or scale it and the volume "
+            var fitted = new VisualElement();
+            fitted.style.marginTop = 4f;
+            var extent = new Label();
+            extent.SetEnabled(false);
+            var surface = new Label();
+            surface.SetEnabled(false);
+            fitted.Add(extent);
+            fitted.Add(surface);
+            fitted.Add(new HelpBox("The plane IS the water: move or scale it and the volume "
                 + "follows. Depth is how far the volume reaches above and below the surface — "
                 + "generous, so a hull on top and a walker on the bed are both in it.",
-                MessageType.None);
+                HelpBoxMessageType.None));
+            root.Add(fitted);
+
+            void Refresh()
+            {
+                if (water == null)
+                    return;
+                var renderer = water.GetComponentInChildren<Renderer>();
+                bool fits = water.fitToVisual && renderer != null;
+                // The typed extent is the FALLBACK, and only exists while nothing is drawn to
+                // measure — see WaterVolumeBehaviour.fitToVisual.
+                if (size != null)
+                    size.style.display = fits ? DisplayStyle.None : DisplayStyle.Flex;
+                missing.style.display = water.fitToVisual && renderer == null
+                    ? DisplayStyle.Flex : DisplayStyle.None;
+                fitted.style.display = fits ? DisplayStyle.Flex : DisplayStyle.None;
+                if (!fits)
+                    return;
+                Bounds bounds = renderer.bounds;
+                extent.text = "Fitted extent   " + bounds.size.x.ToString("0.##") + " × "
+                    + Mathf.Max(0.01f, water.depth).ToString("0.##") + " × "
+                    + bounds.size.z.ToString("0.##") + "  (metres)";
+                surface.text = "Surface height   " + water.SurfaceY.ToString("0.###");
+            }
+
+            root.RegisterCallback<SerializedPropertyChangeEvent>(_ => Refresh());
+            // The plane can be moved or scaled without this inspector hearing about it.
+            root.schedule.Execute(Refresh).Every(250);
+            root.Bind(serializedObject);
+            Refresh();
+            return root;
         }
     }
 }

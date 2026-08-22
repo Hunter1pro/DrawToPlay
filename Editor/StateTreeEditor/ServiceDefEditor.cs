@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEditor.UIElements;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace PowerOfFire.DrawToPlay.Editor
 {
@@ -18,19 +20,52 @@ namespace PowerOfFire.DrawToPlay.Editor
     {
         private const string k_Undo = "Edit Service Def";
 
-        public override void OnInspectorGUI()
+        /// <summary>The fields with bespoke IMGUI sections below; everything else is a
+        /// PropertyField so its drawer decides how it looks.</summary>
+        private static readonly HashSet<string> k_Bespoke = new HashSet<string>
         {
-            var def = (ServiceDef)target;
+            "m_Script", "serviceTypeName", "requests", "spawns", "announcements", "implements",
+            "attributes", "settings", "treeKind", "flows", "nestingRules", "kindSeeds"
+        };
 
-            serializedObject.Update();
+        /// <summary>
+        /// A UI TOOLKIT HOST (the project rule). The def's body wears tags and its catalogs are
+        /// picked, and those are UI Toolkit drawers — inside the IMGUI version of this editor
+        /// every kind def's tags read "No GUI Implemented", unnoticed because the subsystem
+        /// defs have none. The identity fields are PropertyFields now, so their drawers draw;
+        /// the bespoke sections below keep their IMGUI in one container, to be ported a
+        /// section at a time or never — an IMGUI section inside a UI Toolkit host is fine, it
+        /// is the other way round that breaks.
+        /// </summary>
+        public override VisualElement CreateInspectorGUI()
+        {
+            var root = new VisualElement();
+
             // The identity every service has. The FLOW-BACKED half (tree kind, flows,
             // nesting rules, kind seeds) is folded away below: it is meaningful only for
             // a subsystem whose handlers wait, and on a def-only one it is four empty
             // fields pretending to be part of the declaration.
-            DrawPropertiesExcluding(serializedObject, "m_Script", "serviceTypeName",
-                "requests", "spawns", "announcements", "implements", "attributes", "settings",
-                "treeKind", "flows", "nestingRules", "kindSeeds");
-            serializedObject.ApplyModifiedProperties();
+            SerializedProperty property = serializedObject.GetIterator();
+            bool enterChildren = true;
+            while (property.NextVisible(enterChildren))
+            {
+                enterChildren = false;
+                if (k_Bespoke.Contains(property.name))
+                    continue;
+                root.Add(new PropertyField(property.Copy()));
+            }
+
+            root.Add(new IMGUIContainer(DrawBespokeSections));
+            root.Bind(serializedObject);
+            return root;
+        }
+
+        private void DrawBespokeSections()
+        {
+            var def = (ServiceDef)target;
+            if (def == null)
+                return;
+            serializedObject.Update();
 
             DrawServiceType(def);
             DrawSettings(def);
@@ -47,6 +82,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 SubsystemApisWindow.Open();
 
             DrawScreenSurface(def);
+            serializedObject.ApplyModifiedProperties();
         }
 
         private void Commit(System.Action edit)
