@@ -121,6 +121,83 @@ namespace PowerOfFire.DrawToPlay.Editor
             return choices;
         }
 
+        // ---- targets (M38.2) ------------------------------------------------------------------
+
+        /// <summary>The contract a request ANSWERS WITH — what its action's
+        /// <see cref="ServiceActionContractAttribute.answersWith"/> names — or null.</summary>
+        public static Type AnswerOf(string defName, string key)
+        {
+            ServiceDef def = Subsystem(defName);
+            ServiceRequest row = Request(defName, key);
+            Type type = def != null ? def.serviceType : null;
+            if (type == null || row == null || string.IsNullOrEmpty(row.action))
+                return null;
+            foreach (ServiceActionContractAttribute contract in
+                type.GetCustomAttributes(typeof(ServiceActionContractAttribute), true))
+            {
+                if (contract.action == row.action)
+                    return contract.answersWith;
+            }
+            return null;
+        }
+
+        /// <summary>The contract an announcement carries — its declared payload type name, or a
+        /// contract whose own Key is the announcement's — or null for a bare payload.</summary>
+        public static Type PayloadOf(string defName, string announcementKey)
+        {
+            ServiceDef def = Subsystem(defName);
+            for (int i = 0; def != null && i < def.announcements.Count; i++)
+            {
+                ServiceAnnouncement row = def.announcements[i];
+                if (row == null || row.key != announcementKey)
+                    continue;
+                if (!string.IsNullOrEmpty(row.payloadTypeName))
+                {
+                    Type named = ServiceDef.ResolveServiceType(row.payloadTypeName);
+                    if (named != null)
+                        return named;
+                }
+            }
+            // A contract type that announces itself on this key — CraftResult.Key == "craft.last".
+            Type viaType = def != null ? def.serviceType : null;
+            foreach (ServiceActionContractAttribute contract in viaType != null
+                ? viaType.GetCustomAttributes(typeof(ServiceActionContractAttribute), true)
+                : Array.Empty<object>())
+            {
+                if (contract.answersWith != null && ServiceContracts.KeyOf(contract.answersWith) == announcementKey)
+                    return contract.answersWith;
+            }
+            return null;
+        }
+
+        /// <summary>The fields of a contract a reader may pick — "" first, for the whole payload.</summary>
+        public static List<string> FieldChoices(Type payloadType)
+        {
+            var choices = new List<string>();
+            IReadOnlyList<System.Reflection.FieldInfo> fields = ServiceContracts.ExposedFields(payloadType);
+            if (fields.Count == 0)
+                return choices;
+            choices.Add(None);
+            for (int i = 0; i < fields.Count; i++)
+                choices.Add(fields[i].Name);
+            return choices;
+        }
+
+        /// <summary>Whether a contract field reads as a NUMBER (numbers and bools, which read as
+        /// 1/0) rather than text.</summary>
+        public static bool IsNumeric(Type payloadType, string field)
+        {
+            IReadOnlyList<System.Reflection.FieldInfo> fields = ServiceContracts.ExposedFields(payloadType);
+            for (int i = 0; i < fields.Count; i++)
+            {
+                if (fields[i].Name != field)
+                    continue;
+                Type t = fields[i].FieldType;
+                return t == typeof(float) || t == typeof(int) || t == typeof(bool) || t == typeof(double) || t == typeof(long);
+            }
+            return false;
+        }
+
         // ---- screens ------------------------------------------------------------------------
 
         /// <summary>Every UI row in the project, by name — a screen is project-wide.</summary>

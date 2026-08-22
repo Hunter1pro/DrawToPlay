@@ -18,7 +18,7 @@ namespace PowerOfFire.DrawToPlay
     /// occupied slot swaps. All of it rows plus existing verbs — no new framework anywhere,
     /// which was the milestone's bet.
     /// </summary>
-    [ServiceActionContract(UseAction, "value = item name")]
+    [ServiceActionContract(UseAction, "value = item name", typeof(ItemUseResult))]
     [ServiceActionContract(WearAction, "value = item name")]
     [ServiceActionContract(TakeoffAction, "value = slot name")]
     [ServiceActionContract(AddAction, "value = item name — one is put in the bag")]

@@ -18,7 +18,7 @@ namespace PowerOfFire.DrawToPlay
     /// of the three things it needed and then refused is the one bug in a crafting system a
     /// player will never forgive.
     /// </summary>
-    [ServiceActionContract(CraftAction, "value = recipe name")]
+    [ServiceActionContract(CraftAction, "value = recipe name", typeof(CraftResult))]
     [ServiceActionContract(StartAction, "value = recipe name — the player performs it")]
     public sealed class CraftService : StateTreeService
     {

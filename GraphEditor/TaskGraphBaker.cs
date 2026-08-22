@@ -923,11 +923,17 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     break;
 
                 case GraphTaskNodeKind.GetBlackboardFloat:
-                    node.stringValue = ReadKey(context, source, GetBlackboardFloatNode.KeyPortName);
+                    // A node whose key is COMPOSED from its dropdowns (a contract's field beside
+                    // its announcement) says it itself — the one seam, beside IBakesExtras.
+                    node.stringValue = source is IBakesKey composedFloat
+                        ? composedFloat.BakedKey()
+                        : ReadKey(context, source, GetBlackboardFloatNode.KeyPortName);
                     break;
 
                 case GraphTaskNodeKind.GetBlackboardString:
-                    node.stringValue = ReadKey(context, source, GetBlackboardStringNode.KeyPortName);
+                    node.stringValue = source is IBakesKey composedString
+                        ? composedString.BakedKey()
+                        : ReadKey(context, source, GetBlackboardStringNode.KeyPortName);
                     break;
 
                 case GraphTaskNodeKind.HasBlackboardKey:

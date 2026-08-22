@@ -106,6 +106,7 @@ namespace PowerOfFire.DrawToPlay
 
             ServePendingRequests();
             m_Flows?.TickTree(deltaTime);
+            TickReactionGraphs(deltaTime);
             OnTick(deltaTime);
         }
 
@@ -185,6 +186,13 @@ namespace PowerOfFire.DrawToPlay
             board[serialKey] = board.TryGetValue(serialKey, out object held) && held is int serial
                 ? serial + 1
                 : 1;
+
+            // A CONTRACT'S FIELDS ARE KEYS TOO (M38.2). A CraftResult is one object on one key,
+            // which a skin binds whole — and a tree or a graph that wants "was it made" or "the
+            // line" had no key to read. Every public field a payload carries that is a number, a
+            // bool, a string or an enum lands beside the key as key.field, so the existing
+            // readers (Get String, Compare, Has Key) reach into a contract without learning it.
+            ServiceContracts.Flatten(board, key, payload);
         }
 
         /// <summary>Where an announcement's serial lives beside its payload: <c>key.announced</c>.</summary>
@@ -197,6 +205,12 @@ namespace PowerOfFire.DrawToPlay
         /// owns, so a subclass overrides this and calls base rather than inventing a teardown.</summary>
         public virtual void Dispose()
         {
+            for (int i = m_ReactionRuns != null ? m_ReactionRuns.Count - 1 : -1; i >= 0; i--)
+            {
+                m_ReactionRuns[i].program.OnExit(m_ReactionRuns[i].context, StateTreeStatus.Cancelled);
+                UnityEngine.Object.Destroy(m_ReactionRuns[i].program);
+            }
+            m_ReactionRuns?.Clear();
             StopFlows();
             m_Started = false;
         }
@@ -252,11 +266,70 @@ namespace PowerOfFire.DrawToPlay
                 : "";
             OnRequest(row, value);
             RunReactions(row, value);
+            RunReactionGraph(row, value, board);
             board.Remove(row.key);
         }
 
         /// <summary>The declared UI beats of a served request: verb on the shown row's views,
         /// the request's value as argument, a named key's held object as the payload.</summary>
+        // ---- reaction graphs (M38.2) ---------------------------------------------------------
+
+        /// <summary>A reaction graph that has not finished — Say To is one tick, a Show that holds
+        /// is many. Each run is a COPY of the program, so two crafts a frame apart do not share
+        /// instance state.</summary>
+        private sealed class ReactionRun
+        {
+            public GraphTaskAsset program;
+            public StateTreeContext context;
+        }
+
+        private List<ReactionRun> m_ReactionRuns;
+
+        /// <summary>
+        /// THE WIRING WITH AN IF IN IT: a request that names a reaction graph runs it here, on
+        /// this subsystem's scope, after the action and the row reactions — so what the action
+        /// announced is already on its key, fields beside it, for the graph to branch on. The
+        /// request's value waits under <c>key.asked</c>. The graph's board IS the scope's board:
+        /// a reaction reads and writes what everything else on the scope reads and writes.
+        /// </summary>
+        private void RunReactionGraph(ServiceRequest row, string value, Dictionary<string, object> board)
+        {
+            if (row.reactionGraph == null)
+                return;
+            board[row.key + ".asked"] = value ?? "";
+            var run = new ReactionRun
+            {
+                program = UnityEngine.Object.Instantiate(row.reactionGraph),
+                context = m_Scope.Context
+            };
+            run.program.hideFlags = HideFlags.HideAndDontSave;
+            run.program.OnEnter(run.context);
+            if (Step(run, 0f))
+                return;
+            m_ReactionRuns ??= new List<ReactionRun>();
+            m_ReactionRuns.Add(run);
+        }
+
+        private void TickReactionGraphs(float deltaTime)
+        {
+            for (int i = m_ReactionRuns != null ? m_ReactionRuns.Count - 1 : -1; i >= 0; i--)
+            {
+                if (Step(m_ReactionRuns[i], deltaTime))
+                    m_ReactionRuns.RemoveAt(i);
+            }
+        }
+
+        /// <summary>One tick of a reaction run; true when it is finished and torn down.</summary>
+        private static bool Step(ReactionRun run, float deltaTime)
+        {
+            StateTreeStatus status = run.program.OnTick(run.context, deltaTime);
+            if (status == StateTreeStatus.Running)
+                return false;
+            run.program.OnExit(run.context, status);
+            UnityEngine.Object.Destroy(run.program);
+            return true;
+        }
+
         private void RunReactions(ServiceRequest row, string value)
         {
             if (row.reactions == null || row.reactions.Count == 0)

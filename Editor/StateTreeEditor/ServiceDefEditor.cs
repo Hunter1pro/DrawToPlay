@@ -527,6 +527,17 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void DrawReactions(ServiceDef def, ServiceRequest row)
         {
+            // THE WIRING WITH AN IF IN IT (M38.2): a logic graph the subsystem runs after
+            // serving this request — beside the rows, for what a row cannot say.
+            EditorGUI.BeginChangeCheck();
+            var graph = (GraphTaskAsset)EditorGUILayout.ObjectField(new GUIContent("Reaction graph",
+                    "Optional: run this logic graph on the subsystem's scope each time the request "
+                    + "is served, after the beats below. The request's value is under 'key.asked'; "
+                    + "what the action answered with is on its own key, fields beside it."),
+                row.reactionGraph, typeof(GraphTaskAsset), false);
+            if (EditorGUI.EndChangeCheck())
+                Commit(() => row.reactionGraph = graph);
+
             EditorGUILayout.LabelField("Reactions — the UI beats, in order",
                 EditorStyles.miniBoldLabel);
             EditorGUI.indentLevel++;

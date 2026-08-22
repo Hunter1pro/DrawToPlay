@@ -385,6 +385,12 @@ namespace PowerOfFire.DrawToPlay
             + "what a flow state's task list said, as rows on the def.")]
         public List<UiReaction> reactions = new List<UiReaction>();
 
+        [Tooltip("Optional (M38.2): a logic graph run on the subsystem's scope each time this "
+            + "request is served, after the reactions above — for the wiring with an IF in it. "
+            + "The request's value waits under 'key.asked'; what the action announced is on "
+            + "its own key, fields beside it.")]
+        public GraphTaskAsset reactionGraph;
+
         [Tooltip("The subsystem's OWN button (M32): declared like every other row — so the "
             + "map, the API window and the ⛓ see it — but not part of the API, and refused "
             + "by the typed C# door. Its skin still writes the key; strangers do not.")]
@@ -418,10 +424,18 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>What the request VALUE means to this action — "item name", "slot name".</summary>
         public readonly string valueHint;
 
-        public ServiceActionContractAttribute(string action, string valueHint = "")
+        /// <summary>THE REQUEST'S TARGET (M38.2): the contract object this action announces when
+        /// it is served — <c>CraftResult</c> for craft, <c>ItemUseResult</c> for use — which lands
+        /// on the type's own <c>Key</c> with its fields beside it. Null for an action that
+        /// answers with nothing but its effect.</summary>
+        public readonly Type answersWith;
+
+        public ServiceActionContractAttribute(string action, string valueHint = "",
+            Type answersWith = null)
         {
             this.action = action;
             this.valueHint = valueHint;
+            this.answersWith = answersWith;
         }
     }
 

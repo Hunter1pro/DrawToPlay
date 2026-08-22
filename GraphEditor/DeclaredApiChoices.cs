@@ -59,18 +59,44 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             var changed = false;
             for (int i = 0; i < m_Dependents.Count; i++)
             {
-                string[] sources = m_Dependents[i].sourcePins;
-                for (int s = 0; s < sources.Length; s++)
+                // The dependent pin's own value is remembered too: a node whose SHAPE depends on
+                // it (a field that decides a result type) reads it back in definition.
+                string[] watched = Concat(m_Dependents[i].sourcePins, m_Dependents[i].pin);
+                for (int s = 0; s < watched.Length; s++)
                 {
-                    string live = ReadPin(sources[s]);
-                    if (!m_Remembered.TryGetValue(sources[s], out string known) || known != live)
+                    string live = ReadPin(watched[s]);
+                    if (!m_Remembered.TryGetValue(watched[s], out string known) || known != live)
                     {
-                        m_Remembered[sources[s]] = live;
+                        m_Remembered[watched[s]] = live;
                         changed = true;
                     }
                 }
             }
             return changed;
+        }
+
+        /// <summary>The remembered values of a dependent's sources followed by the dependent pin
+        /// itself — <paramref name="count"/> strings, "" where nothing is remembered.</summary>
+        public string[] RememberedSources(string pin, int count)
+        {
+            var values = new string[count];
+            for (int i = 0; i < count; i++)
+                values[i] = "";
+            Dependent dependent = Find(pin);
+            if (dependent == null)
+                return values;
+            string[] watched = Concat(dependent.sourcePins, dependent.pin);
+            for (int i = 0; i < watched.Length && i < count; i++)
+                values[i] = m_Remembered.TryGetValue(watched[i], out string known) ? known : "";
+            return values;
+        }
+
+        private static string[] Concat(string[] head, string tail)
+        {
+            var all = new string[head.Length + 1];
+            Array.Copy(head, all, head.Length);
+            all[head.Length] = tail;
+            return all;
         }
 
         public bool IsStale()

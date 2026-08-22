@@ -5,22 +5,22 @@ using Unity.GraphToolkit.Editor;
 namespace PowerOfFire.DrawToPlay.GraphEditor
 {
     /// <summary>
-    /// WHAT WAS ANNOUNCED (M38.1, fields in M38.2) — subsystem ▾, announcement ▾, field ▾ → the
-    /// payload, or one field of it. The twin of <see cref="WhenAnnouncedNode"/>: that one says
-    /// "now", this one says "what".
+    /// WHAT A REQUEST ANSWERED (M38.2) — subsystem ▾, request ▾, field ▾ — the request's TARGET:
+    /// the contract its action declares it answers with, read from the key that contract lands
+    /// on, one field at a time. "Ask craft, then read craft's answer" without knowing the
+    /// contract's key or class: the def and the class declared both.
     ///
-    /// A bare payload (the clock's hour) reads as text. A CONTRACT (a CraftResult) offers its
-    /// fields, which the service wrote beside the key when it announced — so "line" reads
-    /// <c>craft.last.line</c> as text and "made" reads <c>craft.last.made</c> as a number (a
-    /// bool is 1/0 to a Compare). Bakes to the ordinary Get String or Get Float, with the key
-    /// composed from the dropdowns.
+    /// The answer arrives on the tick the request is served, which is the tick after it was
+    /// asked — so this node lives in a REACTION graph (run by the subsystem after serving) or
+    /// after a When Announced, never on the same chain as the Ask that caused it.
     /// </summary>
     [Serializable]
     [UseWithGraph(typeof(TaskGraph))]
-    [Node("Subsystems", null, "Announced Payload")]
-    public class AnnouncedPayloadNode : Node, ITaskGraphNode, IDeclaredApiNode, IBakesKey
+    [Node("Subsystems", null, "Asked Result")]
+    public class AskedResultNode : Node, ITaskGraphNode, IDeclaredApiNode, IBakesKey
     {
         public const string SubsystemPortName = "subsystem";
+        public const string RequestPortName = "request";
         public const string FieldPortName = "field";
 
         [NonSerialized] private DeclaredApiChoices m_Choices;
@@ -30,7 +30,6 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         /// came back as text would drop the float wire the author saved.</summary>
         [UnityEngine.SerializeField] private bool m_Numeric;
 
-        /// <summary>Float when the remembered field is a number or a bool; text otherwise.</summary>
         public GraphTaskNodeKind nodeKind => m_Numeric
             ? GraphTaskNodeKind.GetBlackboardFloat
             : GraphTaskNodeKind.GetBlackboardString;
@@ -42,56 +41,61 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                 if (m_Choices == null)
                 {
                     m_Choices = new DeclaredApiChoices(this);
-                    m_Choices.DependsOn(GetBlackboardStringNode.KeyPortName,
-                        s => DeclaredApi.AnnouncementKeys(s[0]), SubsystemPortName);
+                    m_Choices.DependsOn(RequestPortName, s => AnsweringRequests(s[0]), SubsystemPortName);
                     m_Choices.DependsOn(FieldPortName,
-                        s => DeclaredApi.FieldChoices(DeclaredApi.PayloadOf(s[0], s[1])),
-                        SubsystemPortName, GetBlackboardStringNode.KeyPortName);
+                        s => DeclaredApi.FieldChoices(DeclaredApi.AnswerOf(s[0], s[1])),
+                        SubsystemPortName, RequestPortName);
                 }
                 return m_Choices;
             }
         }
 
+        /// <summary>Only the requests that answer with something.</summary>
+        private static System.Collections.Generic.List<string> AnsweringRequests(string defName)
+        {
+            var all = DeclaredApi.RequestKeys(defName);
+            var answering = new System.Collections.Generic.List<string> { DeclaredApi.None };
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(all[i]) && DeclaredApi.AnswerOf(defName, all[i]) != null)
+                    answering.Add(all[i]);
+            }
+            return answering;
+        }
+
         protected override void OnDefinePorts(IPortDefinitionContext context)
         {
             TaskGraphPorts.AddChoiceData(context, SubsystemPortName, "Subsystem",
-                "Which subsystem announces it.", DeclaredApi.Subsystems());
-            TaskGraphPorts.AddChoiceData(context, GetBlackboardStringNode.KeyPortName, "Announcement",
-                "Which announcement — the payload is read from its key.",
-                choices.Remembered(GetBlackboardStringNode.KeyPortName));
+                "Which subsystem was asked.", DeclaredApi.Subsystems());
+            TaskGraphPorts.AddChoiceData(context, RequestPortName, "Request",
+                "Which request — only those that answer with a contract are listed.",
+                choices.Remembered(RequestPortName));
             TaskGraphPorts.AddChoiceData(context, FieldPortName, "Field",
-                "One field of the announced contract, or blank for the whole payload as text.",
+                "One field of the answer, or blank for the whole contract as text.",
                 choices.Remembered(FieldPortName));
             if (m_Numeric)
                 TaskGraphPorts.AddResult<float>(context, "The field as a number — a bool reads 1 or 0.");
             else
-                TaskGraphPorts.AddResult<string>(context,
-                    "The payload or field as text — a number's digits, a contract's ToString, \"\" when unset.");
+                TaskGraphPorts.AddResult<string>(context, "The answer, or its field, as text.");
         }
 
-        /// <summary>The key the baked Get reads: the announcement's, or a field beside it.</summary>
         public string BakedKey()
         {
-            string[] live = Sources(remembered: false);
-            return ServiceContracts.FieldKey(live[1], live[2]);
+            string[] live = Live();
+            Type answer = DeclaredApi.AnswerOf(live[0], live[1]);
+            return ServiceContracts.FieldKey(ServiceContracts.KeyOf(answer), live[2]);
         }
 
-        private bool Numeric(string[] sources)
+        private static bool Numeric(string[] sources)
         {
             if (string.IsNullOrEmpty(sources[2]))
                 return false;
-            return DeclaredApi.IsNumeric(DeclaredApi.PayloadOf(sources[0], sources[1]), sources[2]);
+            return DeclaredApi.IsNumeric(DeclaredApi.AnswerOf(sources[0], sources[1]), sources[2]);
         }
 
-        /// <summary>subsystem, announcement, field — remembered (safe in definition) or live.</summary>
-        private string[] Sources(bool remembered = true)
+        private string[] Live()
         {
-            if (remembered)
-                return choices.RememberedSources(FieldPortName, 3);
-            return new[]
-            {
-                ReadPin(SubsystemPortName), ReadPin(GetBlackboardStringNode.KeyPortName), ReadPin(FieldPortName)
-            };
+            return new[] { ReadPin(SubsystemPortName), ReadPin(RequestPortName), ReadPin(FieldPortName) };
         }
 
         private string ReadPin(string pin)
@@ -112,7 +116,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         public bool AdoptChoiceSources()
         {
             bool moved = choices.AdoptChoiceSources();
-            bool numeric = Numeric(Sources(remembered: false));
+            bool numeric = Numeric(Live());
             if (numeric != m_Numeric)
             {
                 m_Numeric = numeric;
