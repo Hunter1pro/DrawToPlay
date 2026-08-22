@@ -124,6 +124,20 @@ namespace PowerOfFire.DrawToPlay
             // would have fired OnEnable in the holder's place rather than the row's.
             view.transform.SetParent(parent, false);
             view.transform.SetPositionAndRotation(position, rotation);
+
+            // SPAWN-TIME IS BIND-TIME (M40.3b, the wiring law the UI service already keeps):
+            // the def that builds a body hands its components their services before the body
+            // is live. A component on a spawned body USES its [InjectService] fields from its
+            // first frame — no Start-time self-injection, no Update fallback, no
+            // "services arrive on their own schedule" ritual. Resolved from the row's place in
+            // the level (the parent), which is the spine the body will live on.
+            MonoBehaviour[] parts = view.GetComponentsInChildren<MonoBehaviour>(true);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (parts[i] != null)
+                    StateTreeServiceInjector.Inject(parts[i], parts[i].gameObject);
+            }
+
             view.SetActive(true);
             Discard(holder);
             return view;

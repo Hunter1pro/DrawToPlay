@@ -78,6 +78,7 @@ namespace PowerOfFire.DrawToPlay
         private void Changed(string itemName)
         {
             Redraw();
+            ShowWorn();
             ReportToObjectives(itemName);
             m_Autosave ??= StateTreeContextHost.FindService<IAutosave>(scope.gameObject);
             m_Autosave?.MarkDirty();
@@ -487,12 +488,30 @@ namespace PowerOfFire.DrawToPlay
             m_Carrier = body;
             m_CarrierAbilities = body.GetComponent<AbilityHost>();
             m_CarrierAttributes = body.GetComponent<AttributeComponent>();
+            m_CarrierWornViews = body.GetComponentsInChildren<IWornView>(true);
             m_ToldThemAboutTheCarrier = false;
             for (int i = 0; i < m_Worn.Count; i++)
                 Grant(m_Worn[i], body);
+            ShowWorn();
             if (m_Worn.Count > 0)
                 Redraw();
         }
+
+        /// <summary>The body's views of what is worn — a hand, a back — told what to show, now
+        /// and after every equip or take-off. The bag holds them through the body it bound.</summary>
+        private void ShowWorn()
+        {
+            for (int i = 0; m_CarrierWornViews != null && i < m_CarrierWornViews.Length; i++)
+            {
+                IWornView view = m_CarrierWornViews[i];
+                if (view == null)
+                    continue;
+                string wornName = EquippedIn(view.slotId);
+                view.Show(string.IsNullOrEmpty(wornName) ? null : Row(wornName));
+            }
+        }
+
+        private IWornView[] m_CarrierWornViews;
 
         /// <summary>The body is going (its scope is being disposed): forget it without
         /// reverting — its components go with it.</summary>
@@ -503,6 +522,7 @@ namespace PowerOfFire.DrawToPlay
             m_Carrier = null;
             m_CarrierAbilities = null;
             m_CarrierAttributes = null;
+            m_CarrierWornViews = null;
             for (int i = 0; i < m_Worn.Count; i++)
                 m_Worn[i].handles.Clear();
         }
