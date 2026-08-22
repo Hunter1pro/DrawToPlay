@@ -304,11 +304,10 @@ namespace PowerOfFire.DrawToPlay.Tests
                     implementation.Name + " was provided under IBag, so a consumer asking for the "
                     + "capability got it without naming the class");
 
-                var board = new StateTreeContext(installer.scope.gameObject);
-                consumer.bag.Add(board, "wood", 3);
-                Assert.That(consumer.bag.Count(board, "wood"), Is.EqualTo(3));
-                Assert.That(consumer.bag.Remove(board, "wood", 5), Is.False, "all-or-nothing");
-                Assert.That(consumer.bag.Has(board, "wood", 3), Is.True);
+                consumer.bag.Add("wood", 3);
+                Assert.That(consumer.bag.Count("wood"), Is.EqualTo(3));
+                Assert.That(consumer.bag.Remove("wood", 5), Is.False, "all-or-nothing");
+                Assert.That(consumer.bag.Has("wood", 3), Is.True);
 
                 // AND TAKING IT OUT forgets every name it was provided under.
                 installer.Uninstall(def);

@@ -48,7 +48,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             ItemRegistry registry = MakeRegistry(out ItemDef sword);
             StateTreeContextHost player = MakePlayer();
-            MountBag(player, registry);
+            InventoryService bag = MountBag(player, registry);
 
             var add = ScriptableObject.CreateInstance<InventoryAddTask>();
             add.item.entryId = sword.id;
@@ -59,14 +59,14 @@ namespace PowerOfFire.DrawToPlay.Tests
             StateTreeRunner runner = MakeRunner(MakeTree(add, registry), player);
             runner.StartTree();
             runner.TickTree(0.1f);
-            Assert.AreEqual(1, StateTreeInventoryUtil.Count(player.Context, "sword"),
+            Assert.AreEqual(1, bag.Count("sword"),
                 "the reference resolved by ID — the serialized name cache is never trusted");
 
             runner.StopTree();
             sword.name = "blade";
             runner.StartTree();
             runner.TickTree(0.1f);
-            Assert.AreEqual(1, StateTreeInventoryUtil.Count(player.Context, "blade"),
+            Assert.AreEqual(1, bag.Count("blade"),
                 "renaming the entry in the dashboard re-pointed the runtime string");
         }
 
@@ -75,7 +75,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             ItemRegistry registry = MakeRegistry(out _);
             StateTreeContextHost player = MakePlayer();
-            MountBag(player, registry);
+            InventoryService bag = MountBag(player, registry);
 
             var add = ScriptableObject.CreateInstance<InventoryAddTask>();
             add.item.entryId = "no-such-id";
@@ -87,7 +87,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             StateTreeRunner runner = MakeRunner(MakeTree(add, registry), player);
             runner.StartTree();
             runner.TickTree(0.1f);
-            Assert.AreEqual(0, StateTreeInventoryUtil.Count(player.Context, "sword"),
+            Assert.AreEqual(0, bag.Count("sword"),
                 "an unresolved reference adds nothing — the task Failed instead of inventing");
         }
 

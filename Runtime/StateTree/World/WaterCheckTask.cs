@@ -95,11 +95,7 @@ namespace PowerOfFire.DrawToPlay
             IBag inventory = StateTreeContextHost.FindService<IBag>(context.owner);
             if (inventory == null)
                 return "no bag is reachable from this actor";
-            StateTreeContextHost carrier = StateTreeContextHost.Resolve(context.owner,
-                StateTreeContextKind.Player);
-            if (carrier == null || carrier.Context == null)
-                return "no carrier scope to check for '" + itemName + "'";
-            return inventory.Has(carrier.Context, itemName)
+            return inventory.Has(itemName)
                 ? null
                 : "carries no '" + itemName + "'";
         }

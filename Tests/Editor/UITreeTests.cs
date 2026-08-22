@@ -91,6 +91,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         private UiService m_Ui;
         private UiRegistry m_Screens;
         private ItemRegistry m_Registry;
+        private InventoryService m_Bag;
 
         [SetUp]
         public void SetUp()
@@ -218,7 +219,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual(StateTreeStatus.Success, add.OnTick(context, 0.1f));
             // The spine seeds sword=1, so adding 2 lands on 3 — the test respects the
             // fixture instead of imagining an empty inventory.
-            Assert.AreEqual(3, StateTreeInventoryUtil.Count(m_Player.Context, "sword"));
+            Assert.AreEqual(3, m_Bag.Count("sword"));
 
             var remove = ScriptableObject.CreateInstance<InventoryRemoveTask>();
             SetItem(remove.item, "sword");
@@ -226,19 +227,19 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Assets.Add(remove);
             Assert.AreEqual(StateTreeStatus.Failure, remove.OnTick(context, 0.1f),
                 "removing more than held FAILS all-or-nothing");
-            Assert.AreEqual(3, StateTreeInventoryUtil.Count(m_Player.Context, "sword"));
+            Assert.AreEqual(3, m_Bag.Count("sword"));
             remove.count = 3;
             Assert.AreEqual(StateTreeStatus.Success, remove.OnTick(context, 0.1f));
-            Assert.AreEqual(0, StateTreeInventoryUtil.Count(m_Player.Context, "sword"));
-            Assert.IsFalse(m_Player.Context.blackboard.ContainsKey(
-                StateTreeInventoryUtil.Key("sword")), "zero removes the key entirely");
+            Assert.AreEqual(0, m_Bag.Count("sword"));
+            foreach (ItemStack stack in m_Bag.Stacks())
+                Assert.AreNotEqual("sword", stack.definition.name, "zero removes the stack entirely");
 
             var count = ScriptableObject.CreateInstance<InventoryCountCondition>();
             SetItem(count.item, "potion");
             count.atLeast = 3;
             m_Assets.Add(count);
             Assert.IsFalse(count.Evaluate(context), "seeded 2 potions are not 3");
-            StateTreeInventoryUtil.SetCount(m_Player.Context, "potion", 3);
+            m_Bag.SetCount("potion", 3);
             Assert.IsTrue(count.Evaluate(context));
 
             var kind = ScriptableObject.CreateInstance<ItemKindCondition>();
@@ -282,12 +283,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Registry.entries.Add(MakeItem("potion", "Health Potion", ItemKind.Consumable));
             m_Assets.Add(m_Registry);
 
-            StateTreeInventoryUtil.SetCount(m_Player.Context, "sword", 1);
-            StateTreeInventoryUtil.SetCount(m_Player.Context, "potion", 2);
-
-            // THE BAG AS A SUBSYSTEM (M32): the atoms ask it now, so the spine mounts one —
-            // seeding stays direct because these tests are about the ENCODING, which is the
-            // one thing still allowed to speak it.
+            // THE BAG AS A SUBSYSTEM (M32): the atoms ask it, so the spine mounts one.
             var bagObject = new GameObject("Bag");
             bagObject.hideFlags = HideFlags.HideAndDontSave;
             m_Objects.Add(bagObject);
@@ -296,8 +292,10 @@ namespace PowerOfFire.DrawToPlay.Tests
             def.serviceName = "inventory";
             def.registry = m_Registry;
             m_Assets.Add(def);
-            var bag = new InventoryService(m_Player, def);
-            m_Player.Provide(bag);
+            m_Bag = new InventoryService(m_Player, def);
+            m_Player.Provide(m_Bag);
+            m_Bag.SetCount("sword", 1);
+            m_Bag.SetCount("potion", 2);
         }
 
         /// <summary>The §3.5 tree, wired exactly as the State Tree window would wire it.</summary>

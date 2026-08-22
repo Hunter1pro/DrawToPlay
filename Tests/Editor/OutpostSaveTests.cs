@@ -6,13 +6,10 @@ using UnityEngine;
 namespace PowerOfFire.DrawToPlay.Tests
 {
     /// <summary>
-    /// M35.2 — the loadout survives a round trip.
-    ///
-    /// What was wrong was not the wearing and not the reading: it was a SAVE that fired in the
-    /// window between the file being loaded and the player arriving. The bag is fresh then and
-    /// wears nothing, and the save captured that empty loadout over the one in the file — then
-    /// the restore, which reads what the save had just written, re-wore nothing. The hammer was
-    /// in the file right up until the session that was about to put it back on.
+    /// M35.2 found a SAVE that fired in the window between the file being loaded and the player
+    /// arriving: the bag was fresh then, wore nothing, and the save wrote that over the file.
+    /// M39 removes the window rather than guarding it — the bag owns what it holds and wears,
+    /// a load puts the whole snapshot back at once, and no body is needed for any of it.
     /// </summary>
     [TestFixture]
     public sealed class OutpostSaveTests
@@ -45,9 +42,10 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
-        public void ASaveBeforeThePlayerIsBack_KeepsTheLoadoutItHasNotRestoredYet()
+        public void ALoadedBag_IsCarriedAndWorn_BeforeAnyPlayerExists()
         {
             var items = ScriptableObject.CreateInstance<ItemRegistry>();
+            items.entries.Add(new ItemDef { name = "hammer", slot = { entryId = "slot.hand" } });
             m_Junk.Add(items);
             var def = ScriptableObject.CreateInstance<ServiceDef>();
             def.serviceName = "inventory";
@@ -61,24 +59,20 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             // WHAT THE FILE SAID: a hammer carried and worn.
             var loaded = new OutpostSaveData();
-            loaded.itemNames.Add("hammer");
-            loaded.itemCounts.Add(1);
-            loaded.equipment = new InventoryService.SaveState { hasState = true };
-            loaded.equipment.slotIds.Add("slot.hand");
-            loaded.equipment.itemNames.Add("hammer");
+            loaded.bag = new InventoryService.SaveState { hasState = true };
+            loaded.bag.itemNames.Add("hammer");
+            loaded.bag.itemCounts.Add(1);
+            loaded.bag.wornItems.Add("hammer");
             save.Adopt(loaded);
 
-            // NO PLAYER YET — the level is still loading — and the live bag wears nothing.
-            Assert.That(bag.CaptureState().itemNames, Is.Empty);
+            // NO PLAYER YET — the level is still loading — and the bag already has it all.
+            Assert.AreEqual(1, bag.Count("hammer"));
+            Assert.IsTrue(bag.IsEquipped("hammer"), "worn, with the grant waiting for a body");
 
-            // A save fires in that window (the progress restore marks the file dirty a second
-            // before the level has a player). It must write what it LAST KNEW, not what the
-            // fresh bag has, for the loadout exactly as it already did for the counts.
+            // A save in that window writes the truth, because the truth is in the bag.
             OutpostSaveData written = save.Capture();
-            Assert.That(written.equipment.itemNames, Is.EqualTo(new[] { "hammer" }),
-                "the loadout the restore has not put back on yet is not 'nothing worn'");
-            Assert.That(written.itemNames, Is.EqualTo(new[] { "hammer" }),
-                "the counts already had this guard");
+            Assert.That(written.bag.itemNames, Is.EqualTo(new[] { "hammer" }));
+            Assert.That(written.bag.wornItems, Is.EqualTo(new[] { "hammer" }));
         }
     }
 }

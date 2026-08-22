@@ -156,21 +156,21 @@ namespace PowerOfFire.DrawToPlay.Tests
         [Test]
         public void Remove_IsAllOrNothing()
         {
-            m_Service.Add(m_Player.Context, "ration", 2);
-            Assert.IsFalse(m_Service.Remove(m_Player.Context, "ration", 3),
+            m_Service.Add("ration", 2);
+            Assert.IsFalse(m_Service.Remove("ration", 3),
                 "asking for more than held refuses");
-            Assert.AreEqual(2, m_Service.Count(m_Player.Context, "ration"),
+            Assert.AreEqual(2, m_Service.Count("ration"),
                 "and leaves the bag untouched");
-            Assert.IsTrue(m_Service.Remove(m_Player.Context, "ration", 2));
-            Assert.AreEqual(0, m_Service.Count(m_Player.Context, "ration"));
+            Assert.IsTrue(m_Service.Remove("ration", 2));
+            Assert.AreEqual(0, m_Service.Count("ration"));
         }
 
         [Test]
         public void Stacks_ListInRegistryOrder()
         {
-            m_Service.Add(m_Player.Context, "relic");
-            m_Service.Add(m_Player.Context, "ration", 3);
-            IReadOnlyList<ItemStack> stacks = m_Service.Stacks(m_Player.Context);
+            m_Service.Add("relic");
+            m_Service.Add("ration", 3);
+            IReadOnlyList<ItemStack> stacks = m_Service.Stacks();
             Assert.AreEqual(2, stacks.Count);
             Assert.AreEqual("ration", stacks[0].definition.name, "registry order, not add order");
             Assert.AreEqual(3, stacks[0].count);
@@ -183,12 +183,12 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void Use_SpendsOne_AndAppliesTheRowsEffect()
         {
             m_Vitals.Consume(AttributeNames.Health, 3f);   // wounded: 2 of 5
-            m_Service.Add(m_Player.Context, "ration", 2);
+            m_Service.Add("ration", 2);
             int changes = 0;
             m_Service.changed += () => changes++;
 
             Assert.IsTrue(m_Service.Use("ration"));
-            Assert.AreEqual(1, m_Service.Count(m_Player.Context, "ration"), "one spent");
+            Assert.AreEqual(1, m_Service.Count("ration"), "one spent");
             Assert.AreEqual(4f, m_Vitals.Value(AttributeNames.Health), 0.001f,
                 "the picked heal landed on the player's attribute");
             Assert.AreEqual(1, changes, "the spend announced itself");
@@ -201,9 +201,9 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual(5f, m_Vitals.Value(AttributeNames.Health), 0.001f,
                 "nothing applied");
 
-            m_Service.Add(m_Player.Context, "keycard");
+            m_Service.Add("keycard");
             Assert.IsFalse(m_Service.Use("keycard"), "a row with no use effect is not usable");
-            Assert.AreEqual(1, m_Service.Count(m_Player.Context, "keycard"),
+            Assert.AreEqual(1, m_Service.Count("keycard"),
                 "and nothing was spent");
         }
 
@@ -212,7 +212,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         [Test]
         public void Equip_GrantsWornModifiers_WhileWorn()
         {
-            m_Service.Add(m_Player.Context, "relic");
+            m_Service.Add("relic");
             int equipChanges = 0;
             m_Service.equipmentChanged += () => equipChanges++;
 
@@ -234,8 +234,8 @@ namespace PowerOfFire.DrawToPlay.Tests
         [Test]
         public void Equip_IntoAnOccupiedSlot_Swaps()
         {
-            m_Service.Add(m_Player.Context, "relic");
-            m_Service.Add(m_Player.Context, "charm");
+            m_Service.Add("relic");
+            m_Service.Add("charm");
             m_Service.Equip("relic");
 
             Assert.IsTrue(m_Service.Equip("charm"));
@@ -249,7 +249,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void Equip_RefusesWhatIsNotCarried_AndWhatHasNoSlot()
         {
             Assert.IsFalse(m_Service.Equip("relic"), "not carried");
-            m_Service.Add(m_Player.Context, "keycard");
+            m_Service.Add("keycard");
             Assert.IsFalse(m_Service.Equip("keycard"), "no slot declared");
             Assert.AreEqual(5f, m_Vitals.Effective(AttributeNames.Health), 0.001f);
         }
@@ -259,7 +259,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         [Test]
         public void SaveRoundtrip_ReWearsTheLoadout()
         {
-            m_Service.Add(m_Player.Context, "relic");
+            m_Service.Add("relic");
             m_Service.Equip("relic");
             InventoryService.SaveState state = m_Service.CaptureState();
 
@@ -279,8 +279,8 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             // The UI wiring brief's edge: a press writes a key, the flow's tasks read it.
             m_Vitals.Consume(AttributeNames.Health, 3f);
-            m_Service.Add(m_Player.Context, "ration", 1);
-            m_Service.Add(m_Player.Context, "relic", 1);
+            m_Service.Add("ration", 1);
+            m_Service.Add("relic", 1);
 
             var use = ScriptableObject.CreateInstance<UseItemTask>();
             m_Assets.Add(use);
@@ -309,7 +309,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         [Test]
         public void ItemTasks_FallBackToTheAuthoredRow_WhenNoKeyResolves()
         {
-            m_Service.Add(m_Player.Context, "relic", 1);
+            m_Service.Add("relic", 1);
             var wear = ScriptableObject.CreateInstance<EquipItemTask>();
             m_Assets.Add(wear);
             wear.item.entryName = "relic";
@@ -346,7 +346,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             // §4d's highlighted want: the verb hands its WHOLE story forward as one typed
             // payload — item def included — so a growing contract grows the class, never
             // the key count or the downstream wiring.
-            m_Service.Add(m_Player.Context, "ration", 1);
+            m_Service.Add("ration", 1);
             var use = ScriptableObject.CreateInstance<UseItemTask>();
             m_Assets.Add(use);
             use.item.entryName = "ration";
@@ -373,7 +373,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             // §4g: no state tree anywhere — the def row IS the handler. Pending key →
             // domain hook (use + announce) → consume, in one tick.
             m_Vitals.Consume(AttributeNames.Health, 3f);
-            m_Service.Add(m_Player.Context, "ration", 2);
+            m_Service.Add("ration", 2);
             m_Service.definition.requests.Add(new ServiceRequest
             {
                 key = "test.use", action = "use", namesRowOf = m_Items,
@@ -383,7 +383,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Root.Context.blackboard["test.use"] = "ration";
             m_Service.Tick(0.02f);
 
-            Assert.AreEqual(1, m_Service.Count(m_Player.Context, "ration"),
+            Assert.AreEqual(1, m_Service.Count("ration"),
                 "the domain verb ran");
             Assert.AreEqual(4f, m_Vitals.Value(AttributeNames.Health), 0.001f);
             Assert.IsFalse(m_Root.Context.blackboard.ContainsKey("test.use"),
@@ -408,15 +408,84 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
-        public void ForgetWornOnPlayerChange_DropsRecordsWithoutReverting()
+        public void ANewBody_WearsTheLoadout_AndTheOldOneIsNotReverted()
         {
-            // The level-swap moment: the OLD body's modifiers die with its components, so
-            // the worn list is forgotten, never reverted into whoever comes next.
-            m_Service.Add(m_Player.Context, "relic");
+            // THE LEVEL SWAP (M39): the bag keeps what it holds and what it wears; the body
+            // changes. The old body's modifiers die with its components (nothing to revert),
+            // and the new body is granted the same loadout the moment the bag notices it.
+            m_Service.Add("relic");
             m_Service.Equip("relic");
-            m_Service.ForgetWornOnPlayerChange();
-            Assert.IsFalse(m_Service.IsEquipped("relic"));
-            Assert.AreEqual("", m_Service.EquippedIn("slot.trinket"));
+            Assert.AreEqual(6f, m_Vitals.Effective(AttributeNames.Health), 0.001f);
+
+            GameObject oldBody = m_Player.gameObject;
+            m_Hosts.Remove(m_Player);
+            m_Objects.Remove(oldBody);
+            m_Player.Unregister();
+            Object.DestroyImmediate(oldBody);
+
+            var nextGo = new GameObject("Player2") { hideFlags = HideFlags.HideAndDontSave };
+            m_Objects.Add(nextGo);
+            var nextVitals = nextGo.AddComponent<AttributeComponent>();
+            nextVitals.Ensure(AttributeNames.Health, 5f);
+            nextGo.AddComponent<AbilityHost>();
+            var next = nextGo.AddComponent<StateTreeContextHost>();
+            next.kind = StateTreeContextKind.Player;
+            next.autoStart = false;
+            next.Register();
+            m_Hosts.Add(next);
+            m_Player = next;
+            m_Vitals = nextVitals;
+
+            Assert.IsTrue(m_Service.IsEquipped("relic"), "the bag still wears it");
+            Assert.AreEqual(1, m_Service.Count("relic"), "and still carries it");
+            m_Service.Tick(0f);
+            Assert.AreEqual(6f, nextVitals.Effective(AttributeNames.Health), 0.001f,
+                "the new body is granted the worn modifier on the tick the bag notices it");
+
+            m_Service.Unequip("slot.trinket");
+            Assert.AreEqual(5f, nextVitals.Effective(AttributeNames.Health), 0.001f,
+                "and the revert lands on the body that was granted");
+        }
+
+        [Test]
+        public void ALoadout_RestoredBeforeAnyBody_IsGrantedWhenOneArrives()
+        {
+            // Load happens before the level spawns the player. The snapshot is adopted in
+            // full — counts and worn — and the grant waits for a body instead of failing.
+            m_Service.Add("relic");
+            m_Service.Equip("relic");
+            InventoryService.SaveState state = m_Service.CaptureState();
+            Assert.AreEqual(new[] { "relic" }, state.wornItems);
+
+            GameObject oldBody = m_Player.gameObject;
+            m_Hosts.Remove(m_Player);
+            m_Objects.Remove(oldBody);
+            m_Player.Unregister();
+            Object.DestroyImmediate(oldBody);
+            m_Service.Tick(0f);   // the bag notices there is nobody
+
+            var fresh = new InventoryService(m_Root, m_Service.definition);
+            fresh.RestoreState(state);
+            Assert.AreEqual(1, fresh.Count("relic"));
+            Assert.IsTrue(fresh.IsEquipped("relic"), "worn, with nobody to grant to yet");
+
+            var nextGo = new GameObject("Player2") { hideFlags = HideFlags.HideAndDontSave };
+            m_Objects.Add(nextGo);
+            var nextVitals = nextGo.AddComponent<AttributeComponent>();
+            nextVitals.Ensure(AttributeNames.Health, 5f);
+            nextGo.AddComponent<AbilityHost>();
+            var next = nextGo.AddComponent<StateTreeContextHost>();
+            next.kind = StateTreeContextKind.Player;
+            next.autoStart = false;
+            next.Register();
+            m_Hosts.Add(next);
+            m_Player = next;
+            m_Vitals = nextVitals;
+
+            fresh.Tick(0f);
+            Assert.AreEqual(6f, nextVitals.Effective(AttributeNames.Health), 0.001f,
+                "granted on arrival");
+            fresh.Dispose();
         }
     }
 }

@@ -183,7 +183,7 @@ namespace PowerOfFire.DrawToPlay
                     item = m_Inventory.Row(cost.item.entryName),
                     itemName = cost.item.entryName,
                     need = Mathf.Max(1, cost.count),
-                    held = m_Inventory.Count(player.Context, cost.item.entryName)
+                    held = m_Inventory.Count(cost.item.entryName)
                 };
                 offer.costs.Add(line);
                 if (line.met)
@@ -238,11 +238,9 @@ namespace PowerOfFire.DrawToPlay
                 return Refuse(result);
             }
 
-            StateTreeContextHost carrier = StateTreeContextHost.Resolve(scope.gameObject,
-                StateTreeContextKind.Player);
-            if (m_Inventory == null || carrier == null || carrier.Context == null)
+            if (m_Inventory == null)
             {
-                result.refusal = "nobody is carrying anything here";
+                result.refusal = "no bag to craft from";
                 return Refuse(result);
             }
 
@@ -256,7 +254,7 @@ namespace PowerOfFire.DrawToPlay
                 if (cost == null || string.IsNullOrEmpty(cost.item.entryName))
                     continue;
                 int need = Mathf.Max(1, cost.count);
-                int held = m_Inventory.Count(carrier.Context, cost.item.entryName);
+                int held = m_Inventory.Count(cost.item.entryName);
                 if (held >= need)
                     continue;
                 result.refusal = "needs " + need + " " + cost.item.entryName
@@ -268,14 +266,14 @@ namespace PowerOfFire.DrawToPlay
             {
                 CraftRecipeDef.Cost cost = costs[i];
                 if (cost != null && !string.IsNullOrEmpty(cost.item.entryName))
-                    m_Inventory.Remove(carrier.Context, cost.item.entryName,
+                    m_Inventory.Remove(cost.item.entryName,
                         Mathf.Max(1, cost.count));
             }
 
             result.itemName = result.recipe.result.entryName ?? "";
             result.item = m_Inventory.Row(result.itemName);
             result.count = Mathf.Max(1, result.recipe.resultCount);
-            m_Inventory.Add(carrier.Context, result.itemName, result.count);
+            m_Inventory.Add(result.itemName, result.count);
             result.made = true;
             // The sentence, written where the outcome is known — see CraftResult.line.
             string made = result.recipe != null && !string.IsNullOrEmpty(result.recipe.displayName)

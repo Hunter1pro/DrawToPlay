@@ -14,6 +14,9 @@ namespace PowerOfFire.DrawToPlay
     ///
     /// Equipment, use and save stay on the class on purpose: they are a second capability with
     /// their own consumers, and moving them is a sweep this slice does not pretend to be.
+    ///
+    /// NO SCOPE (M39): the bag owns its counts, so who is carrying it is the bag's business,
+    /// not the caller's.
     /// </summary>
     public interface IBag
     {
@@ -22,14 +25,14 @@ namespace PowerOfFire.DrawToPlay
         ItemDef Row(string itemName);
 
         /// <summary>Put some in the bag on this scope; returns the new total.</summary>
-        int Add(StateTreeContext scope, string itemName, int count = 1);
+        int Add(string itemName, int count = 1);
 
         /// <summary>All-or-nothing: false leaves the bag untouched.</summary>
-        bool Remove(StateTreeContext scope, string itemName, int count = 1);
+        bool Remove(string itemName, int count = 1);
 
-        int Count(StateTreeContext scope, string itemName);
+        int Count(string itemName);
 
-        bool Has(StateTreeContext scope, string itemName, int count = 1);
+        bool Has(string itemName, int count = 1);
 
         /// <summary>Something in the bag moved — what a listener redraws on.</summary>
         event Action changed;
