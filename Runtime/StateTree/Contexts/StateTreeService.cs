@@ -153,7 +153,8 @@ namespace PowerOfFire.DrawToPlay
                     + "subsystem's own button, not part of its API.");
                 return;
             }
-            if (row.namesRowOf != null && row.namesRowOf.FindByName(value) == null)
+            bool emptyAllowed = string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(row.emptyMeans);
+            if (row.namesRowOf != null && !emptyAllowed && row.namesRowOf.FindByName(value) == null)
             {
                 Debug.LogError("Service '" + GetType().Name + "': request '" + key
                     + "' takes a row of '" + row.namesRowOf.name + "', and '" + value

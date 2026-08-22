@@ -395,6 +395,12 @@ namespace PowerOfFire.DrawToPlay
             + "map, the API window and the ⛓ see it — but not part of the API, and refused "
             + "by the typed C# door. Its skin still writes the key; strangers do not.")]
         public bool internalOnly;
+
+        [Tooltip("For a typed request: what an EMPTY value means — 'the station you are "
+            + "standing at', 'the current objective'. Set, the door lets an empty value through "
+            + "and the subsystem decides; empty, an empty value is refused like any other "
+            + "non-row.")]
+        public string emptyMeans = "";
     }
 
     /// <summary>Marks a string field that names a DECLARED REQUEST of some subsystem —

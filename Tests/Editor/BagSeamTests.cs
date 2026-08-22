@@ -93,6 +93,113 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void OneDetect_ThePanelAndTheSwingCannotDisagree_AboutWhichBench()
+        {
+            // M39.4: the bench is found in ONE place — CraftService.at — with one range. The
+            // panel shows its offer and an empty craft.begin makes its recipe, so a player
+            // standing between two stations gets the same answer on screen and from the swing.
+            var items = ScriptableObject.CreateInstance<ItemRegistry>();
+            items.entries.Add(new ItemDef { name = "wood" });
+            items.entries.Add(new ItemDef { name = "skiff" });
+            items.entries.Add(new ItemDef { name = "raft" });
+            m_Junk.Add(items);
+            var bagDef = ScriptableObject.CreateInstance<ServiceDef>();
+            bagDef.serviceName = "inventory";
+            bagDef.registry = items;
+            m_Junk.Add(bagDef);
+            var bag = new InventoryService(m_Root, bagDef);
+            m_Root.Provide(bag);
+            m_Root.Provide(typeof(IBag), bag);
+
+            var recipes = ScriptableObject.CreateInstance<CraftRecipeRegistry>();
+            recipes.dependsOn.Add(items);
+            var skiff = new CraftRecipeDef { name = "skiff", result = { entryName = "skiff" } };
+            skiff.costs.Add(new CraftRecipeDef.Cost { item = { entryName = "wood" }, count = 1 });
+            var raft = new CraftRecipeDef { name = "raft", result = { entryName = "raft" } };
+            raft.costs.Add(new CraftRecipeDef.Cost { item = { entryName = "wood" }, count = 1 });
+            recipes.entries.Add(skiff);
+            recipes.entries.Add(raft);
+            m_Junk.Add(recipes);
+            var craftDef = ScriptableObject.CreateInstance<ServiceDef>();
+            craftDef.serviceName = "craft";
+            craftDef.registry = recipes;
+            craftDef.settings.values.Add(new ServiceSettingValue
+            {
+                name = nameof(CraftService.stationTag), stringValue = "station"
+            });
+            craftDef.settings.values.Add(new ServiceSettingValue
+            {
+                name = nameof(CraftService.benchRange), floatValue = 3f
+            });
+            m_Junk.Add(craftDef);
+
+            // A level with a world, two stations 4 m apart, and a player between them.
+            var levelGo = new GameObject("Level") { hideFlags = HideFlags.HideAndDontSave };
+            levelGo.transform.SetParent(m_Root.transform);
+            m_Junk.Add(levelGo);
+            var level = levelGo.AddComponent<StateTreeContextHost>();
+            level.kind = StateTreeContextKind.Level;
+            level.autoStart = false;
+            level.Register();
+            var world = new WorldService(level, null);
+            level.Provide(world);
+            WorldObjectBehaviour shipyard = Station(levelGo, "Shipyard", "skiff", new Vector3(-2f, 0f, 0f));
+            WorldObjectBehaviour raftyard = Station(levelGo, "Raftyard", "raft", new Vector3(2f, 0f, 0f));
+
+            var playerGo = new GameObject("Player") { hideFlags = HideFlags.HideAndDontSave };
+            playerGo.transform.SetParent(levelGo.transform);
+            m_Junk.Add(playerGo);
+            var player = playerGo.AddComponent<StateTreeContextHost>();
+            player.kind = StateTreeContextKind.Player;
+            player.autoStart = false;
+            player.Register();
+
+            var bench = new CraftService(m_Root, craftDef);
+            m_Root.Provide(bench);
+            bag.Add("wood", 2);
+
+            try
+            {
+                playerGo.transform.position = new Vector3(-1f, 0f, 0f);   // nearer the shipyard
+                bench.Tick(0f);
+                Assert.AreSame(shipyard, bench.at);
+                Assert.AreEqual("skiff", bench.offer.recipeName, "the panel would show the skiff");
+                CraftResult made = bench.Craft("");
+                Assert.IsTrue(made.made);
+                Assert.AreEqual("skiff", made.recipeName, "and the swing made the skiff — same answer");
+
+                playerGo.transform.position = new Vector3(1f, 0f, 0f);    // nearer the raftyard
+                bench.Tick(0f);
+                Assert.AreSame(raftyard, bench.at);
+                Assert.AreEqual("raft", bench.Craft("").recipeName);
+
+                playerGo.transform.position = new Vector3(0f, 0f, 9f);    // away from both
+                bench.Tick(0f);
+                Assert.IsNull(bench.at);
+                Assert.IsNull(bench.offer);
+                Assert.That(bench.Craft("").refusal, Does.Contain("no station"));
+            }
+            finally
+            {
+                player.Unregister();
+                level.Unregister();
+            }
+        }
+
+        private WorldObjectBehaviour Station(GameObject levelGo, string stationName, string recipe, Vector3 at)
+        {
+            var go = new GameObject(stationName) { hideFlags = HideFlags.HideAndDontSave };
+            go.transform.SetParent(levelGo.transform);
+            go.transform.position = at;
+            m_Junk.Add(go);
+            var citizen = go.AddComponent<WorldObjectBehaviour>();
+            citizen.entryName = recipe;
+            citizen.tags.Add("station");
+            citizen.RegisterToWorld();
+            return citizen;
+        }
+
+        [Test]
         public void TheDefs_CarryOnlyWhatAFlowWires()
         {
             var inventory = AssetDatabase.LoadAssetAtPath<ServiceDef>(

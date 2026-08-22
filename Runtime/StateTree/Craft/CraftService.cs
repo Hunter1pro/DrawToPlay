@@ -19,7 +19,8 @@ namespace PowerOfFire.DrawToPlay
     /// of the three things it needed and then refused is the one bug in a crafting system a
     /// player will never forgive.
     /// </summary>
-    [ServiceActionContract(CraftAction, "value = recipe name", typeof(CraftResult))]
+    [ServiceActionContract(CraftAction, "value = recipe name, or empty for the station you are at",
+        typeof(CraftResult))]
     public sealed class CraftService : StateTreeService
     {
 
@@ -38,9 +39,8 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        [ServiceSetting(2.4f, "How close the player must be for a station's panel to open, in "
-            + "metres. Slightly wider than the craft ability's own reach, so the offer is on "
-            + "screen before the button would work rather than after.")]
+        [ServiceSetting(2.4f, "How close the player must be to be AT a station, in metres — "
+            + "the one reach: the panel opens at it and the swing lands at it.")]
         public float benchRange;
 
         /// <summary>NO DEFAULT, on purpose (M36): a tag written in code is the pattern M31
@@ -57,6 +57,14 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>What the nearest station offers right now, or null — the panel's whole
         /// model. Recomputed each tick; the panel is told only when the sentence would differ.</summary>
         public CraftOffer offer { get; private set; }
+
+        /// <summary>
+        /// THE STATION THE PLAYER IS AT (M39.4), or null — the ONE place a bench is found.
+        /// The panel shows its offer, and <see cref="CraftAction"/> with an empty value makes
+        /// its recipe, so the craft ability needs no search of its own: two searches with two
+        /// ranges that happened to agree are one search with one setting.
+        /// </summary>
+        public WorldObjectBehaviour at { get; private set; }
 
         /// <summary>The panel this bench showed (its def's spawn), held from the moment it
         /// was shown and CALLED — no events (M39.2b). Null when the def spawns none.</summary>
@@ -85,8 +93,10 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         protected override void OnTick(float deltaTime)
         {
-            CraftOffer next = OfferAt(StateTreeContextHost.Resolve(scope.gameObject,
-                StateTreeContextKind.Player));
+            StateTreeContextHost player = StateTreeContextHost.Resolve(scope.gameObject,
+                StateTreeContextKind.Player);
+            at = StationAt(player);
+            CraftOffer next = OfferOf(at);
             string signature = next == null ? "" : Signature(next);
             if (signature == m_Shown)
                 return;
@@ -111,19 +121,14 @@ namespace PowerOfFire.DrawToPlay
         /// sentence would differ. Empty means "no bench".</summary>
         private string m_Shown = "";
 
-        /// <summary>
-        /// The nearest station within reach, as a finished read model — or null when there is
-        /// none. Both numbers per cost are counted HERE, so the skin adds nothing to them.
-        /// </summary>
-        public CraftOffer OfferAt(StateTreeContextHost player)
+        /// <summary>The nearest station within <see cref="benchRange"/> of the player, or null.</summary>
+        public WorldObjectBehaviour StationAt(StateTreeContextHost player)
         {
             if (player == null || player.Context == null)
                 return null;
             WorldService world = StateTreeContextHost.FindService<WorldService>(player.gameObject);
-            CraftRecipeRegistry catalog = recipes;
-            if (world == null || catalog == null || m_Inventory == null)
+            if (world == null)
                 return null;
-
             s_Benches.Clear();
             world.CollectByTag(stationTag, s_Benches);
             WorldObjectBehaviour bench = null;
@@ -140,11 +145,20 @@ namespace PowerOfFire.DrawToPlay
                 bench = candidate;
                 best = offset.magnitude;
             }
-            if (bench == null)
-                return null;
+            return bench;
+        }
 
-            // WHICH recipe is the placer pattern's answer: the citizen's entry name is the row
-            // it was placed as. The same fact the craft ability reads off it.
+        /// <summary>
+        /// What a station offers, as a finished read model — or null when there is no station
+        /// or it offers nothing. Both numbers per cost are counted HERE, so the panel adds
+        /// nothing to them. WHICH recipe is the placer pattern's answer: the citizen's entry
+        /// name is the row it was placed as.
+        /// </summary>
+        public CraftOffer OfferOf(WorldObjectBehaviour bench)
+        {
+            CraftRecipeRegistry catalog = recipes;
+            if (bench == null || catalog == null || m_Inventory == null)
+                return null;
             var recipe = catalog.FindByName(bench.entryName) as CraftRecipeDef;
             if (recipe == null)
                 return null;
@@ -196,7 +210,16 @@ namespace PowerOfFire.DrawToPlay
         /// a caller that ignores the return still leaves the story on the board.</returns>
         public CraftResult Craft(string recipeName)
         {
-            var result = new CraftResult { recipeName = recipeName ?? "" };
+            // AN EMPTY NAME IS "WHAT I AM STANDING AT" — the declared meaning of the row's
+            // empty value, so the ability that swings at a bench names no recipe and the one
+            // search above decides which.
+            if (string.IsNullOrEmpty(recipeName))
+            {
+                if (at == null || offer == null)
+                    return Refuse(new CraftResult { refusal = "no station here" });
+                recipeName = offer.recipeName;
+            }
+            var result = new CraftResult { recipeName = recipeName };
 
             CraftRecipeRegistry catalog = recipes;
             result.recipe = catalog != null && !string.IsNullOrEmpty(recipeName)
