@@ -74,9 +74,6 @@ namespace PowerOfFire.DrawToPlay
         /// because the UI service is itself a subsystem a level may replace.</summary>
         protected UiService Ui => m_Scope.GetService<UiService>();
 
-        /// <summary>Whether the flow tree is up — a wired def and a started run.</summary>
-        public bool flowsRunning => m_Flows != null && m_Flows.isRunning;
-
         /// <summary>
         /// One frame of the subsystem: start what has to start, serve what has been asked, tick
         /// the flow tree. Called by the scope — public so a test owns the clock, exactly as the
@@ -96,16 +93,11 @@ namespace PowerOfFire.DrawToPlay
                 StateTreeServiceInjector.Inject(this, m_Scope.gameObject);
                 ServiceDef def = m_Definition;
                 if (def != null)
-                {
-                    FlowRules.Validate(def, m_Scope);
-                    StartFlows(def);
                     ShowSpawns(def);
-                }
                 OnStarted();
             }
 
             ServePendingRequests();
-            m_Flows?.TickTree(deltaTime);
             TickReactionGraphs(deltaTime);
             OnTick(deltaTime);
         }
@@ -145,12 +137,6 @@ namespace PowerOfFire.DrawToPlay
                 Debug.LogError("Service '" + GetType().Name + "': '" + key + "' is not a "
                     + "declared request of '" + (def != null ? def.serviceName : "(no def)")
                     + "' — see the def's requests list.");
-                return;
-            }
-            if (row.internalOnly)
-            {
-                Debug.LogError("Service '" + GetType().Name + "': '" + key + "' is this "
-                    + "subsystem's own button, not part of its API.");
                 return;
             }
             bool emptyAllowed = string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(row.emptyMeans);
@@ -212,7 +198,6 @@ namespace PowerOfFire.DrawToPlay
                 UnityEngine.Object.Destroy(m_ReactionRuns[i].program);
             }
             m_ReactionRuns?.Clear();
-            StopFlows();
             m_Started = false;
         }
 
@@ -228,35 +213,8 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < def.requests.Count; i++)
             {
                 ServiceRequest row = def.requests[i];
-                if (row != null && string.IsNullOrEmpty(row.stateId)
-                    && !string.IsNullOrEmpty(row.key) && board.ContainsKey(row.key))
+                if (row != null && !string.IsNullOrEmpty(row.key) && board.ContainsKey(row.key))
                     ServeDirect(row, board);
-            }
-
-            if (m_Flows == null || !m_Flows.isRunning)
-                return;
-            string active = m_Flows.activeNodeId;
-            for (int i = 0; i < def.requests.Count; i++)
-            {
-                ServiceRequest row = def.requests[i];
-                if (row != null && !string.IsNullOrEmpty(row.stateId)
-                    && string.Equals(row.stateId, active, StringComparison.Ordinal))
-                    return;   // mid-flow: tree rows wait for the return to idle
-            }
-            for (int i = 0; i < def.requests.Count; i++)
-            {
-                ServiceRequest row = def.requests[i];
-                if (row == null || string.IsNullOrEmpty(row.stateId)
-                    || string.IsNullOrEmpty(row.key) || !board.ContainsKey(row.key))
-                    continue;
-                if (!m_Flows.RequestTransition(row.stateId))
-                {
-                    Debug.LogError("Service '" + GetType().Name + "': request '" + row.key
-                        + "' declares state '" + row.stateId + "', which the flows tree does "
-                        + "not have.");
-                    board.Remove(row.key);   // do not retry a broken row every frame
-                }
-                return;   // one at a time, declaration order = priority
             }
         }
 
@@ -266,7 +224,6 @@ namespace PowerOfFire.DrawToPlay
                 ? held as string ?? held.ToString()
                 : "";
             OnRequest(row, value);
-            RunReactions(row, value);
             RunReactionGraph(row, value, board);
             board.Remove(row.key);
         }
@@ -327,41 +284,12 @@ namespace PowerOfFire.DrawToPlay
             if (status == StateTreeStatus.Running)
                 return false;
             run.program.OnExit(run.context, status);
-            UnityEngine.Object.Destroy(run.program);
+            // A finished copy goes at once; in the editor (a test) Destroy is refused.
+            if (Application.isPlaying)
+                UnityEngine.Object.Destroy(run.program);
+            else
+                UnityEngine.Object.DestroyImmediate(run.program);
             return true;
-        }
-
-        private void RunReactions(ServiceRequest row, string value)
-        {
-            if (row.reactions == null || row.reactions.Count == 0)
-                return;
-            UiService ui = Ui;
-            if (ui == null)
-                return;
-            Dictionary<string, object> board = Board();
-            for (int i = 0; i < row.reactions.Count; i++)
-            {
-                UiReaction reaction = row.reactions[i];
-                if (reaction == null || string.IsNullOrEmpty(reaction.verb))
-                    continue;
-                GameObject view = ui.ShownView(reaction.ui.entryName);
-                if (view == null)
-                    continue;
-                string argument = reaction.valueArgument ? value : "";
-                object payload = null;
-                if (!string.IsNullOrEmpty(reaction.argumentKey) && board != null
-                    && board.TryGetValue(reaction.argumentKey, out object heldArg)
-                    && heldArg != null)
-                {
-                    if (heldArg is string textArg)
-                        argument = textArg;
-                    else
-                        payload = heldArg;
-                }
-                UiViewBehaviour[] views = view.GetComponentsInChildren<UiViewBehaviour>(true);
-                for (int j = 0; j < views.Length; j++)
-                    views[j].Call(reaction.verb, argument, payload);
-            }
         }
 
         private void ShowSpawns(ServiceDef def)
@@ -417,67 +345,12 @@ namespace PowerOfFire.DrawToPlay
             return null;
         }
 
-        // ---- the subsystem's own flow tree ------------------------------------------------
-
-        private void StartFlows(ServiceDef def)
-        {
-            if (def.flows == null)
-                return;
-            m_Flows = new StateTreeExecutor
-            {
-                data = def.flows,
-                owner = m_Scope.gameObject,
-                // THE SHARED BOARD, explicitly: a flow tree reading a different blackboard from
-                // the one the skins' requests land on would simply never fire.
-                context = m_Scope.Context,
-                logLabel = "Service '" + (string.IsNullOrEmpty(def.serviceName)
-                    ? GetType().Name : def.serviceName) + "' flows",
-                logContext = m_Scope
-            };
-            m_Flows.StartTree();
-            if (!m_Flows.isRunning)
-            {
-                m_Flows = null;
-                return;
-            }
-            m_Flows.activeNodeChanged += OnFlowNodeChanged;
-        }
-
-        private void StopFlows()
-        {
-            if (m_Flows != null)
-            {
-                m_Flows.activeNodeChanged -= OnFlowNodeChanged;
-                m_Flows.StopTree();
-            }
-            m_Flows = null;
-        }
-
-        /// <summary>THE DERIVED CONSUME: leaving a request state clears its key.</summary>
-        private void OnFlowNodeChanged(string previousId, string currentId)
-        {
-            ServiceDef def = m_Definition;
-            if (def == null || string.IsNullOrEmpty(previousId))
-                return;
-            for (int i = 0; i < def.requests.Count; i++)
-            {
-                ServiceRequest row = def.requests[i];
-                if (row != null && string.Equals(row.stateId, previousId, StringComparison.Ordinal))
-                {
-                    m_Flows?.context?.blackboard.Remove(row.key);
-                    return;
-                }
-            }
-        }
-
         private Dictionary<string, object> Board()
         {
             return m_Scope != null && m_Scope.Context != null
                 ? m_Scope.Context.blackboard
                 : null;
         }
-
-        private StateTreeExecutor m_Flows;
         private bool m_Started;
     }
 }

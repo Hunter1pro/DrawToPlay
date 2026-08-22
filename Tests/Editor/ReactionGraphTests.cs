@@ -114,7 +114,6 @@ namespace PowerOfFire.DrawToPlay.Tests
                 "Assets/DrawToPlayExamples/Demo/M21/Registries/M21CraftService.asset");
             ServiceRequest begin = craft.requests.Find(r => r.key == "craft.begin");
             Assert.That(begin.reactionGraph, Is.Not.Null, "the 'say the result' row is a graph now");
-            Assert.That(begin.reactions.Exists(r => r.verb == "say"), Is.False, "and the row is gone");
 
             var keys = new List<string>();
             foreach (GraphTaskNode node in begin.reactionGraph.nodes)

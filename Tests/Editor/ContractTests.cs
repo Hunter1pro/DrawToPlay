@@ -57,8 +57,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             honest.registry = vitals;
             Claim(honest, damageable);
 
+            // A def that serves nothing keeps nothing — there is no claim to make (M41.1).
             ServiceDef boaster = Service("scenery");
-            Claim(boaster, damageable);
 
             var missing = new List<string>();
             StateTreeContracts.Missing(honest, damageable, missing);
@@ -66,7 +66,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             StateTreeContracts.Missing(boaster, damageable, missing);
             Assert.That(missing.Count, Is.EqualTo(2),
-                "a claim is not proof — say exactly what is not delivered");
+                "keeping is delivering — say exactly what is not delivered");
             Assert.That(string.Join(" ", missing), Does.Contain("damage").And.Contain("health"));
         }
 
@@ -127,7 +127,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         [Test]
         public void ImplementersAreOffered_OnlyThroughDeclaredDependencies()
         {
-            ContractDef openable = Contract("openable");
+            ContractDef openable = Contract("openable", requests: new[] { "open" });
             ServiceDef doorDef = Service("door");
             Claim(doorDef, openable);
 
@@ -160,7 +160,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         [Test]
         public void AFieldCanAskByPromise_AndIsOfferedWhateverKeepsIt()
         {
-            ContractDef openable = Contract("openable");
+            ContractDef openable = Contract("openable", requests: new[] { "open" });
             ServiceDef doorDef = Service("door");
             Claim(doorDef, openable);
 
@@ -247,12 +247,15 @@ namespace PowerOfFire.DrawToPlay.Tests
             return def;
         }
 
+        /// <summary>KEEPING IS DELIVERING (M41.1): a def keeps a contract by serving the
+        /// requests it names — so "claiming" one in a test means declaring those rows.</summary>
         private static void Claim(ServiceDef def, ContractDef contract)
         {
-            var reference = new StateTreeEntryRef<ContractDef>();
-            reference.entryId = contract.id;
-            reference.entryName = contract.name;
-            def.implements.Add(reference);
+            for (int i = 0; i < contract.requests.Count; i++)
+            {
+                if (def.RequestFor(contract.requests[i]) == null)
+                    def.requests.Add(new ServiceRequest { key = contract.requests[i] });
+            }
         }
     }
 }

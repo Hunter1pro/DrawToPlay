@@ -79,7 +79,6 @@ namespace PowerOfFire.DrawToPlay.Editor
             def.scope = sketch.scope;
             def.registry = sketch.catalog;
             def.treeKind = "";
-            def.flows = null;
             def.nestingRules.Clear();
             def.kindSeeds.Clear();
 
@@ -100,15 +99,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 });
             }
 
-            def.announcements.Clear();
-            for (int i = 0; i < sketch.announcements.Count; i++)
-            {
-                def.announcements.Add(new ServiceAnnouncement
-                {
-                    key = sketch.announcements[i].key,
-                    description = sketch.announcements[i].description
-                });
-            }
+            // ANNOUNCEMENTS ARE THE CLASS'S (M41.1): emitted as [ServiceAnnouncement] on the
+            // generated class, never rows on the def.
 
             def.spawns.Clear();
             for (int i = 0; i < sketch.spawns.Count; i++)
@@ -126,15 +118,6 @@ namespace PowerOfFire.DrawToPlay.Editor
                 has.attribute.entryId = sketch.attributes[i].entryId;
                 has.attribute.entryName = sketch.attributes[i].entryName;
                 def.attributes.Add(has);
-            }
-
-            def.implements.Clear();
-            for (int i = 0; i < sketch.implements.Count; i++)
-            {
-                def.implements.Add(new StateTreeEntryRef<ContractDef>
-                {
-                    entryId = sketch.implements[i].entryId, entryName = sketch.implements[i].entryName
-                });
             }
 
             // SETTINGS stay empty on a generated def: the class carries the defaults, and a def
@@ -159,8 +142,6 @@ namespace PowerOfFire.DrawToPlay.Editor
                 Add(sketch.requests[i]?.namesRowOf);
             for (int i = 0; i < sketch.attributes.Count; i++)
                 Add(SubsystemSketchValidator.HomeOf(sketch.attributes[i]?.entryId, typeof(AttributeRegistry)));
-            for (int i = 0; i < sketch.implements.Count; i++)
-                Add(SubsystemSketchValidator.HomeOf(sketch.implements[i]?.entryId, typeof(ContractRegistry)));
             return all;
         }
 
@@ -214,6 +195,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 SketchRequest row = sketch.requests[i];
                 sb.AppendLine("    [ServiceActionContract(" + ConstName(row.action, "Action") + ", "
                     + Quote(row.valueHint) + ")]");
+            }
+            for (int i = 0; i < sketch.announcements.Count; i++)
+            {
+                SketchAnnouncement row = sketch.announcements[i];
+                sb.AppendLine("    [ServiceAnnouncement(" + ConstName(LastSegment(row.key), "Key")
+                    + ", typeof(float), " + Quote(row.description) + ")]");
             }
             sb.Append("    public sealed class " + sketch.className + " : StateTreeService");
             if (!string.IsNullOrEmpty(sketch.capabilityName))

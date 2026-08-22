@@ -98,8 +98,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                     + def.scope + " — Regenerate def"));
 
             Compare("request", Keys(sketch.requests, r => r.key), Keys(def.requests, r => r.key), into);
-            Compare("announcement", Keys(sketch.announcements, a => a.key),
-                Keys(def.announcements, a => a.key), into);
+            // Announcements live on the CLASS (M41.1): the sketch is compared with what the
+            // class declares, which is what the def shows.
+            var announced = new HashSet<string>();
+            foreach (DeclaredApi.Announced row in DeclaredApi.Announcements(def.name))
+                announced.Add(row.key);
+            Compare("announcement", Keys(sketch.announcements, a => a.key), announced, into);
             Compare("spawn", Keys(sketch.spawns, s => s.entryName), Keys(def.spawns, s => s.entryName), into);
             Compare("attribute", Keys(sketch.attributes, a => a.entryName),
                 Keys(def.attributes, a => a.Name), into);

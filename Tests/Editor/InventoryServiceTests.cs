@@ -294,7 +294,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             // the typo is refused at the door, not discovered as a button doing nothing.
             m_Service.definition.requests.Add(new ServiceRequest
             {
-                key = "test.use", stateId = "any", namesRowOf = m_Items
+                key = "test.use", namesRowOf = m_Items
             });
 
             m_Service.Request("test.use", "ration");

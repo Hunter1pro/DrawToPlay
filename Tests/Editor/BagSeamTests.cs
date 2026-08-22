@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using NUnit.Framework;
+using PowerOfFire.DrawToPlay.Editor;
 using UnityEditor;
 using UnityEngine;
 
@@ -214,17 +215,14 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(bagKeys, Is.EquivalentTo(new[] { "bag.add", "bag.remove", "bag.open" }),
                 "the keeper's gift, the warden's take and 'show me' — the bag's own buttons are "
                 + "its screen's business");
-            foreach (ServiceRequest row in inventory.requests)
-            {
-                Assert.That(row.internalOnly, Is.False, row.key + ": no row is for nobody");
-                Assert.That(row.reactions, Is.Empty, row.key + ": the screen redraws on its own");
-            }
-
             var craftKeys = craft.requests.ConvertAll(r => r.key);
             Assert.That(craftKeys, Is.EquivalentTo(new[] { "craft.begin" }));
             ServiceRequest begin = craft.requests[0];
-            Assert.That(begin.reactions, Is.Empty, "the panel hears the result from its service");
             Assert.That(begin.reactionGraph, Is.Not.Null, "the HUD line stays a drawn flow");
+
+            // WHAT IT ANNOUNCES comes from the class (M41.1), never the def.
+            Assert.That(DeclaredApi.AnnouncementKeys(inventory.name), Does.Contain(ItemUseResult.Key));
+            Assert.That(DeclaredApi.AnnouncementKeys(craft.name), Does.Contain(CraftResult.Key));
         }
     }
 }

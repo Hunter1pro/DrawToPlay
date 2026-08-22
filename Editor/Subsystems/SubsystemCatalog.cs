@@ -52,7 +52,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     serviceType = def.serviceType,
                     typeName = def.serviceTypeName,
                     requests = def.requests != null ? def.requests.Count : 0,
-                    announcements = def.announcements != null ? def.announcements.Count : 0,
+                    announcements = DeclaredApi.Announcements(def.name).Count,
                     spawns = def.spawns != null ? def.spawns.Count : 0,
                     attributes = def.attributes != null ? def.attributes.Count : 0,
                     settings = def.settings != null ? def.settings.values.Count : 0

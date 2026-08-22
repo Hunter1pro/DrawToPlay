@@ -20,6 +20,8 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     [ServiceActionContract(PlayAction, "value = cutscene row name")]
     [ServiceActionContract(SkipAction, "value ignored — ends whatever is playing")]
+    [ServiceAnnouncement(CutsceneResult.Key, typeof(CutsceneResult),
+        "What the last scene came to — finished, skipped, or refused.")]
     public sealed class CutsceneService : StateTreeService
     {
 

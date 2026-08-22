@@ -114,7 +114,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void ASubsystemCanBeTakenOutAndPutBack_WithoutItsScope()
         {
             (StateTreeContextHost host, InventoryService service, ServiceDef def) =
-                MakeFlowsFixture();
+                MakeGraphServedFixture();
 
             var installerObject = new GameObject("Installer");
             installerObject.hideFlags = HideFlags.HideAndDontSave;
@@ -314,49 +314,34 @@ namespace PowerOfFire.DrawToPlay.Tests
             return runner;
         }
 
-        // ------------------------------------------------------------------ def flows
+        // ------------------------------------------------------------------ a row served by a graph
 
+        /// <summary>
+        /// A DEF SERVED BY A GRAPH (M41): a request row with no action and a reaction graph —
+        /// the graph IS the handler, run on the subsystem's scope when the key arrives. What a
+        /// def-owned flow tree used to do (M21 §4b) with a state per request, a drawn program
+        /// does with a node, and the mechanism is the one reaction graphs already had (M38.2).
+        /// </summary>
         private (StateTreeContextHost host, InventoryService service, ServiceDef def)
-            MakeFlowsFixture()
+            MakeGraphServedFixture()
         {
-            // The §4c shape: a typed request state holding ONLY its meaningful task —
-            // no interrupt condition, no consume; the runner derives both from the def.
-            var receipt = ScriptableObject.CreateInstance<SetBlackboardTask>();
-            receipt.key = new StateTreeKeyField("test.served");
-            receipt.kind = SetBlackboardTask.ValueKind.Float;
-            receipt.floatValue = 1f;
-            m_Assets.Add(receipt);
-
-            var idle = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
-            idle.name = "idle";
-            idle.nodeId = "idle";
-            idle.completeWhen = StateTreeCompleteWhen.Never;
-            m_Assets.Add(idle);
-
-            var serve = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
-            serve.name = "serve";
-            serve.nodeId = "serve";
-            serve.roleKind = "request";
-            serve.tasks.Add(receipt);
-            serve.transitions.Add(new StateTreeTransition { targetNodeId = "idle" });
-            m_Assets.Add(serve);
-
-            var flowsRoot = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
-            flowsRoot.name = "root";
-            flowsRoot.nodeId = "root";
-            flowsRoot.children.Add(idle);
-            flowsRoot.children.Add(serve);
-            m_Assets.Add(flowsRoot);
-
-            var flows = ScriptableObject.CreateInstance<StateTreeAsset>();
-            flows.treeName = "TestFlows";
-            flows.root = flowsRoot;
-            m_Assets.Add(flows);
+            var program = ScriptableObject.CreateInstance<GraphTaskAsset>();
+            program.name = "ServeTheTest";
+            program.nodes = new List<GraphTaskNode>
+            {
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.SetBlackboardFloat, stringValue = "test.served",
+                    floatValue = 1f, exec = new[] { 1 }
+                },
+                new GraphTaskNode { kind = GraphTaskNodeKind.ReturnSuccess }
+            };
+            program.tickEntry = 0;
+            m_Assets.Add(program);
 
             var def = ScriptableObject.CreateInstance<ServiceDef>();
-            def.serviceName = "flow-test";
+            def.serviceName = "graph-test";
             def.scope = StateTreeContextKind.Root;
-            def.flows = flows;
             // The bag stands in for "a service with a def" here, and it refuses to be built
             // without the catalog it manages — so the fixture gives it one (M33).
             var items = ScriptableObject.CreateInstance<ItemRegistry>();
@@ -364,7 +349,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             def.registry = items;
             def.requests.Add(new ServiceRequest
             {
-                key = "test.request", stateId = "serve", description = "serve the test"
+                key = "test.request", description = "serve the test", reactionGraph = program
             });
             m_Assets.Add(def);
 
@@ -383,32 +368,31 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
-        public void DefFlows_ServeADeclaredRequest_EntryAndConsumeDerived()
+        public void ARowWithNoAction_IsServedByItsGraph_AndTheKeyIsConsumed()
         {
-            (StateTreeContextHost host, InventoryService service, _) = MakeFlowsFixture();
+            (StateTreeContextHost host, InventoryService service, _) = MakeGraphServedFixture();
 
             host.Context.blackboard["test.request"] = "1";
             for (int i = 0; i < 3; i++)
                 service.Tick(0.02f);
 
-            Assert.IsTrue(service.flowsRunning, "the def's tree runs with the service");
             Assert.IsTrue(host.Context.blackboard.ContainsKey("test.served"),
-                "the pending key entered its DECLARED state — no authored interrupt");
+                "the graph on the row ran as the handler — no class verb, no tree state");
             Assert.IsFalse(host.Context.blackboard.ContainsKey("test.request"),
-                "and leaving the request state consumed the key — no authored clear");
+                "and serving consumed the key");
         }
 
         [Test]
         public void TypedRequest_GoesThroughTheDefsRows()
         {
-            (StateTreeContextHost host, InventoryService service, _) = MakeFlowsFixture();
-            service.Tick(0.02f);   // start the tree
+            (StateTreeContextHost host, InventoryService service, _) = MakeGraphServedFixture();
+            service.Tick(0.02f);
 
             service.Request("test.request");
             for (int i = 0; i < 3; i++)
                 service.Tick(0.02f);
             Assert.IsTrue(host.Context.blackboard.ContainsKey("test.served"),
-                "the typed door writes the same key the flow serves");
+                "the typed door writes the same key the graph serves");
 
             LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(
                 "not a declared request"));

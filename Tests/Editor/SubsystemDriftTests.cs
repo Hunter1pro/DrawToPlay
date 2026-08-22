@@ -62,9 +62,13 @@ namespace PowerOfFire.DrawToPlay.Tests
             var def = Object.Instantiate(AssetDatabase.LoadAssetAtPath<ServiceDef>(k_ClockDef));
             m_Junk.Add(def);
             var sketch = AssetDatabase.LoadAssetAtPath<SubsystemSketch>(k_ClockSketch);
-            def.announcements.Clear();
+            // The CLASS declares what it announces (M41.1); a sketch that announces something the
+            // class does not is the drift.
+            sketch = Object.Instantiate(sketch);
+            m_Junk.Add(sketch);
+            sketch.announcements.Add(new SketchAnnouncement { key = "clock.dusk" });
             List<SketchFinding> drift = SubsystemDrift.Find(def, sketch);
-            Assert.That(drift.Exists(f => f.message.Contains("announcement 'clock.dawn' is sketched but not on the def — Regenerate def")),
+            Assert.That(drift.Exists(f => f.message.Contains("announcement 'clock.dusk' is sketched but not on the def — Regenerate def")),
                 Is.True, string.Join("\n", drift));
 
             // AND A KNOB THE CLASS LOST: the def tunes something no longer declared.

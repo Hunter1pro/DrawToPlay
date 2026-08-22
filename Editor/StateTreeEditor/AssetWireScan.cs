@@ -330,10 +330,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             // AN ANNOUNCEMENT IS A NAME OTHERS READ, so whoever names it depends on this def
             // exactly as a request's caller does — same index, same ⛓, same edge on the map, and
             // the same reason its key cannot be freely retyped once something reads it.
-            for (int i = 0; def.announcements != null && i < def.announcements.Count; i++)
+            foreach (DeclaredApi.Announced announced in DeclaredApi.Announcements(def.name))
             {
-                ServiceAnnouncement announced = def.announcements[i];
-                if (announced != null && !string.IsNullOrEmpty(announced.key)
+                if (!string.IsNullOrEmpty(announced.key)
                     && !index.requestOwners.ContainsKey(announced.key))
                     index.requestOwners[announced.key] = def;
             }
@@ -343,13 +342,6 @@ namespace PowerOfFire.DrawToPlay.Editor
                 index.AddAssetUse(def.registry, new WireUse
                 {
                     context = def, description = label + " · service registry"
-                });
-            }
-            if (def.flows != null)
-            {
-                index.AddAssetUse(def.flows, new WireUse
-                {
-                    context = def, description = label + " · flow tree"
                 });
             }
             // WHAT IT DECLARES AND WHAT IT BUILDS (M30.3/30.4) — the two edges that appeared

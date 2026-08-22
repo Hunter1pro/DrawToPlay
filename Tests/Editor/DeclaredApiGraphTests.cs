@@ -123,7 +123,6 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(row, Is.Not.Null);
             Assert.That(row.action, Is.EqualTo(InventoryService.AddAction));
             Assert.That(row.namesRowOf, Is.Not.Null, "the value is typed by the item catalog");
-            Assert.That(row.internalOnly, Is.False, "a gift is something others may ask for");
         }
 
         [Test]

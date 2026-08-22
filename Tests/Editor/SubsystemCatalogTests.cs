@@ -38,7 +38,6 @@ namespace PowerOfFire.DrawToPlay.Tests
             def.scope = StateTreeContextKind.Level;
             def.requests.Add(new ServiceRequest { key = "toc.a", action = "a" });
             def.requests.Add(new ServiceRequest { key = "toc.b", action = "b" });
-            def.announcements.Add(new ServiceAnnouncement { key = "toc.said" });
             def.settings.values.Add(new ServiceSettingValue { name = "benchRange", floatValue = 3f });
             AssetDatabase.CreateAsset(def, k_DefPath);
 

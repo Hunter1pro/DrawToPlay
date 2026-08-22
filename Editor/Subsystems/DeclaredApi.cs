@@ -69,7 +69,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (int i = 0; def != null && i < def.requests.Count; i++)
             {
                 ServiceRequest row = def.requests[i];
-                if (row != null && !string.IsNullOrEmpty(row.key) && !row.internalOnly
+                if (row != null && !string.IsNullOrEmpty(row.key)
                     && !choices.Contains(row.key))
                     choices.Add(row.key);
             }
@@ -107,18 +107,64 @@ namespace PowerOfFire.DrawToPlay.Editor
             return choices;
         }
 
-        /// <summary>The announcement keys a subsystem makes — what a When may wait on.</summary>
+        /// <summary>
+        /// The announcement keys a subsystem makes — what a When may wait on. FROM THE CLASS
+        /// (M41.1): every <see cref="ServiceAnnouncementAttribute"/> it declares, plus the key of
+        /// every contract one of its actions answers with — the def types none of it.
+        /// </summary>
         public static List<string> AnnouncementKeys(string defName)
         {
             var choices = new List<string> { None };
-            ServiceDef def = Subsystem(defName);
-            for (int i = 0; def != null && i < def.announcements.Count; i++)
+            foreach (Announced row in Announcements(defName))
             {
-                ServiceAnnouncement row = def.announcements[i];
-                if (row != null && !string.IsNullOrEmpty(row.key) && !choices.Contains(row.key))
+                if (!choices.Contains(row.key))
                     choices.Add(row.key);
             }
             return choices;
+        }
+
+        /// <summary>One thing a subsystem announces: the key, what rides with it, and what it means.</summary>
+        public readonly struct Announced
+        {
+            public readonly string key;
+            public readonly Type payload;
+            public readonly string description;
+
+            public Announced(string key, Type payload, string description)
+            {
+                this.key = key;
+                this.payload = payload;
+                this.description = description;
+            }
+        }
+
+        /// <summary>Everything a subsystem announces, read from its class — the declared
+        /// announcements first, then the answer contracts of its actions (under each contract's
+        /// own key). The order the API window lists them in.</summary>
+        public static List<Announced> Announcements(string defName)
+        {
+            var rows = new List<Announced>();
+            ServiceDef def = Subsystem(defName);
+            Type type = def != null ? def.serviceType : null;
+            if (type == null)
+                return rows;
+            foreach (ServiceAnnouncementAttribute declared in
+                type.GetCustomAttributes(typeof(ServiceAnnouncementAttribute), true))
+            {
+                if (!string.IsNullOrEmpty(declared.key) && rows.FindIndex(r => r.key == declared.key) < 0)
+                    rows.Add(new Announced(declared.key, declared.payload, declared.description));
+            }
+            foreach (ServiceActionContractAttribute contract in
+                type.GetCustomAttributes(typeof(ServiceActionContractAttribute), true))
+            {
+                if (contract.answersWith == null)
+                    continue;
+                string key = ServiceContracts.KeyOf(contract.answersWith);
+                if (!string.IsNullOrEmpty(key) && rows.FindIndex(r => r.key == key) < 0)
+                    rows.Add(new Announced(key, contract.answersWith,
+                        "what '" + contract.action + "' came to"));
+            }
+            return rows;
         }
 
         // ---- targets (M38.2) ------------------------------------------------------------------
@@ -141,31 +187,16 @@ namespace PowerOfFire.DrawToPlay.Editor
             return null;
         }
 
-        /// <summary>The contract an announcement carries — its declared payload type name, or a
-        /// contract whose own Key is the announcement's — or null for a bare payload.</summary>
+        /// <summary>The contract an announcement carries — from the class (M41.1) — or null for
+        /// a bare payload (a number, a name).</summary>
         public static Type PayloadOf(string defName, string announcementKey)
         {
-            ServiceDef def = Subsystem(defName);
-            for (int i = 0; def != null && i < def.announcements.Count; i++)
+            foreach (Announced row in Announcements(defName))
             {
-                ServiceAnnouncement row = def.announcements[i];
-                if (row == null || row.key != announcementKey)
-                    continue;
-                if (!string.IsNullOrEmpty(row.payloadTypeName))
-                {
-                    Type named = ServiceDef.ResolveServiceType(row.payloadTypeName);
-                    if (named != null)
-                        return named;
-                }
-            }
-            // A contract type that announces itself on this key — CraftResult.Key == "craft.last".
-            Type viaType = def != null ? def.serviceType : null;
-            foreach (ServiceActionContractAttribute contract in viaType != null
-                ? viaType.GetCustomAttributes(typeof(ServiceActionContractAttribute), true)
-                : Array.Empty<object>())
-            {
-                if (contract.answersWith != null && ServiceContracts.KeyOf(contract.answersWith) == announcementKey)
-                    return contract.answersWith;
+                if (row.key == announcementKey)
+                    return row.payload != null && !row.payload.IsPrimitive && row.payload != typeof(string)
+                        ? row.payload
+                        : null;
             }
             return null;
         }

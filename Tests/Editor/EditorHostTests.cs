@@ -58,7 +58,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             VisualElement root = Host(sketch);
             Assert.That(root.Query<HelpBox>().ToList().Count, Is.GreaterThanOrEqualTo(2),
                 "findings above, drift below");
-            foreach (string picked in new[] { "attributes", "spawns", "implements" })
+            foreach (string picked in new[] { "attributes", "spawns" })
             {
                 Assert.That(Field(root, picked), Is.Not.Null,
                     "'" + picked + "' is a PropertyField, so its ⛃ drawer is what draws it");

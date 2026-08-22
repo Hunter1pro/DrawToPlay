@@ -54,11 +54,6 @@ namespace PowerOfFire.DrawToPlay
                     // What it MANAGES and what its flows read; what it DECLARES arrived above,
                     // through the interface, because a def is not the only thing that may say it.
                     Add(service.registry, into);
-                    if (service.flows != null)
-                    {
-                        for (int i = 0; i < service.flows.registries.Count; i++)
-                            Add(service.flows.registries[i], into);
-                    }
                     break;
             }
         }

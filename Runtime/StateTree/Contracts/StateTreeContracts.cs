@@ -21,22 +21,23 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     public static class StateTreeContracts
     {
-        /// <summary>Does this def CLAIM the contract? Authoring truth: what the asset says about
-        /// itself, which is what a picker filters on.</summary>
+        /// <summary>
+        /// DOES THIS DEF KEEP THE CONTRACT — derived, not declared (M41.1). A def used to
+        /// CLAIM a contract in a list (`implements`) and a second check said whether it
+        /// delivered; a claim nobody checks is a label, and a claim that is checked is
+        /// redundant with the check. So keeping is delivering: every request the contract
+        /// names is served and every attribute it names is had. A contract naming nothing
+        /// (a facet-only contract) is kept by bodies, not defs — see <see cref="Keeps"/>.
+        /// </summary>
         public static bool Claims(ServiceDef def, ContractDef contract)
         {
             if (def == null || contract == null)
                 return false;
-            for (int i = 0; i < def.implements.Count; i++)
-            {
-                StateTreeEntryRef<ContractDef> claim = def.implements[i];
-                if (claim == null)
-                    continue;
-                if (claim.entryId == contract.id
-                    || (!string.IsNullOrEmpty(claim.entryName) && claim.entryName == contract.name))
-                    return true;
-            }
-            return false;
+            if (contract.requests.Count == 0 && contract.attributes.Count == 0)
+                return false;
+            var missing = new List<string>();
+            Missing(def, contract, missing);
+            return missing.Count == 0;
         }
 
         /// <summary>

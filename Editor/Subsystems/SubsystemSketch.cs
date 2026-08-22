@@ -91,9 +91,6 @@ namespace PowerOfFire.DrawToPlay.Editor
         public List<StateTreeEntryRef<AttributeDef>> attributes =
             new List<StateTreeEntryRef<AttributeDef>>();
 
-        [Tooltip("Contracts it claims to implement.")]
-        public List<StateTreeEntryRef<ContractDef>> implements =
-            new List<StateTreeEntryRef<ContractDef>>();
 
         [Tooltip("Catalogs the def declares it may name rows of (attributes, tags, contracts).")]
         public List<StateTreeRegistryAsset> declares = new List<StateTreeRegistryAsset>();

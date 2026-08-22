@@ -155,8 +155,6 @@ namespace PowerOfFire.DrawToPlay.Editor
                     Selection.activeObject = def;
                     EditorGUIUtility.PingObject(def);
                 }
-                if (service.flowsRunning)
-                    GUILayout.Label("flows ▶", EditorStyles.miniLabel);
 
                 // OUT AND BACK IN (M34.5), while everything around it keeps running — the thing
                 // a per-scope container could not do, offered where you can see the result.

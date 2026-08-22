@@ -30,6 +30,8 @@ namespace PowerOfFire.DrawToPlay
     [ServiceActionContract(AddAction, "value = item name — one is put in the bag")]
     [ServiceActionContract(RemoveAction, "value = item name — one is taken, or nothing is")]
     [ServiceActionContract(OpenAction, "the bag panel opens — a gift wants to be seen")]
+    [ServiceAnnouncement(ItemUseResult.Key, typeof(ItemUseResult),
+        "What the last use came to — item definition included.")]
     public sealed class InventoryService : StateTreeService, IBag, IBindsBody
     {
         /// <summary>

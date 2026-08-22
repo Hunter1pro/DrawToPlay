@@ -50,11 +50,6 @@ namespace PowerOfFire.DrawToPlay
             + "tree is a validation finding, not a runtime surprise. Empty = unchecked.")]
         public string treeKind = "";
 
-        [Tooltip("The subsystem's OWN flow tree (the UI wiring brief §4b), run by the "
-            + "service on its scope for as long as it lives. Empty = the service has no "
-            + "flows.")]
-        public StateTreeAsset flows;
-
         /// <summary>
         /// THE PUBLIC REQUEST API (§4c) — what OTHER systems may ask of this subsystem,
         /// declared where the subsystem is declared. One row per request: the blackboard
@@ -78,13 +73,6 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public List<StateTreeEntryRef<UiDef>> spawns = new List<StateTreeEntryRef<UiDef>>();
 
-        /// <summary>
-        /// WHAT THIS SUBSYSTEM ANNOUNCES (§4g) — the keys it writes for OTHERS, with the
-        /// payload contract each carries. Declared on the def (not parasitic on a flow
-        /// tree's key list), because the announcement outlives any particular serving
-        /// mechanism.
-        /// </summary>
-        public List<ServiceAnnouncement> announcements = new List<ServiceAnnouncement>();
 
         /// <summary>
         /// THE BODY THIS DEF OWNS (M30.3) — empty for a subsystem, filled for a thing.
@@ -95,13 +83,6 @@ namespace PowerOfFire.DrawToPlay
         /// WHERE and WHICH ONE, never what kind of thing this is.
         /// </summary>
         public ServiceBody body = new ServiceBody();
-
-        [Tooltip("The CONTRACTS this def claims to keep (M30.2) — 'damageable', 'openable'. A "
-            + "field elsewhere can then ask for the promise instead of naming this def, and the "
-            + "picker offers whoever keeps it. A claim is checkable: StateTreeContracts.Missing "
-            + "says what a def promises and does not deliver.")]
-        public List<StateTreeEntryRef<ContractDef>> implements =
-            new List<StateTreeEntryRef<ContractDef>>();
 
         [Tooltip("The catalogs this def DECLARES beyond the one it manages (M30.4) — the "
             + "attribute table it draws from, the contracts it may claim. Same rule as a "
@@ -364,10 +345,6 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("The blackboard key that triggers this request — the name callers write.")]
         public string key = "";
 
-        [Tooltip("The nodeId of the flow state that serves it — for a handler that WAITS "
-            + "(§4g). Empty = served at def level through 'action' and 'reactions'.")]
-        public string stateId = "";
-
         [Tooltip("What asking this DOES — shown wherever the API is offered.")]
         public string description = "";
 
@@ -381,20 +358,11 @@ namespace PowerOfFire.DrawToPlay
             + "reactions only (a pure UI request like toggle).")]
         public string action = "";
 
-        [Tooltip("Def-level serving (§4g): the UI beats after the action, in order — "
-            + "what a flow state's task list said, as rows on the def.")]
-        public List<UiReaction> reactions = new List<UiReaction>();
-
         [Tooltip("Optional (M38.2): a logic graph run on the subsystem's scope each time this "
             + "request is served, after the reactions above — for the wiring with an IF in it. "
             + "The request's value waits under 'key.asked'; what the action announced is on "
             + "its own key, fields beside it.")]
         public GraphTaskAsset reactionGraph;
-
-        [Tooltip("The subsystem's OWN button (M32): declared like every other row — so the "
-            + "map, the API window and the ⛓ see it — but not part of the API, and refused "
-            + "by the typed C# door. Its skin still writes the key; strangers do not.")]
-        public bool internalOnly;
 
         [Tooltip("For a typed request: what an EMPTY value means — 'the station you are "
             + "standing at', 'the current objective'. Set, the door lets an empty value through "
@@ -417,6 +385,28 @@ namespace PowerOfFire.DrawToPlay
     [AttributeUsage(AttributeTargets.Field)]
     public sealed class ServiceRequestKeyAttribute : Attribute
     {
+    }
+
+    /// <summary>
+    /// WHAT A SERVICE ANNOUNCES (M41.1) — declared on the class, once, beside the actions it
+    /// serves: the key it writes, the payload that rides with it, what landing there means. The
+    /// def no longer types this; the API window, the `When Announced ▾` and `Announced Payload ▾`
+    /// dropdowns and the validator read it from here. An action's answer contract is announced
+    /// too (under the contract's own key) and needs no row of its own.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
+    public sealed class ServiceAnnouncementAttribute : Attribute
+    {
+        public readonly string key;
+        public readonly Type payload;
+        public readonly string description;
+
+        public ServiceAnnouncementAttribute(string key, Type payload = null, string description = "")
+        {
+            this.key = key ?? "";
+            this.payload = payload;
+            this.description = description ?? "";
+        }
     }
 
     /// <summary>A service's DOMAIN ACTION, declared (§4g) — the UiVerbContract twin for
@@ -448,40 +438,8 @@ namespace PowerOfFire.DrawToPlay
     /// <summary>One UI beat of a def-served request (§4g): call a VERB on a shown row's
     /// views — the UiCallTask, as a row. The argument is the request's value, or a
     /// blackboard key's held value (an announcement's payload travels whole this way).</summary>
-    [Serializable]
-    public sealed class UiReaction
-    {
-        [Tooltip("The UI row whose views are called.")]
-        public StateTreeEntryRef<UiDef> ui = new StateTreeEntryRef<UiDef>();
-
-        [Tooltip("The verb, in the view's vocabulary — 'toggle', 'flash', 'pulse', …")]
-        public string verb = "";
-
-        [Tooltip("Pass the request's VALUE as the verb's argument.")]
-        public bool valueArgument = true;
-
-        [Tooltip("Optional: a blackboard key whose held value rides along — a string "
-            + "becomes the argument, anything richer the PAYLOAD (an announcement's "
-            + "contract object, handed to the skin whole).")]
-        public string argumentKey = "";
-    }
-
     /// <summary>One announced key (§4g): what the subsystem WRITES for others, with its
     /// payload contract — the outbound half of the API, beside the requests.</summary>
-    [Serializable]
-    public sealed class ServiceAnnouncement
-    {
-        [Tooltip("The blackboard key the subsystem writes.")]
-        public string key = "";
-
-        [Tooltip("The payload's type name for contract keys — 'ItemUseResult'. Empty = "
-            + "a plain value.")]
-        public string payloadTypeName = "";
-
-        [Tooltip("What landing here MEANS — shown wherever the API is offered.")]
-        public string description = "";
-    }
-
     /// <summary>One kind's birth gift: the task a rule-typed state starts with.</summary>
     [Serializable]
     public sealed class ServiceKindSeed

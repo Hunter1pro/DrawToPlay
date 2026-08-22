@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using PowerOfFire.DrawToPlay.Editor;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
@@ -24,8 +25,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// PropertyField so its drawer decides how it looks.</summary>
         private static readonly HashSet<string> k_Bespoke = new HashSet<string>
         {
-            "m_Script", "serviceTypeName", "requests", "spawns", "announcements", "implements",
-            "attributes", "settings", "treeKind", "flows", "nestingRules", "kindSeeds"
+            "m_Script", "serviceTypeName", "requests", "spawns",
+            "attributes", "settings", "treeKind", "nestingRules", "kindSeeds"
         };
 
         /// <summary>
@@ -69,13 +70,12 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             DrawServiceType(def);
             DrawSettings(def);
-            DrawImplements(def);
             DrawAttributes(def);
             DrawRequests(def);
             DrawDerived(def);
             DrawSpawns(def);
             DrawAnnouncements(def);
-            DrawFlowBacked(def);
+            DrawTreeKind(def);
 
             EditorGUILayout.Space(6f);
             if (GUILayout.Button("Subsystem APIs…", GUILayout.Width(140f)))
@@ -161,120 +161,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         // ---- implements: the promises this def keeps ------------------------------------
 
-        /// <summary>
-        /// WHAT THIS DEF PROMISES TO BE (M30.2b), and whether it delivers.
-        ///
-        /// A claim is a LINK — picked from the contracts this def's catalogs declare, shown locked,
-        /// changed from the ▾. That is the same bargain every wired field in this toolset offers,
-        /// and it is why the name here follows the contract being renamed instead of quietly
-        /// pointing at nothing.
-        ///
-        /// The line UNDER each claim is the point of contracts existing: what the def owes and has
-        /// not delivered. A promise nobody checks is a label, so it is checked here, where it is
-        /// made — and where a missing request can be served with one button, because the row it
-        /// wants is the row the contract already named.
-        /// </summary>
-        private void DrawImplements(ServiceDef def)
-        {
-            EditorGUILayout.Space(6f);
-            EditorGUILayout.LabelField(new GUIContent("Implements",
-                "The contracts this def claims to keep. Fields elsewhere can then ask for the "
-                + "promise instead of naming this def."), EditorStyles.boldLabel);
 
-            StateTreeOffers.ContractsFor(def, m_Contracts);
-
-            for (int i = 0; i < def.implements.Count; i++)
-            {
-                StateTreeEntryRef<ContractDef> claim = def.implements[i];
-                if (claim == null)
-                    continue;
-                ContractDef contract = Resolve(claim);
-
-                EditorGUILayout.BeginHorizontal();
-                using (new EditorGUI.DisabledScope(true))
-                {
-                    EditorGUILayout.TextField(new GUIContent("Keeps",
-                        contract != null ? contract.Describe()
-                            : "This contract is not in any catalog this def declares."),
-                        string.IsNullOrEmpty(claim.entryName) ? "(none)" : claim.entryName);
-                }
-                int index = i;
-                if (GUILayout.Button("▾", GUILayout.Width(22f)))
-                    ShowContractMenu(def, index);
-                if (GUILayout.Button("✕", GUILayout.Width(22f)))
-                {
-                    Commit(() => def.implements.RemoveAt(index));
-                    GUIUtility.ExitGUI();
-                }
-                EditorGUILayout.EndHorizontal();
-
-                if (contract == null)
-                {
-                    EditorGUILayout.HelpBox("Nothing this def declares holds a contract called '"
-                        + claim.entryName + "'. Add its catalog to the registry's Depends On, or "
-                        + "the claim points at a promise nobody can read.", MessageType.Warning);
-                    continue;
-                }
-
-                StateTreeContracts.Missing(def, contract, m_Missing);
-                if (m_Missing.Count == 0)
-                    continue;
-
-                EditorGUILayout.HelpBox("Claimed but not delivered: "
-                    + string.Join(", ", m_Missing), MessageType.Warning);
-                // ONE BUTTON FOR THE HALF THAT IS AUTHORABLE HERE. A missing request is a row this
-                // def is free to add; a missing attribute lives in a catalog and is somebody
-                // else's edit, so it is reported and not offered.
-                for (int r = 0; r < contract.requests.Count; r++)
-                {
-                    string wanted = contract.requests[r];
-                    if (string.IsNullOrEmpty(wanted) || def.RequestFor(wanted) != null)
-                        continue;
-                    if (!GUILayout.Button("Serve '" + wanted + "'", GUILayout.Width(160f)))
-                        continue;
-                    Commit(() => def.requests.Add(new ServiceRequest
-                    {
-                        key = wanted,
-                        description = "Promised by the '" + contract.name + "' contract."
-                    }));
-                    GUIUtility.ExitGUI();
-                }
-            }
-
-            if (GUILayout.Button("+ Implement…", GUILayout.Width(140f)))
-                ShowContractMenu(def, -1);
-        }
-
-        /// <summary>The contracts this def can name — its declared neighbourhood, never the
-        /// project's. Index -1 adds a claim; anything else replaces one.</summary>
-        private void ShowContractMenu(ServiceDef def, int index)
-        {
-            var menu = new GenericMenu();
-            if (m_Contracts.Count == 0)
-            {
-                menu.AddDisabledItem(new GUIContent(def.registry == null
-                    ? "this def manages no catalog — nothing to read contracts from"
-                    : "'" + def.registry.name + "' declares no contract catalog"));
-            }
-            for (int i = 0; i < m_Contracts.Count; i++)
-            {
-                ContractDef contract = m_Contracts[i];
-                bool claimed = StateTreeContracts.Claims(def, contract);
-                menu.AddItem(new GUIContent(contract.name), claimed, () => Commit(() =>
-                {
-                    var claim = new StateTreeEntryRef<ContractDef>
-                    {
-                        entryId = contract.id,
-                        entryName = contract.name
-                    };
-                    if (index >= 0 && index < def.implements.Count)
-                        def.implements[index] = claim;
-                    else if (!claimed)
-                        def.implements.Add(claim);
-                }));
-            }
-            menu.ShowAsContext();
-        }
 
         /// <summary>The contract behind a claim, by id first — so renaming the contract renames
         /// the claim instead of breaking it.</summary>
@@ -506,98 +393,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 ActionPicker(def, row);
                 EditorGUILayout.EndHorizontal();
 
-                // Only where it can mean something: a def with no flow tree has nowhere
-                // for a stateId to point, so the field would be a question with no answers.
-                if (FlowBacked(def))
-                {
-                    string stateId = EditorGUILayout.DelayedTextField(
-                        new GUIContent("State Id",
-                            "Only for a handler that WAITS — routes to the def's flow tree."),
-                        row.stateId);
-                    if (stateId != row.stateId)
-                        Commit(() => row.stateId = stateId);
-                }
-
-                DrawReactions(def, row);
                 EditorGUILayout.EndVertical();
             }
             if (GUILayout.Button("+ request", GUILayout.Width(90f)))
                 Commit(() => def.requests.Add(new ServiceRequest()));
         }
 
-        private void DrawReactions(ServiceDef def, ServiceRequest row)
-        {
-            // THE WIRING WITH AN IF IN IT (M38.2): a logic graph the subsystem runs after
-            // serving this request — beside the rows, for what a row cannot say.
-            EditorGUI.BeginChangeCheck();
-            var graph = (GraphTaskAsset)EditorGUILayout.ObjectField(new GUIContent("Reaction graph",
-                    "Optional: run this logic graph on the subsystem's scope each time the request "
-                    + "is served, after the beats below. The request's value is under 'key.asked'; "
-                    + "what the action answered with is on its own key, fields beside it."),
-                row.reactionGraph, typeof(GraphTaskAsset), false);
-            if (EditorGUI.EndChangeCheck())
-                Commit(() => row.reactionGraph = graph);
-
-            EditorGUILayout.LabelField("Reactions — the UI beats, in order",
-                EditorStyles.miniBoldLabel);
-            EditorGUI.indentLevel++;
-            for (int j = 0; j < row.reactions.Count; j++)
-            {
-                UiReaction beat = row.reactions[j];
-                if (beat == null)
-                    continue;
-
-                EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.PrefixLabel("Ui Row");
-                if (GUILayout.Button(string.IsNullOrEmpty(beat.ui.entryName)
-                    ? "(pick ui row)" : beat.ui.entryName, EditorStyles.popup))
-                {
-                    UiRowMenu(beat.ui.entryName, (id, rowName) =>
-                    {
-                        beat.ui.entryId = id;
-                        beat.ui.entryName = rowName;
-                    });
-                }
-                if (RemoveButton())
-                {
-                    int index = j;
-                    Commit(() => row.reactions.RemoveAt(index));
-                    EditorGUILayout.EndHorizontal();
-                    break;
-                }
-                EditorGUILayout.EndHorizontal();
-
-                EditorGUILayout.BeginHorizontal();
-                BoundTextField("Verb", "The verb, in the view's vocabulary.",
-                    beat.verb,
-                    !string.IsNullOrEmpty(beat.verb)
-                        && Offered(VerbOffers(beat.ui.entryName), beat.verb),
-                    value => beat.verb = value);
-                VerbPicker(beat);
-                EditorGUILayout.EndHorizontal();
-
-                bool valueArgument = EditorGUILayout.Toggle(new GUIContent("Value Argument",
-                    "Pass the request's value as the verb's argument."),
-                    beat.valueArgument);
-                if (valueArgument != beat.valueArgument)
-                    Commit(() => beat.valueArgument = valueArgument);
-
-                EditorGUILayout.BeginHorizontal();
-                BoundTextField("Argument Key",
-                    "A blackboard key whose held value rides along — an announcement's "
-                    + "payload travels whole.",
-                    beat.argumentKey,
-                    !string.IsNullOrEmpty(beat.argumentKey)
-                        && Offered(AnnouncementKeys(def), beat.argumentKey),
-                    value => beat.argumentKey = value);
-                ArgumentKeyPicker(def, beat);
-                EditorGUILayout.EndHorizontal();
-                EditorGUILayout.Space(2f);
-            }
-            EditorGUI.indentLevel--;
-            if (GUILayout.Button("+ beat", GUILayout.Width(70f)))
-                Commit(() => row.reactions.Add(new UiReaction()));
-        }
 
         // ---- spawns --------------------------------------------------------------------
 
@@ -636,145 +437,47 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         // ---- announcements -------------------------------------------------------------
 
+        /// <summary>
+        /// WHAT THIS SUBSYSTEM ANNOUNCES — read from its class (M41.1), never typed: every
+        /// [ServiceAnnouncement] it declares and the answer contract of every action it serves.
+        /// A designer picks nothing here; this is the menu a When Announced ▾ offers.
+        /// </summary>
         private void DrawAnnouncements(ServiceDef def)
         {
             EditorGUILayout.Space(6f);
-            EditorGUILayout.LabelField("Announcements — what it writes for others",
-                EditorStyles.boldLabel);
-            for (int i = 0; i < def.announcements.Count; i++)
+            EditorGUILayout.LabelField("Announces — what a flow may wait on", EditorStyles.boldLabel);
+            List<DeclaredApi.Announced> rows = DeclaredApi.Announcements(def.name);
+            if (rows.Count == 0)
             {
-                ServiceAnnouncement announced = def.announcements[i];
-                if (announced == null)
-                    continue;
-                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                EditorGUILayout.BeginHorizontal();
-                ServiceAnnouncement keyed = announced;
-                DrawKey("Key", "The name others read this under.", announced.key,
-                    value => keyed.key = value);
-                if (RemoveButton())
-                {
-                    int index = i;
-                    Commit(() => def.announcements.RemoveAt(index));
-                    EditorGUILayout.EndHorizontal();
-                    EditorGUILayout.EndVertical();
-                    break;
-                }
-                EditorGUILayout.EndHorizontal();
-                DrawRenamePanel(announced.key, value => keyed.key = value);
-                EditorGUILayout.BeginHorizontal();
-                BoundTextField("Payload Type",
-                    "The contract class this key carries — the project already declares "
-                    + "these ([TaskOutputContract] payloads).",
-                    announced.payloadTypeName,
-                    !string.IsNullOrEmpty(announced.payloadTypeName)
-                        && Offered(PayloadTypeOffers(), announced.payloadTypeName),
-                    value => announced.payloadTypeName = value);
-                PayloadTypePicker(announced);
-                EditorGUILayout.EndHorizontal();
-                string description = EditorGUILayout.DelayedTextField("Description",
-                    announced.description);
-                if (description != announced.description)
-                    Commit(() => announced.description = description);
-
-                DrawDeliveries(def, announced);
-                EditorGUILayout.EndVertical();
-            }
-            if (GUILayout.Button("+ announcement", GUILayout.Width(120f)))
-                Commit(() => def.announcements.Add(new ServiceAnnouncement()));
-        }
-
-        /// <summary>
-        /// WHO IS TOLD (M34.2) — the wiring an announcement was missing.
-        ///
-        /// An announcement is a name this subsystem writes; a reaction on one of its requests is
-        /// what carries it to a screen. Both are rows on this def, and until now connecting them
-        /// meant scrolling up, finding the right request, adding a beat and retyping the key.
-        /// Here the announcement shows what already delivers it and offers to add one — which is
-        /// the "wire it by picking" half of a device panel.
-        /// </summary>
-        private void DrawDeliveries(ServiceDef def, ServiceAnnouncement announced)
-        {
-            if (string.IsNullOrEmpty(announced.key))
+                EditorGUILayout.LabelField("    nothing — the class declares no [ServiceAnnouncement] "
+                    + "and no action answers with a contract", EditorStyles.miniLabel);
                 return;
-
-            var delivered = 0;
-            for (int i = 0; i < def.requests.Count; i++)
-            {
-                ServiceRequest row = def.requests[i];
-                for (int r = 0; row != null && r < row.reactions.Count; r++)
-                {
-                    UiReaction beat = row.reactions[r];
-                    if (beat == null || beat.argumentKey != announced.key)
-                        continue;
-                    delivered++;
-                    EditorGUILayout.BeginHorizontal();
-                    GUILayout.Space(12f);
-                    GUILayout.Label("→ on '" + row.key + "', " + beat.ui.entryName + " · "
-                        + beat.verb, EditorStyles.miniLabel);
-                    if (GUILayout.Button("✕", GUILayout.Width(22f)))
-                    {
-                        ServiceRequest owner = row;
-                        UiReaction going = beat;
-                        Commit(() => owner.reactions.Remove(going));
-                        EditorGUILayout.EndHorizontal();
-                        GUIUtility.ExitGUI();
-                    }
-                    EditorGUILayout.EndHorizontal();
-                }
             }
-
-            EditorGUILayout.BeginHorizontal();
-            GUILayout.Space(12f);
-            if (delivered == 0)
+            for (int i = 0; i < rows.Count; i++)
             {
-                // NOT A FAULT, and worth saying which kind of quiet it is: a payload read from
-                // code (a bound skin, a task) needs no beat at all.
-                GUILayout.Label("nothing on this def delivers it", EditorStyles.miniLabel);
+                DeclaredApi.Announced row = rows[i];
+                string payload = row.payload != null ? " : " + row.payload.Name : "";
+                EditorGUILayout.LabelField("    " + row.key + payload, row.description, EditorStyles.label);
             }
-            if (GUILayout.Button("+ deliver…", GUILayout.Width(90f)))
-            {
-                var menu = new GenericMenu();
-                if (def.requests.Count == 0)
-                {
-                    menu.AddDisabledItem(new GUIContent("this def declares no requests to "
-                        + "carry it"));
-                }
-                for (int i = 0; i < def.requests.Count; i++)
-                {
-                    ServiceRequest row = def.requests[i];
-                    if (row == null || string.IsNullOrEmpty(row.key))
-                        continue;
-                    ServiceRequest chosen = row;
-                    menu.AddItem(new GUIContent("when '" + row.key + "' is served"), false,
-                        () => Commit(() => chosen.reactions.Add(new UiReaction
-                        {
-                            // THE PAYLOAD RIDES WHOLE: a beat that carries an announcement is
-                            // not passing the request's value, so valueArgument stays off.
-                            argumentKey = announced.key,
-                            valueArgument = false,
-                            verb = "announce"
-                        })));
-                }
-                menu.ShowAsContext();
-            }
-            EditorGUILayout.EndHorizontal();
         }
+
+        /// <summary>The ability-tree authoring rules a def of a TREE KIND carries (M23): shown
+        /// only when it is one, because nothing else has a use for them.</summary>
+        private void DrawTreeKind(ServiceDef def)
+        {
+            if (string.IsNullOrEmpty(def.treeKind))
+                return;
+            EditorGUILayout.Space(6f);
+            serializedObject.Update();
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("treeKind"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("nestingRules"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("kindSeeds"));
+            serializedObject.ApplyModifiedProperties();
+        }
+
 
         // ---- the flow-backed half, folded away --------------------------------------
 
-        /// <summary>Whether this def uses a flow TREE at all — the only condition under
-        /// which the tree kind, nesting rules and kind seeds mean anything.</summary>
-        private static bool FlowBacked(ServiceDef def)
-        {
-            if (def.flows != null || !string.IsNullOrEmpty(def.treeKind))
-                return true;
-            for (int i = 0; i < def.requests.Count; i++)
-            {
-                if (def.requests[i] != null && !string.IsNullOrEmpty(def.requests[i].stateId))
-                    return true;
-            }
-            return false;
-        }
 
         /// <summary>
         /// HOW THIS KIND IS TUNED (M36) — every knob the class declares, its default dimmed
@@ -802,26 +505,6 @@ namespace PowerOfFire.DrawToPlay.Editor
             serializedObject.ApplyModifiedProperties();
         }
 
-        private void DrawFlowBacked(ServiceDef def)
-        {
-            EditorGUILayout.Space(6f);
-            bool backed = FlowBacked(def);
-            m_FlowsOpen = EditorGUILayout.Foldout(m_FlowsOpen || backed,
-                backed ? "Flow tree" : "Flow tree — none (handlers are single-frame)", true);
-            if (!m_FlowsOpen)
-                return;
-
-            EditorGUI.indentLevel++;
-            serializedObject.Update();
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("flows"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("treeKind"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("nestingRules"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("kindSeeds"));
-            serializedObject.ApplyModifiedProperties();
-            EditorGUI.indentLevel--;
-        }
-
-        private bool m_FlowsOpen;
 
         // ---- the offers: what the project's contracts declare --------------------------
 
@@ -838,83 +521,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             return offers;
         }
 
-        private static string[] VerbOffers(string rowName)
-        {
-            GameObject prefab = SpawnPrefab(rowName);
-            if (prefab == null)
-                return System.Array.Empty<string>();
-            var offers = new System.Collections.Generic.List<string>();
-            UiViewBehaviour[] views = prefab.GetComponentsInChildren<UiViewBehaviour>(true);
-            for (int i = 0; i < views.Length; i++)
-            {
-                if (views[i] == null)
-                    continue;
-                var contracts = (UiVerbContractAttribute[])views[i].GetType()
-                    .GetCustomAttributes(typeof(UiVerbContractAttribute), true);
-                for (int k = 0; k < contracts.Length; k++)
-                    offers.Add(contracts[k].verb);
-            }
-            return offers.ToArray();
-        }
 
-        private static string[] AnnouncementKeys(ServiceDef def)
-        {
-            var offers = new System.Collections.Generic.List<string>();
-            for (int i = 0; i < def.announcements.Count; i++)
-            {
-                if (def.announcements[i] != null
-                    && !string.IsNullOrEmpty(def.announcements[i].key))
-                    offers.Add(def.announcements[i].key);
-            }
-            return offers.ToArray();
-        }
 
         /// <summary>Every payload class any task contract declares — the type names the
         /// project actually sends, which is what an announcement may carry.</summary>
-        private static string[] s_PayloadTypeOffers;
 
-        private static string[] PayloadTypeOffers()
-        {
-            // Types change only with a domain reload, which also clears this.
-            if (s_PayloadTypeOffers != null)
-                return s_PayloadTypeOffers;
-            var offers = new System.Collections.Generic.List<string>();
-            foreach (System.Type type in TypeCache.GetTypesDerivedFrom<StateTreeTaskAsset>())
-            {
-                var contracts = (TaskOutputContractAttribute[])type.GetCustomAttributes(
-                    typeof(TaskOutputContractAttribute), true);
-                for (int i = 0; i < contracts.Length; i++)
-                {
-                    if (contracts[i].payloadType != null
-                        && !offers.Contains(contracts[i].payloadType.Name))
-                        offers.Add(contracts[i].payloadType.Name);
-                }
-            }
-            s_PayloadTypeOffers = offers.ToArray();
-            return s_PayloadTypeOffers;
-        }
 
         // ---- the pickers: offers from declared contracts -------------------------------
 
-        private void PayloadTypePicker(ServiceAnnouncement announced)
-        {
-            if (!GUILayout.Button("▾", GUILayout.Width(22f)))
-                return;
-            var menu = new GenericMenu();
-            menu.AddItem(new GUIContent("(none)"),
-                string.IsNullOrEmpty(announced.payloadTypeName),
-                () => Commit(() => announced.payloadTypeName = ""));
-            string[] offers = PayloadTypeOffers();
-            if (offers.Length == 0)
-                menu.AddDisabledItem(new GUIContent("no [TaskOutputContract] payloads yet"));
-            for (int i = 0; i < offers.Length; i++)
-            {
-                string offer = offers[i];
-                menu.AddItem(new GUIContent(offer), offer == announced.payloadTypeName,
-                    () => Commit(() => announced.payloadTypeName = offer));
-            }
-            menu.ShowAsContext();
-        }
 
         private void ActionPicker(ServiceDef def, ServiceRequest row)
         {
@@ -948,67 +562,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             menu.ShowAsContext();
         }
 
-        private void VerbPicker(UiReaction beat)
-        {
-            if (!GUILayout.Button("▾", GUILayout.Width(22f)))
-                return;
-            var menu = new GenericMenu();
-            menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(beat.verb),
-                () => Commit(() => beat.verb = ""));
-            var any = false;
-            GameObject prefab = SpawnPrefab(beat.ui.entryName);
-            if (prefab != null)
-            {
-                UiViewBehaviour[] views = prefab.GetComponentsInChildren<UiViewBehaviour>(true);
-                for (int i = 0; i < views.Length; i++)
-                {
-                    if (views[i] == null)
-                        continue;
-                    var contracts = (UiVerbContractAttribute[])views[i].GetType()
-                        .GetCustomAttributes(typeof(UiVerbContractAttribute), true);
-                    for (int k = 0; k < contracts.Length; k++)
-                    {
-                        any = true;
-                        string verb = contracts[k].verb;
-                        string label = string.IsNullOrEmpty(contracts[k].argumentHint)
-                            ? verb
-                            : verb + " — " + contracts[k].argumentHint;
-                        menu.AddItem(new GUIContent(label), verb == beat.verb,
-                            () => Commit(() => beat.verb = verb));
-                    }
-                }
-            }
-            if (!any)
-                menu.AddDisabledItem(new GUIContent(
-                    "pick a UI row whose views declare [UiVerbContract]"));
-            menu.ShowAsContext();
-        }
 
-        private void ArgumentKeyPicker(ServiceDef def, UiReaction beat)
-        {
-            if (!GUILayout.Button("▾", GUILayout.Width(22f)))
-                return;
-            var menu = new GenericMenu();
-            menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(beat.argumentKey),
-                () => Commit(() => beat.argumentKey = ""));
-            var any = false;
-            for (int i = 0; i < def.announcements.Count; i++)
-            {
-                ServiceAnnouncement announced = def.announcements[i];
-                if (announced == null || string.IsNullOrEmpty(announced.key))
-                    continue;
-                any = true;
-                string key = announced.key;
-                string label = string.IsNullOrEmpty(announced.payloadTypeName)
-                    ? key
-                    : key + " : " + announced.payloadTypeName;
-                menu.AddItem(new GUIContent(label), key == beat.argumentKey,
-                    () => Commit(() => beat.argumentKey = key));
-            }
-            if (!any)
-                menu.AddDisabledItem(new GUIContent("no announcements declared"));
-            menu.ShowAsContext();
-        }
 
         private void UiRowMenu(string current, System.Action<string, string> set)
         {

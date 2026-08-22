@@ -73,7 +73,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 var def = AssetDatabase.LoadAssetAtPath<ServiceDef>(
                     AssetDatabase.GUIDToAssetPath(guids[i]));
-                if (def == null || (def.requests.Count == 0 && def.flows == null))
+                if (def == null || (def.requests.Count == 0
+                    && DeclaredApi.Announcements(def.name).Count == 0))
                     continue;
                 any = true;
                 m_List.Add(BuildDefSection(def));
@@ -120,50 +121,18 @@ namespace PowerOfFire.DrawToPlay.Editor
                 fold.Add(RequestRow(def, row));
             }
 
-            List<StateTreeKeyDeclaration> flowAnnouncements = Announcements(def);
-            var anyAnnounced = def.announcements.Count > 0 || flowAnnouncements.Count > 0;
-            if (anyAnnounced)
-                fold.Add(Header("Announcements — what it writes for others"));
-            for (var i = 0; i < def.announcements.Count; i++)
+            // FROM THE CLASS (M41.1): what it announces is what its code declares.
+            List<DeclaredApi.Announced> announced = DeclaredApi.Announcements(def.name);
+            if (announced.Count > 0)
+                fold.Add(Header("Announces — what a flow may wait on"));
+            for (var i = 0; i < announced.Count; i++)
             {
-                ServiceAnnouncement announced = def.announcements[i];
-                if (announced == null || string.IsNullOrEmpty(announced.key))
-                    continue;
-                var suffix = string.IsNullOrEmpty(announced.payloadTypeName)
-                    ? ""
-                    : " : " + announced.payloadTypeName;
-                fold.Add(AnnouncementRow(announced.key + suffix, announced.description,
-                    announced.key));
-            }
-            for (var i = 0; i < flowAnnouncements.Count; i++)
-            {
-                StateTreeKeyDeclaration declared = flowAnnouncements[i];
-                var suffix = !string.IsNullOrEmpty(declared.payloadTypeName)
-                    ? " : " + declared.payloadTypeName
-                    : declared.namesRowOf != null
-                        ? " — row of " + declared.namesRowOf.name
-                        : " (" + declared.kind + ")";
-                fold.Add(AnnouncementRow(declared.name + suffix, declared.description,
-                    declared.name));
+                DeclaredApi.Announced row = announced[i];
+                var suffix = row.payload != null ? " : " + row.payload.Name : "";
+                fold.Add(AnnouncementRow(row.key + suffix, row.description, row.key));
             }
 
             return fold;
-        }
-
-        /// <summary>The flows tree's declared keys that are NOT requests: what the
-        /// subsystem publishes rather than serves — its outbound API.</summary>
-        private static List<StateTreeKeyDeclaration> Announcements(ServiceDef def)
-        {
-            var found = new List<StateTreeKeyDeclaration>();
-            var keys = def.flows != null ? def.flows.keys : null;
-            for (var i = 0; keys != null && i < keys.Count; i++)
-            {
-                StateTreeKeyDeclaration declared = keys[i];
-                if (declared != null && !string.IsNullOrEmpty(declared.name)
-                    && def.RequestFor(declared.name) == null)
-                    found.Add(declared);
-            }
-            return found;
         }
 
         private VisualElement RequestRow(ServiceDef def, ServiceRequest request)
