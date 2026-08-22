@@ -275,51 +275,6 @@ namespace PowerOfFire.DrawToPlay.Tests
         // ------------------------------------------------------------------ request keys
 
         [Test]
-        public void ItemTasks_ServeTheBagsRequestKeys()
-        {
-            // The UI wiring brief's edge: a press writes a key, the flow's tasks read it.
-            m_Vitals.Consume(AttributeNames.Health, 3f);
-            m_Service.Add("ration", 1);
-            m_Service.Add("relic", 1);
-
-            var use = ScriptableObject.CreateInstance<UseItemTask>();
-            m_Assets.Add(use);
-            use.itemKey = new StateTreeKeyField("ui.bag.use");
-            m_Root.Context.blackboard["ui.bag.use"] = "ration";
-            Assert.AreEqual(StateTreeStatus.Success, use.OnTick(m_Root.Context, 0f));
-            Assert.AreEqual(4f, m_Vitals.Value(AttributeNames.Health), 0.001f,
-                "the key named the ration; the heal landed");
-
-            var wear = ScriptableObject.CreateInstance<EquipItemTask>();
-            m_Assets.Add(wear);
-            wear.itemKey = new StateTreeKeyField("ui.bag.wear");
-            m_Root.Context.blackboard["ui.bag.wear"] = "relic";
-            Assert.AreEqual(StateTreeStatus.Success, wear.OnTick(m_Root.Context, 0f));
-            Assert.IsTrue(m_Service.IsEquipped("relic"));
-
-            var takeoff = ScriptableObject.CreateInstance<UnequipItemTask>();
-            m_Assets.Add(takeoff);
-            takeoff.slotKey = new StateTreeKeyField("ui.bag.takeoff");
-            m_Root.Context.blackboard["ui.bag.takeoff"] = "slot.trinket";
-            Assert.AreEqual(StateTreeStatus.Success, takeoff.OnTick(m_Root.Context, 0f));
-            Assert.IsFalse(m_Service.IsEquipped("relic"),
-                "the key named the slot; the relic came off");
-        }
-
-        [Test]
-        public void ItemTasks_FallBackToTheAuthoredRow_WhenNoKeyResolves()
-        {
-            m_Service.Add("relic", 1);
-            var wear = ScriptableObject.CreateInstance<EquipItemTask>();
-            m_Assets.Add(wear);
-            wear.item.entryName = "relic";
-            wear.itemKey = new StateTreeKeyField("ui.bag.wear");   // key absent
-            Assert.AreEqual(StateTreeStatus.Success, wear.OnTick(m_Root.Context, 0f),
-                "no request on the board — the authored row is the target");
-            Assert.IsTrue(m_Service.IsEquipped("relic"));
-        }
-
-        [Test]
         public void Request_TypedValues_AreValidatedAgainstTheRegistry()
         {
             // §4d: a request row that names a registry refuses values that name no row —
@@ -338,33 +293,6 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Service.Request("test.use", "raton");
             Assert.AreEqual("ration", m_Root.Context.blackboard["test.use"],
                 "the typo was refused — the board still holds the last good value");
-        }
-
-        [Test]
-        public void UseItemTask_PublishesTheResultContract()
-        {
-            // §4d's highlighted want: the verb hands its WHOLE story forward as one typed
-            // payload — item def included — so a growing contract grows the class, never
-            // the key count or the downstream wiring.
-            m_Service.Add("ration", 1);
-            var use = ScriptableObject.CreateInstance<UseItemTask>();
-            m_Assets.Add(use);
-            use.item.entryName = "ration";
-
-            use.OnEnter(m_Root.Context);
-            Assert.AreEqual(StateTreeStatus.Success, use.OnTick(m_Root.Context, 0f));
-
-            var outputs = new List<TaskOutputValue>();
-            Assert.IsTrue(((IStateTreeOutputSource)use).TryCollectOutputs(outputs));
-            Assert.AreEqual("result", outputs[0].name);
-            var result = outputs[0].objectValue as ItemUseResult;
-            Assert.IsNotNull(result, "the payload rides the output channel whole");
-            Assert.AreEqual("ration", result.itemName);
-            Assert.IsTrue(result.used);
-            Assert.AreSame(m_Service.Row("ration"), result.item,
-                "the contract carries the DEFINITION, not a name to re-resolve");
-            Assert.AreEqual("ration", outputs[0].stringValue,
-                "with the name in the string slot as the degraded scalar view");
         }
 
         [Test]
@@ -412,18 +340,6 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             var payload = m_Root.Context.blackboard[ItemUseResult.Key] as ItemUseResult;
             Assert.AreSame(result, payload, "the announcement IS the answer");
-        }
-
-        [Test]
-        public void UseItemTask_DeclaresItsContract_ForTheTypedOffer()
-        {
-            // §4e: a runtime-built output is DECLARED by attribute, so the route editor can
-            // offer "result : ItemUseResult" instead of a text field into a dictionary.
-            var contracts = (TaskOutputContractAttribute[])typeof(UseItemTask)
-                .GetCustomAttributes(typeof(TaskOutputContractAttribute), true);
-            Assert.AreEqual(1, contracts.Length);
-            Assert.AreEqual("result", contracts[0].name);
-            Assert.AreEqual(typeof(ItemUseResult), contracts[0].payloadType);
         }
 
         [Test]

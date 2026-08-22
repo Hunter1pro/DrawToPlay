@@ -106,8 +106,9 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assume.That(craft, Is.Not.Null);
 
             var bagKeys = inventory.requests.ConvertAll(r => r.key);
-            Assert.That(bagKeys, Is.EquivalentTo(new[] { "bag.add", "bag.open" }),
-                "the keeper's gift and 'show me' — the bag's own buttons are its screen's business");
+            Assert.That(bagKeys, Is.EquivalentTo(new[] { "bag.add", "bag.remove", "bag.open" }),
+                "the keeper's gift, the warden's take and 'show me' — the bag's own buttons are "
+                + "its screen's business");
             foreach (ServiceRequest row in inventory.requests)
             {
                 Assert.That(row.internalOnly, Is.False, row.key + ": no row is for nobody");

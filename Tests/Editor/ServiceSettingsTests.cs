@@ -276,6 +276,35 @@ namespace PowerOfFire.DrawToPlay.Tests
             [InjectService] public IBag bag;
         }
 
+        /// <summary>A BAG THAT ONLY COUNTS — the second implementation of <see cref="IBag"/>,
+        /// twelve lines, living where the one test that needs it lives (M39 retired the
+        /// example-assembly stub nobody installed). Point a def at it and every consumer that
+        /// asked for the CAPABILITY keeps working.</summary>
+        public sealed class CountingBag : StateTreeService, IBag
+        {
+            public CountingBag(StateTreeContextHost scope, ServiceDef definition) : base(scope, definition) { }
+            private readonly System.Collections.Generic.Dictionary<string, int> m_Counts =
+                new System.Collections.Generic.Dictionary<string, int>();
+            public event System.Action changed;
+            public ItemDef Row(string itemName) => definition?.registry is ItemRegistry r ? r.FindByName(itemName) as ItemDef : null;
+            public int Count(string itemName) => m_Counts.TryGetValue(itemName ?? "", out int held) ? held : 0;
+            public bool Has(string itemName, int count = 1) => Count(itemName) >= count;
+            public int Add(string itemName, int count = 1)
+            {
+                m_Counts[itemName] = Count(itemName) + count;
+                changed?.Invoke();
+                return m_Counts[itemName];
+            }
+            public bool Remove(string itemName, int count = 1)
+            {
+                if (Count(itemName) < count)
+                    return false;
+                m_Counts[itemName] = Count(itemName) - count;
+                changed?.Invoke();
+                return true;
+            }
+        }
+
         [Test]
         public void TheSwap_ADefNamesAnotherClass_AndACapabilityConsumerCannotTell()
         {
@@ -291,7 +320,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             // THE REAL BAG, then the stub — the same def, one field changed.
             foreach (System.Type implementation in new[]
-                { typeof(InventoryService), typeof(Examples.CountingBag) })
+                { typeof(InventoryService), typeof(CountingBag) })
             {
                 def.serviceTypeName = implementation.FullName;
                 StateTreeServiceInstaller installer = Installer("Scope " + implementation.Name);

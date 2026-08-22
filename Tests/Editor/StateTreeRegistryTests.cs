@@ -10,8 +10,8 @@ namespace PowerOfFire.DrawToPlay.Tests
     /// against the tree's registry list at StartTree by ID (renames are free — the injected
     /// entry IS the registry's row, so the runtime string follows the dashboard), and an id
     /// that resolves nowhere is one error plus an empty reference the task answers for.
-    /// The full-flow coverage (registry refs bound by type, the inventory example end to
-    /// end) lives in <see cref="UITreeTests"/>, which runs on the same machinery.
+    /// The task under test is local to this file: a typed reference and one write of the
+    /// entry's CURRENT name — the mechanism, with no example riding on it.
     /// </summary>
     [TestFixture]
     public sealed class StateTreeRegistryTests
@@ -48,25 +48,23 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             ItemRegistry registry = MakeRegistry(out ItemDef sword);
             StateTreeContextHost player = MakePlayer();
-            InventoryService bag = MountBag(player, registry);
 
-            var add = ScriptableObject.CreateInstance<InventoryAddTask>();
+            var add = ScriptableObject.CreateInstance<NameTheEntryTask>();
             add.item.entryId = sword.id;
             add.item.entryName = "stale-cache";
-            add.count = 1;
             m_Assets.Add(add);
 
             StateTreeRunner runner = MakeRunner(MakeTree(add, registry), player);
             runner.StartTree();
             runner.TickTree(0.1f);
-            Assert.AreEqual(1, bag.Count("sword"),
+            Assert.AreEqual("sword", player.Context.blackboard["named"],
                 "the reference resolved by ID — the serialized name cache is never trusted");
 
             runner.StopTree();
             sword.name = "blade";
             runner.StartTree();
             runner.TickTree(0.1f);
-            Assert.AreEqual(1, bag.Count("blade"),
+            Assert.AreEqual("blade", player.Context.blackboard["named"],
                 "renaming the entry in the dashboard re-pointed the runtime string");
         }
 
@@ -75,11 +73,9 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             ItemRegistry registry = MakeRegistry(out _);
             StateTreeContextHost player = MakePlayer();
-            InventoryService bag = MountBag(player, registry);
 
-            var add = ScriptableObject.CreateInstance<InventoryAddTask>();
+            var add = ScriptableObject.CreateInstance<NameTheEntryTask>();
             add.item.entryId = "no-such-id";
-            add.count = 1;
             m_Assets.Add(add);
 
             LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(
@@ -87,8 +83,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             StateTreeRunner runner = MakeRunner(MakeTree(add, registry), player);
             runner.StartTree();
             runner.TickTree(0.1f);
-            Assert.AreEqual(0, bag.Count("sword"),
-                "an unresolved reference adds nothing — the task Failed instead of inventing");
+            Assert.IsFalse(player.Context.blackboard.ContainsKey("named"),
+                "an unresolved reference names nothing — the task Failed instead of inventing");
         }
 
         // ---------------------------------------------------------------------- fixtures
@@ -108,26 +104,6 @@ namespace PowerOfFire.DrawToPlay.Tests
             return registry;
         }
 
-
-        /// <summary>
-        /// THE BAG IS A SUBSYSTEM NOW (M32): the inventory atoms ask it instead of writing the
-        /// encoding themselves, so a tree that gives or spends items needs one mounted. Two
-        /// lines of fixture, and the test exercises the path the game actually runs.
-        /// </summary>
-        private InventoryService MountBag(StateTreeContextHost host, ItemRegistry items)
-        {
-            var go = new GameObject("Bag");
-            go.hideFlags = HideFlags.HideAndDontSave;
-            m_Objects.Add(go);
-            var def = ScriptableObject.CreateInstance<ServiceDef>();
-            def.name = "inventory";
-            def.serviceName = "inventory";
-            def.registry = items;
-            m_Assets.Add(def);
-            var service = new InventoryService(host, def);
-            host.Provide(service);
-            return service;
-        }
 
         private StateTreeContextHost MakePlayer()
         {
@@ -179,6 +155,25 @@ namespace PowerOfFire.DrawToPlay.Tests
             runner.ownerObject = go;
             runner.context = new StateTreeContext(go);
             return runner;
+        }
+    }
+
+    /// <summary>The smallest task with a typed reference: it writes the resolved entry's name
+    /// onto the player's board, or fails when nothing resolved.</summary>
+    public sealed class NameTheEntryTask : StateTreeTaskAsset
+    {
+        public StateTreeEntryRef<ItemDef> item = new StateTreeEntryRef<ItemDef>();
+
+        public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
+        {
+            if (item.entry == null)
+                return StateTreeStatus.Failure;
+            StateTreeContextHost player = StateTreeContextHost.Resolve(context.owner,
+                StateTreeContextKind.Player);
+            if (player == null)
+                return StateTreeStatus.Failure;
+            player.Context.blackboard["named"] = item.entry.name;
+            return StateTreeStatus.Success;
         }
     }
 }

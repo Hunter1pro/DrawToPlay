@@ -148,6 +148,49 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(program.inputBindings.Count, Is.EqualTo(1),
                 "the hour reaches the verb's argument by a WIRE from Announced Payload, not a typed key");
         }
+        // ------------------------------------------------------------------ M39.3: one slot per key
+
+        /// <summary>Two asks of the same key in one chain are two requests, not one: the second
+        /// waits (Running) until the service has consumed the first, instead of writing over it.
+        /// Found when the warden paid one medkit for two asks.</summary>
+        [Test]
+        public void ASecondAskOfAFullKey_WaitsForTheFirstToBeServed()
+        {
+            var items = ScriptableObject.CreateInstance<ItemRegistry>();
+            items.entries.Add(new ItemDef { name = "medkit" });
+            m_Junk.Add(items);
+            var def = ScriptableObject.CreateInstance<ServiceDef>();
+            def.serviceName = "inventory";
+            def.registry = items;
+            def.requests.Add(new ServiceRequest
+            {
+                key = "bag.add", action = InventoryService.AddAction, namesRowOf = items
+            });
+            m_Junk.Add(def);
+            var bag = new InventoryService(m_Root, def);
+            m_Root.Provide(bag);
+
+            var first = ScriptableObject.CreateInstance<RequestTask>();
+            first.key = "bag.add";
+            first.value = "medkit";
+            m_Junk.Add(first);
+            var second = ScriptableObject.CreateInstance<RequestTask>();
+            second.key = "bag.add";
+            second.value = "medkit";
+            m_Junk.Add(second);
+
+            Assert.AreEqual(StateTreeStatus.Success, first.OnTick(m_Root.Context, 0f));
+            Assert.AreEqual(StateTreeStatus.Running, second.OnTick(m_Root.Context, 0f),
+                "the slot is full until the bag serves it");
+
+            bag.Tick(0.02f);
+            Assert.AreEqual(1, bag.Count("medkit"));
+            Assert.AreEqual(StateTreeStatus.Success, second.OnTick(m_Root.Context, 0f),
+                "served, so the second ask posts");
+            bag.Tick(0.02f);
+            Assert.AreEqual(2, bag.Count("medkit"), "two asks, two medkits");
+        }
+
         // ------------------------------------------------------------------ M38.4: findings on the node
 
         /// <summary>

@@ -21,6 +21,7 @@ namespace PowerOfFire.DrawToPlay
     /// grants until unequipped or swapped) are the item rows' declarations, unchanged.
     /// </summary>
     [ServiceActionContract(AddAction, "value = item name — one is put in the bag")]
+    [ServiceActionContract(RemoveAction, "value = item name — one is taken, or nothing is")]
     [ServiceActionContract(OpenAction, "the bag panel opens — a gift wants to be seen")]
     public sealed class InventoryService : StateTreeService, IBag
     {
@@ -39,10 +40,11 @@ namespace PowerOfFire.DrawToPlay
                     definition);
         }
 
-        // THE DECLARED VERBS (M39): what a flow wires — a gift, and "show me". Use, wear and
-        // take off are the bag's own buttons, and its screen calls them in C#; they were rows
-        // once, marked internal, which is a def admitting nobody else should call them.
+        // THE DECLARED VERBS (M39): what a flow wires — a gift, a take, and "show me". Use,
+        // wear and take off are the bag's own buttons, and its screen calls them in C#; they
+        // were rows once, marked internal, which is a def admitting nobody else should call them.
         public const string AddAction = "add";
+        public const string RemoveAction = "remove";
         public const string OpenAction = "open";
 
         /// <summary>Raised after any carried-count change, so views redraw instead of poll.</summary>
@@ -81,6 +83,9 @@ namespace PowerOfFire.DrawToPlay
             {
                 case AddAction:
                     Add(value, 1);
+                    break;
+                case RemoveAction:
+                    Remove(value, 1);
                     break;
                 case OpenAction:
                     Open();

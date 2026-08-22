@@ -38,6 +38,14 @@ namespace PowerOfFire.DrawToPlay
             if (root == null || root.Context == null)
                 return StateTreeStatus.Failure;
 
+            // THE MAILBOX HAS ONE SLOT (M39.3). A request sits on its key until the service
+            // that serves it consumes it — which is the next service tick, not this one. Two
+            // asks of the same key in one chain (two medkits, two asks) used to be one: the
+            // second overwrote the first before anyone read it. So a full slot is waited for,
+            // not written over: the task stays Running until the earlier ask has been served.
+            if (root.Context.blackboard.ContainsKey(key))
+                return StateTreeStatus.Running;
+
             string resolved = value;
             string dynamicKey = valueKey;
             if (!string.IsNullOrEmpty(dynamicKey)
