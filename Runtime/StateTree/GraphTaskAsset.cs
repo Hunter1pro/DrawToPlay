@@ -1546,7 +1546,7 @@ namespace PowerOfFire.DrawToPlay
                 case GraphTaskNodeKind.ConstFloat:
                     return node.floatValue;
                 case GraphTaskNodeKind.GetBlackboardFloat:
-                    return ReadBlackboardFloat(context, node.stringValue);
+                    return ReadBlackboardFloat(BoardOf(context, node), node.stringValue);
                 case GraphTaskNodeKind.GetParamFloat:
                     return ParameterFloat(node.stringValue);
                 case GraphTaskNodeKind.ExitStatus:
@@ -1586,9 +1586,9 @@ namespace PowerOfFire.DrawToPlay
                 case GraphTaskNodeKind.ConstString:
                     return !string.IsNullOrEmpty(node.stringValue);
                 case GraphTaskNodeKind.GetBlackboardFloat:
-                    return ReadBlackboardFloat(context, node.stringValue) != 0f;
+                    return ReadBlackboardFloat(BoardOf(context, node), node.stringValue) != 0f;
                 case GraphTaskNodeKind.GetBlackboardString:
-                    return !string.IsNullOrEmpty(ReadBlackboardString(context, node.stringValue));
+                    return !string.IsNullOrEmpty(ReadBlackboardString(BoardOf(context, node), node.stringValue));
                 // A Bool parameter IS its float (!= 0), so both kinds read the same way — which is
                 // also what lets a variable be retyped between them without breaking a graph.
                 case GraphTaskNodeKind.GetParamBool:
@@ -1655,7 +1655,7 @@ namespace PowerOfFire.DrawToPlay
                     return ReadTaskOutput(context, node).floatValue
                         .ToString(System.Globalization.CultureInfo.InvariantCulture);
                 case GraphTaskNodeKind.GetBlackboardString:
-                    return ReadBlackboardString(context, node.stringValue);
+                    return ReadBlackboardString(BoardOf(context, node), node.stringValue);
                 case GraphTaskNodeKind.GetParamString:
                     return ParameterString(node.stringValue);
                 case GraphTaskNodeKind.RegistryEntry:
@@ -1710,6 +1710,23 @@ namespace PowerOfFire.DrawToPlay
             if (value is double d) return (float)d;
             if (value is bool b) return b ? 1f : 0f;
             return 0f;
+        }
+
+        /// <summary>
+        /// WHERE A SUBSYSTEM ANSWERS (M40.1): a Get Float/String whose <c>stringValue2</c> names
+        /// a scope kind reads THAT scope's board, resolved from the graph's owner — an
+        /// <c>Asked Result</c> or <c>Announced Payload</c> bakes the answering def's scope there,
+        /// so a dialog graph on an NPC reads the bench's answer on the root where the bench
+        /// put it. Empty means the graph's own board, as every other read.
+        /// </summary>
+        private static StateTreeContext BoardOf(StateTreeContext context, GraphTaskNode node)
+        {
+            if (context == null || string.IsNullOrEmpty(node.stringValue2) || context.owner == null)
+                return context;
+            if (!Enum.TryParse(node.stringValue2, out StateTreeContextKind kind))
+                return context;
+            StateTreeContextHost host = StateTreeContextHost.Resolve(context.owner, kind);
+            return host != null && host.Context != null ? host.Context : context;
         }
 
         private static string ReadBlackboardString(StateTreeContext context, string key)

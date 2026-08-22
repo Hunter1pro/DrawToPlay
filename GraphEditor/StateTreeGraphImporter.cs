@@ -34,7 +34,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     {
         /// <summary>Bump to force every graph in the project to re-bake after a change to the baker
         /// (the import result is cached against this number).</summary>
-        private const int k_Version = 1;
+        private const int k_Version = 2;   // M40.1: composed reads carry their scope
 
         /// <summary>Identifier of the baked tree inside the imported asset. Sub-objects are keyed by
         /// node id (see <see cref="StateTreeGraphBaker.SubAsset.identifier"/>), so editing one state

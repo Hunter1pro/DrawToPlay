@@ -928,12 +928,14 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
                     node.stringValue = source is IBakesKey composedFloat
                         ? composedFloat.BakedKey()
                         : ReadKey(context, source, GetBlackboardFloatNode.KeyPortName);
+                    node.stringValue2 = source is IBakesKey scopedFloat ? scopedFloat.BakedScope() : "";
                     break;
 
                 case GraphTaskNodeKind.GetBlackboardString:
                     node.stringValue = source is IBakesKey composedString
                         ? composedString.BakedKey()
                         : ReadKey(context, source, GetBlackboardStringNode.KeyPortName);
+                    node.stringValue2 = source is IBakesKey scopedString ? scopedString.BakedScope() : "";
                     break;
 
                 case GraphTaskNodeKind.HasBlackboardKey:

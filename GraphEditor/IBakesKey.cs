@@ -6,5 +6,10 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
     public interface IBakesKey
     {
         string BakedKey();
+
+        /// <summary>The scope kind the answering subsystem writes on ("Root", "Level", …) —
+        /// baked into the node so the read lands where the answer is, whatever context the
+        /// graph runs on (M40.1). Empty means the graph's own board.</summary>
+        string BakedScope();
     }
 }

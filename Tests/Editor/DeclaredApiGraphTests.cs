@@ -152,7 +152,8 @@ namespace PowerOfFire.DrawToPlay.Tests
 
         /// <summary>Two asks of the same key in one chain are two requests, not one: the second
         /// waits (Running) until the service has consumed the first, instead of writing over it.
-        /// Found when the warden paid one medkit for two asks.</summary>
+        /// Found when the warden paid one medkit for two asks. And since M40.1 an ask is a CALL:
+        /// it stays Running until its own request is consumed, then succeeds.</summary>
         [Test]
         public void ASecondAskOfAFullKey_WaitsForTheFirstToBeServed()
         {
@@ -179,16 +180,116 @@ namespace PowerOfFire.DrawToPlay.Tests
             second.value = "medkit";
             m_Junk.Add(second);
 
-            Assert.AreEqual(StateTreeStatus.Success, first.OnTick(m_Root.Context, 0f));
+            first.OnEnter(m_Root.Context);
+            second.OnEnter(m_Root.Context);
+            Assert.AreEqual(StateTreeStatus.Running, first.OnTick(m_Root.Context, 0f),
+                "posted, and waiting for the bag to serve it");
             Assert.AreEqual(StateTreeStatus.Running, second.OnTick(m_Root.Context, 0f),
                 "the slot is full until the bag serves it");
 
             bag.Tick(0.02f);
             Assert.AreEqual(1, bag.Count("medkit"));
-            Assert.AreEqual(StateTreeStatus.Success, second.OnTick(m_Root.Context, 0f),
-                "served, so the second ask posts");
+            Assert.AreEqual(StateTreeStatus.Success, first.OnTick(m_Root.Context, 0f),
+                "served: the call returned");
+            Assert.AreEqual(StateTreeStatus.Running, second.OnTick(m_Root.Context, 0f),
+                "the slot was free, so the second ask posted and now waits");
             bag.Tick(0.02f);
+            Assert.AreEqual(StateTreeStatus.Success, second.OnTick(m_Root.Context, 0f));
             Assert.AreEqual(2, bag.Count("medkit"), "two asks, two medkits");
+        }
+
+        // ------------------------------------------------------------------ M40.1: call and return
+
+        /// <summary>
+        /// THE CHAIN READS THIS ASK'S ANSWER. A program on an NPC's context asks the bench
+        /// (DoTask: RequestTask) and then reads the answer (GetBlackboardString, scoped to the
+        /// bench's Root) — with a STALE answer already on the root board from an earlier craft.
+        /// The read must land after the bench served this ask, and on the bench's board, not the
+        /// NPC's. Before M40.1 the chain ran through in one tick and copied "Raft".
+        /// </summary>
+        [Test]
+        public void AskThenAskedResult_InOneChain_ReadsThisAsksAnswer_FromTheAnsweringScope()
+        {
+            var items = ScriptableObject.CreateInstance<ItemRegistry>();
+            items.entries.Add(new ItemDef { name = "wood" });
+            items.entries.Add(new ItemDef { name = "skiff" });
+            m_Junk.Add(items);
+            var bagDef = ScriptableObject.CreateInstance<ServiceDef>();
+            bagDef.serviceName = "inventory";
+            bagDef.registry = items;
+            m_Junk.Add(bagDef);
+            var bag = new InventoryService(m_Root, bagDef);
+            m_Root.Provide(bag);
+            m_Root.Provide(typeof(IBag), bag);
+            bag.Add("wood", 3);
+
+            var recipes = ScriptableObject.CreateInstance<CraftRecipeRegistry>();
+            recipes.dependsOn.Add(items);
+            var skiff = new CraftRecipeDef { name = "skiff", displayName = "Skiff", result = { entryName = "skiff" } };
+            skiff.costs.Add(new CraftRecipeDef.Cost { item = { entryName = "wood" }, count = 3 });
+            recipes.entries.Add(skiff);
+            m_Junk.Add(recipes);
+            var craftDef = ScriptableObject.CreateInstance<ServiceDef>();
+            craftDef.serviceName = "craft";
+            craftDef.scope = StateTreeContextKind.Root;
+            craftDef.registry = recipes;
+            craftDef.requests.Add(new ServiceRequest
+            {
+                key = CraftKeys.Begin, action = CraftService.CraftAction, namesRowOf = recipes
+            });
+            craftDef.settings.values.Add(new ServiceSettingValue
+            {
+                name = nameof(CraftService.stationTag), stringValue = "station"
+            });
+            m_Junk.Add(craftDef);
+            var bench = new CraftService(m_Root, craftDef);
+            m_Root.Provide(bench);
+            bench.Tick(0f);
+
+            // THE STALE ANSWER: an earlier craft left "Raft" on the bench's board.
+            m_Root.Context.blackboard[ServiceContracts.FieldKey(CraftResult.Key, "line")] = "Raft";
+
+            // The program, on an NPC of its own: ask, then copy the answer's line to 'said'.
+            var ask = ScriptableObject.CreateInstance<RequestTask>();
+            ask.key = CraftKeys.Begin;
+            ask.value = "skiff";
+            m_Junk.Add(ask);
+            var program = ScriptableObject.CreateInstance<GraphTaskAsset>();
+            program.nodes = new List<GraphTaskNode>
+            {
+                new GraphTaskNode { kind = GraphTaskNodeKind.DoTask, task = ask, exec = new[] { 1, 1 } },
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.SetBlackboardString, stringValue = "said",
+                    data = new[] { 3 }, exec = new[] { 2 }
+                },
+                new GraphTaskNode { kind = GraphTaskNodeKind.ReturnSuccess },
+                new GraphTaskNode
+                {
+                    kind = GraphTaskNodeKind.GetBlackboardString,
+                    stringValue = ServiceContracts.FieldKey(CraftResult.Key, "line"),
+                    stringValue2 = nameof(StateTreeContextKind.Root)   // what Asked Result bakes
+                }
+            };
+            program.tickEntry = 0;
+            m_Junk.Add(program);
+
+            var npcGo = new GameObject("Npc") { hideFlags = HideFlags.HideAndDontSave };
+            npcGo.transform.SetParent(m_Root.transform);
+            m_Junk.Add(npcGo);
+            var npc = new StateTreeContext(npcGo);
+
+            program.OnEnter(npc);
+            Assert.AreEqual(StateTreeStatus.Running, program.OnTick(npc, 0.02f),
+                "the ask posted and the chain is suspended on it");
+            Assert.IsFalse(npc.blackboard.ContainsKey("said"), "nothing read yet — no stale 'Raft'");
+
+            bench.Tick(0.02f);   // the bench serves: three wood become a skiff, "Skiff" announced
+            Assert.AreEqual(StateTreeStatus.Success, program.OnTick(npc, 0.02f),
+                "served, so the call returned and the chain ran on");
+            Assert.AreEqual("Skiff", npc.blackboard["said"],
+                "the answer to THIS ask, read from the bench's board while running on the NPC's");
+            program.OnExit(npc, StateTreeStatus.Success);
         }
 
         // ------------------------------------------------------------------ M38.4: findings on the node

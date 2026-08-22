@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay
@@ -28,6 +29,26 @@ namespace PowerOfFire.DrawToPlay
         [StateTreeKey(StateTreeKeyKind.String)]
         public StateTreeKeyField valueKey = new StateTreeKeyField();
 
+        /// <summary>Whether THIS activation has posted its request yet — the call half. Reset on
+        /// enter so a re-run of the same node asks again.</summary>
+        private bool m_Posted;
+
+        public override void OnEnter(StateTreeContext context)
+        {
+            m_Posted = false;
+        }
+
+        /// <summary>
+        /// CALL AND RETURN (M40.1, meta-rule 2). The ask is the call: post the request, then
+        /// stay Running until the service has CONSUMED it — served or refused — and only then
+        /// Success. So the node after this one reads the answer to THIS ask, not the previous
+        /// one, and the beat stays lit on the Ask while it waits. There is no UniTask in this
+        /// stack; Running is the await.
+        ///
+        /// THE MAILBOX HAS ONE SLOT (M39.3): a slot still holding an earlier request is waited
+        /// for, not written over — two asks are two requests. A key nobody serves stays Running
+        /// for good, visibly; the validator says so on the node at design time.
+        /// </summary>
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime)
         {
             if (context == null || context.owner == null || string.IsNullOrEmpty(key))
@@ -37,14 +58,13 @@ namespace PowerOfFire.DrawToPlay
                 StateTreeContextKind.Root);
             if (root == null || root.Context == null)
                 return StateTreeStatus.Failure;
+            Dictionary<string, object> board = root.Context.blackboard;
 
-            // THE MAILBOX HAS ONE SLOT (M39.3). A request sits on its key until the service
-            // that serves it consumes it — which is the next service tick, not this one. Two
-            // asks of the same key in one chain (two medkits, two asks) used to be one: the
-            // second overwrote the first before anyone read it. So a full slot is waited for,
-            // not written over: the task stays Running until the earlier ask has been served.
-            if (root.Context.blackboard.ContainsKey(key))
-                return StateTreeStatus.Running;
+            if (m_Posted)
+                return board.ContainsKey(key) ? StateTreeStatus.Running : StateTreeStatus.Success;
+
+            if (board.ContainsKey(key))
+                return StateTreeStatus.Running;   // someone else's ask, still unserved
 
             string resolved = value;
             string dynamicKey = valueKey;
@@ -53,8 +73,14 @@ namespace PowerOfFire.DrawToPlay
                 && held is string text && !string.IsNullOrEmpty(text))
                 resolved = text;
 
-            root.Context.blackboard[key] = resolved ?? "";
-            return StateTreeStatus.Success;
+            board[key] = resolved ?? "";
+            m_Posted = true;
+            return StateTreeStatus.Running;
+        }
+
+        public override void OnExit(StateTreeContext context, StateTreeStatus status)
+        {
+            m_Posted = false;
         }
     }
 }

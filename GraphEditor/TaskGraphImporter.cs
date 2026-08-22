@@ -35,7 +35,7 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
         // 3: the bake declares what a graph RETURNS (M7j) — every already-imported graph has an empty
         //    declaredOutputs until it re-bakes, and an empty one is indistinguishable from "returns
         //    nothing", so the transition inspector would offer no outputs on any existing graph.
-        private const int k_Version = 3;
+        private const int k_Version = 4;   // M40.1: composed reads carry their scope
 
         /// <summary>Identifier of the baked program inside the imported asset. Sub-objects are keyed
         /// by instruction index (see <see cref="TaskGraphBaker"/>), so they cannot collide with

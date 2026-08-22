@@ -86,6 +86,12 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             return ServiceContracts.FieldKey(ServiceContracts.KeyOf(answer), live[2]);
         }
 
+        public string BakedScope()
+        {
+            ServiceDef def = DeclaredApi.Subsystem(Live()[0]);
+            return def != null ? def.scope.ToString() : "";
+        }
+
         private static bool Numeric(string[] sources)
         {
             if (string.IsNullOrEmpty(sources[2]))
