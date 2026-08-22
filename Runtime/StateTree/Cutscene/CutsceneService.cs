@@ -46,6 +46,7 @@ namespace PowerOfFire.DrawToPlay
         private CutsceneDef m_Playing;
         private StateTreeContextHost m_Director;
         private string m_PlacementId = "";
+        private IWritesOff m_Ledger;
         private readonly List<AbilityHost> m_Held = new List<AbilityHost>();
 
         protected override void OnRequest(ServiceRequest request, string value)
@@ -187,17 +188,17 @@ namespace PowerOfFire.DrawToPlay
             // WRITTEN OFF, so a reload does not replay it — the same sentence the felled tree
             // and the taken pickup are written off with.
             if (m_Playing.playsOnce && !string.IsNullOrEmpty(m_PlacementId))
-                spent?.Invoke(m_PlacementId);
+            {
+                // The ledger is the game's (M40.4, meta-rule 5): asked for once, written to here.
+                m_Ledger ??= StateTreeContextHost.FindService<IWritesOff>(scope.gameObject);
+                m_Ledger?.MarkGone(m_PlacementId);
+            }
 
             m_Playing = null;
             m_PlacementId = "";
             Announce(CutsceneResult.Key, result);
         }
 
-        /// <summary>A placement's scene is over and should not come back. The SAVE lives in
-        /// the game's own progress service, which is example-side, so the director says what
-        /// happened and lets whoever owns the file write it down.</summary>
-        public event System.Action<string> spent;
 
         private void OnScriptFinished()
         {

@@ -178,8 +178,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             CutsceneDef scene = MakeScene("greeting", MakeWitness("keeper"),
                 Role("keeper", "keeper", true));
 
-            var spent = new List<string>();
-            m_Director.spent += spent.Add;
+            var ledger = new Ledger();
+            m_Root.Provide(typeof(IWritesOff), ledger);
 
             m_Director.Play(scene.name, "place.scene.greeting", m_Player.gameObject);
             Assert.That(keeperHost.HasTag(CutsceneKeys.WatchingTag), Is.True, "the cast is held");
@@ -192,8 +192,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(keeperHost.HasTag(CutsceneKeys.WatchingTag), Is.False);
             Assert.That(playerHost.HasTag(CutsceneKeys.WatchingTag), Is.False);
             Assert.That(m_Root.Context.blackboard.ContainsKey(CutsceneKeys.Playing), Is.False);
-            Assert.That(spent, Is.EqualTo(new[] { "place.scene.greeting" }),
-                "one-shot-ness belongs to the PLACE, so the placement id is what comes back");
+            Assert.That(ledger.gone, Is.EqualTo(new[] { "place.scene.greeting" }),
+                "one-shot-ness belongs to the PLACE: the placement id is written off (IWritesOff)");
 
             var announced = m_Root.Context.blackboard[CutsceneResult.Key] as CutsceneResult;
             Assert.That(announced, Is.Not.Null);
@@ -211,13 +211,13 @@ namespace PowerOfFire.DrawToPlay.Tests
                 Role("keeper", "keeper", true));
             scene.playsOnce = false;
 
-            var spent = new List<string>();
-            m_Director.spent += spent.Add;
+            var ledger = new Ledger();
+            m_Root.Provide(typeof(IWritesOff), ledger);
 
             m_Director.Play(scene.name, "place.scene.greeting", m_Player.gameObject);
             m_Director.Finish(skipped: false);
 
-            Assert.That(spent, Is.Empty);
+            Assert.That(ledger.gone, Is.Empty);
         }
 
         /// <summary>An unknown row refuses by name, which is the only legible answer when a
@@ -329,6 +329,14 @@ namespace PowerOfFire.DrawToPlay.Tests
                     return child;
             }
             return null;
+        }
+
+        /// <summary>The game's ledger, as far as the director can tell.</summary>
+        private sealed class Ledger : IWritesOff
+        {
+            public readonly List<string> gone = new List<string>();
+            public void MarkGone(string placementId) => gone.Add(placementId);
+            public bool IsGone(string placementId) => gone.Contains(placementId);
         }
     }
 }

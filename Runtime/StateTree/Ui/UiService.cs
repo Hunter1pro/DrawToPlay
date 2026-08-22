@@ -53,6 +53,22 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>The live view of a shown row, or null — how flow TASKS reach the systems
         /// they drive. The hub's whole job: hold the references, forward the reach.</summary>
+        /// <summary>A shown view that carries a <typeparamref name="T"/>, whatever row showed
+        /// it — what a service born AFTER the session's HUD went up asks for once, at its
+        /// start, to hold the piece of screen it tells (the quest line and its widget).</summary>
+        public T Shown<T>() where T : Component
+        {
+            foreach (KeyValuePair<string, GameObject> pair in m_Open)
+            {
+                if (pair.Value == null)
+                    continue;
+                T view = pair.Value.GetComponentInChildren<T>(true);
+                if (view != null)
+                    return view;
+            }
+            return null;
+        }
+
         public GameObject ShownView(string uiName)
         {
             return !string.IsNullOrEmpty(uiName)

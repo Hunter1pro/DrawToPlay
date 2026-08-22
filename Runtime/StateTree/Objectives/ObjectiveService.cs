@@ -42,11 +42,7 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Kills landed / items carried toward <see cref="ObjectiveDef.count"/>.</summary>
         public int progress { get; private set; }
 
-        /// <summary>Current or progress moved — what the HUD widget redraws on.</summary>
-        public event Action changed;
 
-        /// <summary>An objective completed — fired before the chain activates the next.</summary>
-        public event Action<ObjectiveDef> completedObjective;
 
         /// <summary>
         /// THE SENTENCE, PUBLISHED (M34): what the line is asking for right now, as a thing a
@@ -55,9 +51,6 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public ObjectiveBanner banner { get; } = new ObjectiveBanner();
 
-        /// <summary>Raised when the banner's text changed — a skin that binds needs no more
-        /// than this, and one that shows a colour uses it too.</summary>
-        public event Action bannerChanged;
 
         /// <summary>Rebuild the published sentence; raise only when it actually moved, because
         /// a change event per frame is a poll wearing a different hat.</summary>
@@ -92,7 +85,7 @@ namespace PowerOfFire.DrawToPlay
             banner.zone = zone;
             banner.accent = accent;
             banner.asking = row != null;
-            bannerChanged?.Invoke();
+            m_Widget?.AccentChanged();
         }
 
         /// <summary>The quest line's saveable heart: every zone's cursor, the linear
@@ -211,12 +204,34 @@ namespace PowerOfFire.DrawToPlay
         /// on the save). The save is optional and asked for at the first knock.</summary>
         private void Knock()
         {
-            changed?.Invoke();
             m_Autosave ??= StateTreeContextHost.FindService<IAutosave>(scope.gameObject);
             m_Autosave?.MarkDirty();
         }
 
         private IAutosave m_Autosave;
+        private ILookAt m_Look;
+
+        /// <summary>
+        /// THE WIDGET THIS QUEST LINE TELLS (M40.4, meta-rule 1). The session shows the HUD's
+        /// objective piece before any level exists, so the quest line — born with its level —
+        /// asks the UI service for it once, at its start, and holds it: bound now, told on
+        /// every completion and every change of accent, released when this level goes. The
+        /// widget neither finds the quest line nor watches for it to be replaced.
+        /// </summary>
+        private ObjectiveWidgetView m_Widget;
+
+        protected override void OnStarted()
+        {
+            m_Widget = Ui != null ? Ui.Shown<ObjectiveWidgetView>() : null;
+            m_Widget?.Bind(this);
+        }
+
+        public override void Dispose()
+        {
+            m_Widget?.Unbind(this);
+            m_Widget = null;
+            base.Dispose();
+        }
 
         /// <summary>Complete the CURRENT objective and let the chain speak: its
         /// nextOnComplete advances THIS stack (the zone's cursor when the row belongs to
@@ -228,7 +243,7 @@ namespace PowerOfFire.DrawToPlay
                 return;
             current = null;
             progress = 0;
-            completedObjective?.Invoke(done);
+            m_Widget?.Completed(done);
             // The asking zone owns the completion when the finished row IS its cursor —
             // then the stack's ORDER is the chain. Everything else is the linear line,
             // where nextOnComplete still speaks.
@@ -558,12 +573,6 @@ namespace PowerOfFire.DrawToPlay
             return offset.sqrMagnitude;
         }
 
-        /// <summary>
-        /// SOMEBODY WANTS TO SEE IT. The service does not know what looking means — it has no
-        /// camera and should never grow one — so it names the thing and lets the game answer,
-        /// exactly as kills and pickups are reported the other way.
-        /// </summary>
-        public event Action<WorldObjectBehaviour> focusRequested;
 
         /// <summary>Ask to be shown one of the current row's targets; null means the nearest.
         /// Quiet when the row has none — a tap on a stale pointer should do nothing, loudly
@@ -576,8 +585,11 @@ namespace PowerOfFire.DrawToPlay
                 CurrentTargets(m_Targets);
                 shown = m_Targets.Count > 0 ? m_Targets[0] : null;
             }
-            if (shown != null)
-                focusRequested?.Invoke(shown);
+            if (shown == null)
+                return;
+            // WHAT LOOKING MEANS is the game's (meta-rule 5): asked for once, called here.
+            m_Look ??= StateTreeContextHost.FindService<ILookAt>(scope.gameObject);
+            m_Look?.LookAt(shown);
         }
 
         private readonly List<WorldObjectBehaviour> m_Targets = new List<WorldObjectBehaviour>();

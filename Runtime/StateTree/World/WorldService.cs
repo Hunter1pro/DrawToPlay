@@ -59,16 +59,7 @@ namespace PowerOfFire.DrawToPlay
         /// service that adopts a KIND of object (a unit setup, a save system).</summary>
         public IReadOnlyList<WorldObjectBehaviour> allObjects => m_Objects;
 
-        /// <summary>A citizen ARRIVED (registration, or a facet exposed on one already
-        /// registered — see <see cref="Announce"/>). This is how "drag it into the scene"
-        /// becomes setup with no manual call: the object self-registers, the interested
-        /// service listens. Listeners MUST be idempotent — the same citizen can be announced
-        /// more than once.</summary>
-        public event Action<WorldObjectBehaviour> citizenAdded;
 
-        /// <summary>A citizen LEFT (disable, destroy, level unload). The interested service
-        /// forgets it here.</summary>
-        public event Action<WorldObjectBehaviour> citizenRemoved;
 
 
         /// <summary>The second sweep, once the world is assembled: a citizen that registered
@@ -114,8 +105,28 @@ namespace PowerOfFire.DrawToPlay
             obj.MarkRegistered(this);
             Emit("register '" + obj.name + "' id=" + obj.stableId + " tags=[" + Join(obj.tags)
                 + "]", false);
-            citizenAdded?.Invoke(obj);
+            Tell(obj, added: true);
         }
+
+        /// <summary>
+        /// WHO WANTS TO KNOW (M40.4, meta-rule 5): every <see cref="IWatchesCitizens"/> provided
+        /// on this world's scope or above it, told at the moment — a call, not a subscription
+        /// anyone has to hold and balance.
+        /// </summary>
+        private void Tell(WorldObjectBehaviour obj, bool added)
+        {
+            m_Watchers.Clear();
+            scope.CollectServices(m_Watchers);
+            for (int i = 0; i < m_Watchers.Count; i++)
+            {
+                if (added)
+                    m_Watchers[i].CitizenAdded(obj);
+                else
+                    m_Watchers[i].CitizenRemoved(obj);
+            }
+        }
+
+        private readonly List<IWatchesCitizens> m_Watchers = new List<IWatchesCitizens>();
 
         /// <summary>Re-announce a citizen that is already registered — called by
         /// <see cref="WorldObjectBehaviour.Expose"/> when a facet lands after registration,
@@ -123,7 +134,7 @@ namespace PowerOfFire.DrawToPlay
         internal void Announce(WorldObjectBehaviour obj)
         {
             if (obj != null && m_Objects.Contains(obj))
-                citizenAdded?.Invoke(obj);
+                Tell(obj, added: true);
         }
 
         public void Unregister(WorldObjectBehaviour obj)
@@ -147,7 +158,7 @@ namespace PowerOfFire.DrawToPlay
                 m_ByGameObject.Remove(obj.gameObject);
 
             Emit("unregister '" + obj.name + "' id=" + obj.stableId, false);
-            citizenRemoved?.Invoke(obj);
+            Tell(obj, added: false);
         }
 
         /// <summary>Sweep the scene for citizens that enabled before this service existed —

@@ -290,6 +290,15 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
+        /// <summary>Every distinct <typeparamref name="T"/> provided on this host or any above
+        /// it — what a service calls when it has something to tell everyone who asked (the
+        /// world telling its watchers a citizen arrived). A call, not a subscription.</summary>
+        public void CollectServices<T>(List<T> into) where T : class
+        {
+            for (StateTreeContextHost walk = this; walk != null; walk = walk.ParentHost)
+                walk.CollectOwn(into);
+        }
+
         /// <summary>Every distinct service this host provides that is a <typeparamref name="T"/>
         /// — a service provided under several names is listed once.</summary>
         private void CollectOwn<T>(List<T> into) where T : class

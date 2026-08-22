@@ -236,14 +236,10 @@ namespace PowerOfFire.DrawToPlay.Tests
             talk.nextOnComplete.entryName = "after";
             ObjectiveDef after = MakeObjective("after", ObjectiveKind.EnemyKill);
 
-            ObjectiveDef completed = null;
-            m_Service.completedObjective += done => completed = done;
-
             m_Service.Activate(talk);
             m_Service.ReportDialogFinished("scout");
             Assert.AreSame(talk, m_Service.current, "the wrong conversation changes nothing");
             m_Service.ReportDialogFinished("keeper");
-            Assert.AreSame(talk, completed);
             Assert.AreSame(after, m_Service.current, "the chain spoke — a wire, not code");
         }
 

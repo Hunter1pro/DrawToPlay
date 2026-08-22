@@ -19,18 +19,18 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void MarkGone_IsRememberedAndIdempotent()
         {
             var progress = new OutpostProgressService();
-            var changes = 0;
-            progress.changed += () => changes++;
+            var knocks = new Knocks();
+            progress.autosave = knocks;
 
             Assert.IsFalse(progress.IsGone("place.raider"), "nothing is gone to begin with");
 
             progress.MarkGone("place.raider");
             Assert.IsTrue(progress.IsGone("place.raider"));
-            Assert.AreEqual(1, changes, "writing something off is a change worth saving");
+            Assert.AreEqual(1, knocks.count, "writing something off knocks on the save");
 
             progress.MarkGone("place.raider");
-            Assert.AreEqual(1, changes,
-                "dying twice is not two changes — a second announcement is a second file write");
+            Assert.AreEqual(1, knocks.count,
+                "dying twice is not two changes — a second knock is a second file write");
         }
 
         /// <summary>An empty or absent id is not a placement, and must not become one — a row
@@ -165,14 +165,14 @@ namespace PowerOfFire.DrawToPlay.Tests
             var progress = new OutpostProgressService();
             progress.MarkMoved("place.warden", new Vector2(0f, 0f));
 
-            var changes = 0;
-            progress.changed += () => changes++;
+            var knocks = new Knocks();
+            progress.autosave = knocks;
 
             progress.MarkMoved("place.warden", new Vector2(0.05f, 0.05f));
-            Assert.AreEqual(0, changes, "a few centimetres is not news");
+            Assert.AreEqual(0, knocks.count, "a few centimetres is not news");
 
             progress.MarkMoved("place.warden", new Vector2(2f, 0f));
-            Assert.AreEqual(1, changes, "a metre is");
+            Assert.AreEqual(1, knocks.count, "a metre is");
             Assert.IsTrue(progress.TryMoved("place.warden", out Vector2 where));
             Assert.AreEqual(2f, where.x, 0.001f);
         }
@@ -212,6 +212,13 @@ namespace PowerOfFire.DrawToPlay.Tests
             {
                 id = id, level = level, entry = entry, kind = "pickup", count = 1
             };
+        }
+
+        /// <summary>The save, as far as progress can tell: something to knock on.</summary>
+        private sealed class Knocks : IAutosave
+        {
+            public int count;
+            public void MarkDirty() => count++;
         }
     }
 }

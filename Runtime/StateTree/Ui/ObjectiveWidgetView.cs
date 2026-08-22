@@ -130,9 +130,35 @@ namespace PowerOfFire.DrawToPlay
             Bind(null);
         }
 
+        /// <summary>The quest line that was born under the session's HUD binds itself here at
+        /// its start, and unbinds when its level goes — this widget watches for nothing.</summary>
+        public void Bind(ObjectiveService service)
+        {
+            if (ReferenceEquals(service, m_Wired))
+                return;
+            m_Wired = service;
+            if (m_Wired == null)
+            {
+                m_Name.ClearBinding("text");
+                m_Zone.ClearBinding("text");
+                m_Name.text = "";
+                m_Zone.text = "";
+                HideArrowsFrom(0);
+                return;
+            }
+            BindTitle();
+            AccentChanged();
+        }
+
+        public void Unbind(ObjectiveService service)
+        {
+            if (ReferenceEquals(service, m_Wired))
+                Bind(null);
+        }
+
         /// <summary>The completion BEAT (HT's checkmark moment): a green tick with the
         /// finished name holds the line for a second before the next ask takes it.</summary>
-        private void OnCompleted(ObjectiveDef done)
+        public void Completed(ObjectiveDef done)
         {
             m_FlashText = "✓  " + (string.IsNullOrEmpty(done.displayName)
                 ? done.name : done.displayName);
@@ -150,9 +176,7 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         private void Update()
         {
-            ObjectiveService service = ResolveService();
-            if (!ReferenceEquals(service, m_Wired))
-                Bind(service);
+            ObjectiveService service = m_Wired;
 
             if (Time.time < m_FlashUntil && m_FlashText != null)
             {
@@ -179,34 +203,6 @@ namespace PowerOfFire.DrawToPlay
             UpdateArrows(service, current);
         }
 
-        /// <summary>
-        /// THE ONE WIRING (M34): the labels bind to what the subsystem publishes, and the only
-        /// thing this view subscribes to is "the sentence moved" — for the accent colour, which
-        /// is a style rather than a bindable text property.
-        /// </summary>
-        private void Bind(ObjectiveService service)
-        {
-            if (m_Wired != null)
-            {
-                m_Wired.completedObjective -= OnCompleted;
-                m_Wired.bannerChanged -= OnBannerChanged;
-            }
-            m_Wired = service;
-            if (m_Wired == null)
-            {
-                m_Name.ClearBinding("text");
-                m_Zone.ClearBinding("text");
-                m_Name.text = "";
-                m_Zone.text = "";
-                return;
-            }
-
-            m_Wired.completedObjective += OnCompleted;
-            m_Wired.bannerChanged += OnBannerChanged;
-            BindTitle();
-            OnBannerChanged();
-        }
-
         private void BindTitle()
         {
             if (m_Wired == null)
@@ -227,7 +223,7 @@ namespace PowerOfFire.DrawToPlay
             });
         }
 
-        private void OnBannerChanged()
+        public void AccentChanged()
         {
             if (m_Wired != null)
                 m_Name.style.color = m_Wired.banner.accent;
@@ -286,18 +282,5 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>A ceiling, because a screen edge crowded with twenty pointers points at
         /// nothing. Nearest-first ordering means the ones dropped are the far ones.</summary>
         private const int k_MaxArrows = 8;
-
-        private ObjectiveService ResolveService()
-        {
-            // THROUGH THE PLAYER, not the level: every spawned mind is a Level-kind host,
-            // so 'the level' is ambiguous from a root-scoped view — but the PLAYER is
-            // unique, and the service chain walked up from wherever the level put it finds
-            // the level's objectives (the HUD's route to level-scoped services).
-            StateTreeContextHost player =
-                StateTreeContextHost.Resolve(gameObject, StateTreeContextKind.Player);
-            return player != null
-                ? StateTreeContextHost.FindService<ObjectiveService>(player.gameObject)
-                : null;
-        }
     }
 }
