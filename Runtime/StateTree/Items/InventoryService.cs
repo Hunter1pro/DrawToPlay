@@ -20,7 +20,7 @@ namespace PowerOfFire.DrawToPlay
     /// (equipment occupies a slot row and holds its Modifier effects as revertible attribute
     /// grants until unequipped or swapped) are the item rows' declarations, unchanged.
     ///
-    /// NO EVENTS (M39.2b). HT's rule: a domain holds what it spawned and calls it, a method
+    /// NO EVENTS (M39.2b), NO WATCHING (M40.3): the body binds itself at birth (<see cref="Bind"/>). HT's rule: a domain holds what it spawned and calls it, a method
     /// calls the services it needs and returns a result, nothing subscribes. So every write
     /// here ends the same visible way — redraw the screen this bag showed, tell the quest
     /// line the count, knock on the save — in <see cref="Changed"/>, one method, readable top
@@ -473,41 +473,48 @@ namespace PowerOfFire.DrawToPlay
         private bool m_ToldThemAboutTheCarrier;
 
         /// <summary>
-        /// THE BODY CARRYING THIS BAG, looked up rather than injected: a player is a spawned
-        /// citizen, so the host that scopes it appears and is replaced during a session. The
-        /// moment it changes is the moment the worn modifiers move — the old body's died with
-        /// its components (nothing to revert), the new one has never been granted them — so
-        /// the change is noticed here, on every tick and every verb, and the loadout is
-        /// re-granted in place. Null, quietly, when there is nobody: a bag between levels is
-        /// a full bag with no one holding it.
+        /// THE BODY BINDS ITSELF (M40.3, meta-rule 3) — HT's <c>bind_player</c>. A player is a
+        /// spawned citizen: it is born with the level and dies with it, and the bag outlives
+        /// both. So the body, at its start, tells the bag "I am carrying you", and the bag
+        /// grants it whatever is worn right then. Nothing here watches for a body to be
+        /// replaced; the next body binds when it is born, and the old one's modifiers died with
+        /// its components. Between bodies the bag is a full bag with nobody holding it.
         /// </summary>
+        public void Bind(StateTreeContextHost body)
+        {
+            if (body == null || ReferenceEquals(body, m_Carrier))
+                return;
+            m_Carrier = body;
+            m_CarrierAbilities = body.GetComponent<AbilityHost>();
+            m_CarrierAttributes = body.GetComponent<AttributeComponent>();
+            m_ToldThemAboutTheCarrier = false;
+            for (int i = 0; i < m_Worn.Count; i++)
+                Grant(m_Worn[i], body);
+            if (m_Worn.Count > 0)
+                Redraw();
+        }
+
+        /// <summary>The body is going (its scope is being disposed): forget it without
+        /// reverting — its components go with it.</summary>
+        public void Unbind(StateTreeContextHost body)
+        {
+            if (body == null || !ReferenceEquals(body, m_Carrier))
+                return;
+            m_Carrier = null;
+            m_CarrierAbilities = null;
+            m_CarrierAttributes = null;
+            for (int i = 0; i < m_Worn.Count; i++)
+                m_Worn[i].handles.Clear();
+        }
+
+        /// <summary>The bound body, or null — a destroyed one reads as null too.</summary>
         private StateTreeContextHost Body()
         {
-            StateTreeContextHost player = StateTreeContextHost.Resolve(scope.gameObject,
-                StateTreeContextKind.Player);
-            if (player == null || player.Context == null)
-            {
-                m_Carrier = null;
-                m_CarrierAbilities = null;
-                m_CarrierAttributes = null;
-                return null;
-            }
-            if (!ReferenceEquals(player, m_Carrier))
-            {
-                m_Carrier = player;
-                m_CarrierAbilities = player.GetComponent<AbilityHost>();
-                m_CarrierAttributes = player.GetComponent<AttributeComponent>();
-                m_ToldThemAboutTheCarrier = false;
-                for (int i = 0; i < m_Worn.Count; i++)
-                    Grant(m_Worn[i], player);
-                if (m_Worn.Count > 0)
-                    Redraw();
-            }
-            return m_Carrier;
+            return m_Carrier != null ? m_Carrier : null;
         }
 
         /// <summary>The body, for a verb that NEEDS one (a use applies an effect to someone):
-        /// said once, loudly, when there is nobody, re-armed when a body appears.</summary>
+        /// said once, loudly, when there is nobody, re-armed when a body binds.</summary>
         private StateTreeContextHost Carrier([System.Runtime.CompilerServices.CallerMemberName]
             string doing = "")
         {
@@ -515,17 +522,11 @@ namespace PowerOfFire.DrawToPlay
             if (body == null && !m_ToldThemAboutTheCarrier)
             {
                 m_ToldThemAboutTheCarrier = true;
-                Debug.LogError("[Inventory] '" + doing + "' was asked with no carrier — no "
-                    + "Player-scope host is mounted, so there is nobody to apply it to. "
-                    + "Between levels this is momentary; otherwise the player scope is missing.");
+                Debug.LogError("[Inventory] '" + doing + "' was asked with no body bound — no "
+                    + "player has bound this bag (OutpostPlayerBody.Start does). Between "
+                    + "levels this is momentary; otherwise the player prefab lacks it.");
             }
             return body;
-        }
-
-        /// <summary>The swap is noticed without waiting for a verb.</summary>
-        protected override void OnTick(float deltaTime)
-        {
-            Body();
         }
 
         /// <summary>

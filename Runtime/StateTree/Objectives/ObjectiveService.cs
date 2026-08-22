@@ -183,7 +183,7 @@ namespace PowerOfFire.DrawToPlay
             progress = 0;
             if (objective != null)
                 m_LinearCursor = objective;
-            changed?.Invoke();
+            Knock();
             RefreshBanner();
             AskTheBag();
         }
@@ -205,6 +205,18 @@ namespace PowerOfFire.DrawToPlay
         }
 
         private IBag m_Bag;
+
+        /// <summary>The quest line moved — say so to whoever listens (until M40.4 deletes the
+        /// event) and knock on the save (meta-rule 1: a call from the change, not a subscription
+        /// on the save). The save is optional and asked for at the first knock.</summary>
+        private void Knock()
+        {
+            changed?.Invoke();
+            m_Autosave ??= StateTreeContextHost.FindService<IAutosave>(scope.gameObject);
+            m_Autosave?.MarkDirty();
+        }
+
+        private IAutosave m_Autosave;
 
         /// <summary>Complete the CURRENT objective and let the chain speak: its
         /// nextOnComplete advances THIS stack (the zone's cursor when the row belongs to
@@ -233,7 +245,7 @@ namespace PowerOfFire.DrawToPlay
                 m_LinearCursor = next;
                 current = next;
             }
-            changed?.Invoke();
+            Knock();
             RefreshBanner();
             AskTheBag();
         }
@@ -306,7 +318,7 @@ namespace PowerOfFire.DrawToPlay
                     {
                         current = m_LinearCursor;
                         progress = 0;
-                        changed?.Invoke();
+                        Knock();
                         RefreshBanner();
                         AskTheBag();
                     }
@@ -324,7 +336,7 @@ namespace PowerOfFire.DrawToPlay
             {
                 current = cursor;
                 progress = 0;
-                changed?.Invoke();
+                Knock();
                 RefreshBanner();
                 AskTheBag();
             }
@@ -342,7 +354,7 @@ namespace PowerOfFire.DrawToPlay
                 && (victim == null || !victim.HasTag(current.targetTag)))
                 return;
             progress += 1;
-            changed?.Invoke();
+            Knock();
             RefreshBanner();
             if (progress >= Mathf.Max(1, current.count))
                 Complete();
@@ -361,7 +373,7 @@ namespace PowerOfFire.DrawToPlay
             if (clamped != progress)
             {
                 progress = clamped;
-                changed?.Invoke();
+                Knock();
                 RefreshBanner();
             }
             if (carried >= goal)
@@ -459,7 +471,7 @@ namespace PowerOfFire.DrawToPlay
             m_LinearCursor = Find(state.linearCursor);
             current = Find(state.currentName);
             progress = state.progress;
-            changed?.Invoke();
+            Knock();
             RefreshBanner();
             AskTheBag();
         }

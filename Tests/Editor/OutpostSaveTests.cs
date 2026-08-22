@@ -74,5 +74,42 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(written.bag.itemNames, Is.EqualTo(new[] { "hammer" }));
             Assert.That(written.bag.wornItems, Is.EqualTo(new[] { "hammer" }));
         }
+
+        [Test]
+        public void ABornLevel_HandsItsQuestLineToTheSave_AndADyingOneReleasesIt()
+        {
+            // M40.3: the save watches for nothing. The level, at its start, adopts; at its end,
+            // releases — and the last cursors are captured at that moment, so a level with no
+            // quest line (the ridge) leaves the file holding what the last one knew.
+            var registry = ScriptableObject.CreateInstance<ObjectiveRegistry>();
+            var first = new ObjectiveDef { id = "o.first", name = "first", kind = ObjectiveKind.Dialog };
+            var second = new ObjectiveDef { id = "o.second", name = "second", kind = ObjectiveKind.Dialog };
+            registry.entries.Add(first);
+            registry.entries.Add(second);
+            m_Junk.Add(registry);
+            var def = ScriptableObject.CreateInstance<ServiceDef>();
+            def.serviceName = "objectives";
+            def.scope = StateTreeContextKind.Level;
+            def.registry = registry;
+            m_Junk.Add(def);
+
+            var save = new OutpostSaveService(new OutpostProgressService(), null, null, m_Root.gameObject);
+            save.Adopt(new OutpostSaveData
+            {
+                objectives = new ObjectiveService.SaveState { hasState = true, currentName = "second" }
+            });
+
+            var objectives = new ObjectiveService(m_Root, def);
+            save.AdoptObjectives(objectives);
+            Assert.AreSame(second, objectives.current, "the born quest line got the file's cursor");
+
+            objectives.Activate(first);
+            Assert.AreEqual("first", save.Capture().objectives.currentName, "captured live while adopted");
+
+            save.ReleaseObjectives(objectives);
+            objectives.Dispose();
+            Assert.AreEqual("first", save.Capture().objectives.currentName,
+                "released: the last cursors ride in the file, and no disposed service is read");
+        }
     }
 }

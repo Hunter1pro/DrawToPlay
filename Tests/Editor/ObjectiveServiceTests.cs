@@ -301,6 +301,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Assets.Add(bagDef);
             var bag = new InventoryService(m_Level, bagDef);
             m_Level.Provide(typeof(IBag), bag);
+            bag.Bind(m_Player);   // the body, at its start — the bag reaches the level through it
             bag.Add("relic", 1);
 
             ObjectiveDef carry = MakeObjective("carry", ObjectiveKind.Pickup);

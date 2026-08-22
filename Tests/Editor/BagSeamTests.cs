@@ -156,6 +156,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             var bench = new CraftService(m_Root, craftDef);
             m_Root.Provide(bench);
+            bench.Bind(player);   // the body, at its start (M40.3)
             bag.Add("wood", 2);
 
             try

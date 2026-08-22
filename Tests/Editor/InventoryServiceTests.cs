@@ -137,8 +137,10 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             // The runtime contract, honored: injected fields are valid from the first
             // tick — the heartbeat fills them — so the fixture ticks once, exactly as
-            // play mode's first Update would.
+            // play mode's first Update would. And THE BODY BINDS ITSELF (M40.3): the player
+            // tells the bag it is the carrier, as OutpostPlayerBody.Start does.
             m_Service.Tick(0f);
+            m_Service.Bind(m_Player);
         }
 
         [TearDown]
@@ -383,9 +385,9 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             Assert.IsTrue(m_Service.IsEquipped("relic"), "the bag still wears it");
             Assert.AreEqual(1, m_Service.Count("relic"), "and still carries it");
-            m_Service.Tick(0f);
+            m_Service.Bind(next);   // the new body, at its start
             Assert.AreEqual(6f, nextVitals.Effective(AttributeNames.Health), 0.001f,
-                "the new body is granted the worn modifier on the tick the bag notices it");
+                "the new body is granted the worn modifier when it binds");
 
             m_Service.Unequip("slot.trinket");
             Assert.AreEqual(5f, nextVitals.Effective(AttributeNames.Health), 0.001f,
@@ -407,7 +409,6 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Objects.Remove(oldBody);
             m_Player.Unregister();
             Object.DestroyImmediate(oldBody);
-            m_Service.Tick(0f);   // the bag notices there is nobody
 
             var fresh = new InventoryService(m_Root, m_Service.definition);
             fresh.RestoreState(state);
@@ -427,9 +428,9 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Player = next;
             m_Vitals = nextVitals;
 
-            fresh.Tick(0f);
+            fresh.Bind(next);
             Assert.AreEqual(6f, nextVitals.Effective(AttributeNames.Health), 0.001f,
-                "granted on arrival");
+                "granted when the body binds");
             fresh.Dispose();
         }
     }

@@ -91,10 +91,21 @@ namespace PowerOfFire.DrawToPlay
         /// holding. Here it is one distance check on the subsystem that already owns all three,
         /// and the panel hears about it only when the answer changed.
         /// </summary>
+        /// <summary>THE BODY BINDS ITSELF (M40.3): the player, at its start, tells the bench
+        /// who is walking up to stations; nothing here looks for a player per tick.</summary>
+        public void Bind(StateTreeContextHost body) { m_Player = body; }
+
+        public void Unbind(StateTreeContextHost body)
+        {
+            if (ReferenceEquals(body, m_Player))
+                m_Player = null;
+        }
+
+        private StateTreeContextHost m_Player;
+
         protected override void OnTick(float deltaTime)
         {
-            StateTreeContextHost player = StateTreeContextHost.Resolve(scope.gameObject,
-                StateTreeContextKind.Player);
+            StateTreeContextHost player = m_Player != null ? m_Player : null;
             at = StationAt(player);
             CraftOffer next = OfferOf(at);
             string signature = next == null ? "" : Signature(next);
@@ -286,8 +297,7 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public void StartCrafting()
         {
-            StateTreeContextHost player = StateTreeContextHost.Resolve(scope.gameObject,
-                StateTreeContextKind.Player);
+            StateTreeContextHost player = m_Player != null ? m_Player : null;
             var host = player != null ? player.GetComponent<AbilityHost>() : null;
             if (host != null && host.Activate("craft"))
                 return;
