@@ -55,17 +55,17 @@ namespace PowerOfFire.DrawToPlay
         public const string CraftAction = "craft";
 
         /// <summary>What the nearest station offers right now, or null — the panel's whole
-        /// model. Recomputed each tick, announced through <see cref="offerChanged"/> only when
-        /// the sentence would differ.</summary>
+        /// model. Recomputed each tick; the panel is told only when the sentence would differ.</summary>
         public CraftOffer offer { get; private set; }
 
-        /// <summary>The offer changed: a bench came into reach, went out of it, or the bag's
-        /// counts moved. Null means "no bench here". What the panel draws on.</summary>
-        public event Action<CraftOffer> offerChanged;
+        /// <summary>The panel this bench showed (its def's spawn), held from the moment it
+        /// was shown and CALLED — no events (M39.2b). Null when the def spawns none.</summary>
+        private CraftPanelView m_Panel;
 
-        /// <summary>What a craft came to — made or refused — as it is announced. What the
-        /// panel says on.</summary>
-        public event Action<CraftResult> crafted;
+        protected override void OnStarted()
+        {
+            m_Panel = Spawned<CraftPanelView>();
+        }
 
 
 
@@ -92,7 +92,7 @@ namespace PowerOfFire.DrawToPlay
                 return;
             m_Shown = signature;
             offer = next;
-            offerChanged?.Invoke(next);
+            m_Panel?.Show(next);
         }
 
         private static string Signature(CraftOffer offer)
@@ -280,12 +280,12 @@ namespace PowerOfFire.DrawToPlay
             return Tell(result);
         }
 
-        /// <summary>One outcome, everywhere it is heard: the board (a graph's `craft.last`),
-        /// and whoever is listening in C# — the panel.</summary>
+        /// <summary>One outcome, everywhere it goes: the board (a graph's `craft.last`), and
+        /// the panel this bench showed — told, in the same method.</summary>
         private CraftResult Tell(CraftResult result)
         {
             Announce(CraftResult.Key, result);
-            crafted?.Invoke(result);
+            m_Panel?.Announce(result);
             return result;
         }
     }

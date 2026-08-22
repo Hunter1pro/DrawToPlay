@@ -33,8 +33,5 @@ namespace PowerOfFire.DrawToPlay
         int Count(string itemName);
 
         bool Has(string itemName, int count = 1);
-
-        /// <summary>Something in the bag moved — what a listener redraws on.</summary>
-        event Action changed;
     }
 }

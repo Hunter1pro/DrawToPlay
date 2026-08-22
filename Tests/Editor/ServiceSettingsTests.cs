@@ -285,14 +285,12 @@ namespace PowerOfFire.DrawToPlay.Tests
             public CountingBag(StateTreeContextHost scope, ServiceDef definition) : base(scope, definition) { }
             private readonly System.Collections.Generic.Dictionary<string, int> m_Counts =
                 new System.Collections.Generic.Dictionary<string, int>();
-            public event System.Action changed;
             public ItemDef Row(string itemName) => definition?.registry is ItemRegistry r ? r.FindByName(itemName) as ItemDef : null;
             public int Count(string itemName) => m_Counts.TryGetValue(itemName ?? "", out int held) ? held : 0;
             public bool Has(string itemName, int count = 1) => Count(itemName) >= count;
             public int Add(string itemName, int count = 1)
             {
                 m_Counts[itemName] = Count(itemName) + count;
-                changed?.Invoke();
                 return m_Counts[itemName];
             }
             public bool Remove(string itemName, int count = 1)
@@ -300,7 +298,6 @@ namespace PowerOfFire.DrawToPlay.Tests
                 if (Count(itemName) < count)
                     return false;
                 m_Counts[itemName] = Count(itemName) - count;
-                changed?.Invoke();
                 return true;
             }
         }

@@ -9,10 +9,10 @@ namespace PowerOfFire.DrawToPlay.Tests
     /// M39.2 — a view and its service talk in C#.
     ///
     /// The screens cannot be built here (a UIDocument needs a panel), so what is pinned is the
-    /// seam they hang on: the service publishes what the screen draws and tells it what
-    /// happened, as events and return values — not as rows the def has to carry for a
-    /// conversation nobody else is part of. And the defs, as the waystation generates them,
-    /// carry only what a flow wires.
+    /// seam they hang on: a verb RETURNS what happened and the board holds the same object
+    /// (the panel the bench holds is told it in the same method — no events, M39.2b), not
+    /// rows the def has to carry for a conversation nobody else is part of. And the defs, as
+    /// the waystation generates them, carry only what a flow wires.
     /// </summary>
     [TestFixture]
     public sealed class BagSeamTests
@@ -77,22 +77,19 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Root.Provide(bench);
             bench.Tick(0f);   // injects the bag
 
-            var told = new List<CraftResult>();
-            bench.crafted += told.Add;
-
             CraftResult refused = bench.Craft("skiff");
             Assert.IsFalse(refused.made);
-            Assert.That(told, Has.Count.EqualTo(1), "a refusal is told like a success");
-            Assert.AreSame(refused, told[0]);
-            Assert.That(refused.line, Does.Contain("wood"));
+            Assert.That(refused.line, Does.Contain("wood"), "a refusal says what it wants");
+            Assert.AreSame(refused, m_Root.Context.blackboard[CraftResult.Key],
+                "a refusal is told like a success");
 
             bag.Add("wood", 3);
             CraftResult made = bench.Craft("skiff");
             Assert.IsTrue(made.made);
             Assert.AreEqual(1, bag.Count("skiff"));
             Assert.AreEqual(0, bag.Count("wood"));
-            Assert.AreSame(made, told[1], "and the panel hears the same object the board gets");
-            Assert.AreSame(made, m_Root.Context.blackboard[CraftResult.Key]);
+            Assert.AreSame(made, m_Root.Context.blackboard[CraftResult.Key],
+                "the answer returned IS the announcement");
         }
 
         [Test]

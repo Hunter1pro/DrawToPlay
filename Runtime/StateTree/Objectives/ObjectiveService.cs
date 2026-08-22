@@ -185,7 +185,26 @@ namespace PowerOfFire.DrawToPlay
                 m_LinearCursor = objective;
             changed?.Invoke();
             RefreshBanner();
+            AskTheBag();
         }
+
+        /// <summary>
+        /// A PICKUP OBJECTIVE ASKS THE BAG (M39.2b) the moment it becomes current — what is
+        /// already carried counts from the start. The bag reports every later change itself
+        /// (<see cref="ReportPickupCount"/>); this is the one direction the bag cannot know
+        /// about, so the quest line pulls. The bag is root-scoped and this is not, so it is
+        /// asked for on first need rather than assumed at construction.
+        /// </summary>
+        private void AskTheBag()
+        {
+            if (current == null || current.kind != ObjectiveKind.Pickup)
+                return;
+            m_Bag ??= StateTreeContextHost.FindService<IBag>(scope.gameObject);
+            if (m_Bag != null)
+                ReportPickupCount(current.target.entryName, m_Bag.Count(current.target.entryName));
+        }
+
+        private IBag m_Bag;
 
         /// <summary>Complete the CURRENT objective and let the chain speak: its
         /// nextOnComplete advances THIS stack (the zone's cursor when the row belongs to
@@ -216,6 +235,7 @@ namespace PowerOfFire.DrawToPlay
             }
             changed?.Invoke();
             RefreshBanner();
+            AskTheBag();
         }
 
         /// <summary>Every declared zone starts at the top of its stack. The container row
@@ -288,6 +308,7 @@ namespace PowerOfFire.DrawToPlay
                         progress = 0;
                         changed?.Invoke();
                         RefreshBanner();
+                        AskTheBag();
                     }
                 }
                 return;
@@ -305,6 +326,7 @@ namespace PowerOfFire.DrawToPlay
                 progress = 0;
                 changed?.Invoke();
                 RefreshBanner();
+                AskTheBag();
             }
         }
 
@@ -439,6 +461,7 @@ namespace PowerOfFire.DrawToPlay
             progress = state.progress;
             changed?.Invoke();
             RefreshBanner();
+            AskTheBag();
         }
 
         /// <summary>The MoveTo watcher: nearest zone carrying the row's tag, arrived when

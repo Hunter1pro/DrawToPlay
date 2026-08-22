@@ -19,6 +19,13 @@ namespace PowerOfFire.DrawToPlay
     /// USE (a consumable spends one and applies its picked effect row to the carrier) and WEAR
     /// (equipment occupies a slot row and holds its Modifier effects as revertible attribute
     /// grants until unequipped or swapped) are the item rows' declarations, unchanged.
+    ///
+    /// NO EVENTS (M39.2b). HT's rule: a domain holds what it spawned and calls it, a method
+    /// calls the services it needs and returns a result, nothing subscribes. So every write
+    /// here ends the same visible way — redraw the screen this bag showed, tell the quest
+    /// line the count, knock on the save — in <see cref="Changed"/>, one method, readable top
+    /// to bottom. A screen that subscribed to "changed" would be the same four lines hidden
+    /// in a second place.
     /// </summary>
     [ServiceActionContract(AddAction, "value = item name — one is put in the bag")]
     [ServiceActionContract(RemoveAction, "value = item name — one is taken, or nothing is")]
@@ -47,15 +54,55 @@ namespace PowerOfFire.DrawToPlay
         public const string RemoveAction = "remove";
         public const string OpenAction = "open";
 
-        /// <summary>Raised after any carried-count change, so views redraw instead of poll.</summary>
-        public event Action changed;
+        /// <summary>The screen this bag showed (its def's spawn), held from the moment it was
+        /// shown. Null when the def spawns none — a bag with no screen is still a bag.</summary>
+        private InventoryWidgetView m_Screen;
 
-        /// <summary>Raised after equip/unequip/swap.</summary>
-        public event Action equipmentChanged;
+        /// <summary>The file, knocked on after every write — asked for at the first knock and
+        /// remembered, because a session with no save is a legal session and [InjectService]
+        /// is loud about a collaborator that is not there.</summary>
+        private IAutosave m_Autosave;
 
-        /// <summary>Raised when something asked the bag to be seen — the keeper after a gift.
-        /// The screen opens on it; the service holds no screen.</summary>
-        public event Action opened;
+        /// <summary>The first tick has shown the spawns: take the screen and draw it.</summary>
+        protected override void OnStarted()
+        {
+            m_Screen = Spawned<InventoryWidgetView>();
+            Redraw();
+        }
+
+        /// <summary>
+        /// WHAT A CHANGE MEANS, in one place: the screen is redrawn, the quest line hears the
+        /// count of whatever moved, the save is knocked on. Every write and every wear ends
+        /// here, so the bag's effects on the rest of the session can be read in one method.
+        /// </summary>
+        private void Changed(string itemName)
+        {
+            Redraw();
+            ReportToObjectives(itemName);
+            m_Autosave ??= StateTreeContextHost.FindService<IAutosave>(scope.gameObject);
+            m_Autosave?.MarkDirty();
+        }
+
+        private void Redraw()
+        {
+            m_Screen?.Redraw(Stacks(), SlotLines());
+        }
+
+        /// <summary>The quest line is LEVEL-scoped and the bag is not, so it is asked for
+        /// through the body carrying the bag — which is in the level — at the moment of the
+        /// write, not remembered.</summary>
+        private void ReportToObjectives(string itemName)
+        {
+            StateTreeContextHost body = Body();
+            ObjectiveService objectives = body != null
+                ? StateTreeContextHost.FindService<ObjectiveService>(body.gameObject)
+                : null;
+            ObjectiveDef current = objectives != null ? objectives.current : null;
+            if (current == null || current.kind != ObjectiveKind.Pickup
+                || !string.Equals(current.target.entryName, itemName, StringComparison.Ordinal))
+                return;
+            objectives.ReportPickupCount(itemName, Count(itemName));
+        }
 
         private readonly List<ItemStack> m_Stacks = new List<ItemStack>();
 
@@ -93,10 +140,10 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        /// <summary>Ask the screen to open — whoever is drawing this bag hears it.</summary>
+        /// <summary>Open the screen this bag showed — the keeper's "show me".</summary>
         public void Open()
         {
-            opened?.Invoke();
+            m_Screen?.Open();
         }
 
         /// <summary>The equipment half of what a screen draws: one line per declared slot,
@@ -133,12 +180,15 @@ namespace PowerOfFire.DrawToPlay
                 : null;
         }
 
-        /// <summary>Put some in the bag; returns the new total.</summary>
+        /// <summary>Put some in the bag; returns the new total. The screen flashes the cell —
+        /// the domain says what just went up, rather than a screen guessing from a diff.</summary>
         public int Add(string itemName, int count = 1)
         {
             if (string.IsNullOrEmpty(itemName) || count <= 0)
                 return Count(itemName);
-            return Write(itemName, Count(itemName) + count);
+            int total = Write(itemName, Count(itemName) + count);
+            m_Screen?.Flash(itemName);
+            return total;
         }
 
         /// <summary>All-or-nothing: false leaves the bag untouched.</summary>
@@ -175,9 +225,9 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>
-        /// THE ONE WRITE (M32). Every change to a bag goes through here, and the event that
-        /// redraws every screen and every listener fires from the same line. Zero-or-less
-        /// REMOVES the entry, so "none left" and "never had one" are the same absent state.
+        /// THE ONE WRITE (M32). Every change to a bag goes through here, and what a change
+        /// means (<see cref="Changed"/>) follows from the same line. Zero-or-less REMOVES the
+        /// entry, so "none left" and "never had one" are the same absent state.
         /// </summary>
         private int Write(string itemName, int total)
         {
@@ -185,7 +235,7 @@ namespace PowerOfFire.DrawToPlay
                 m_Counts.Remove(itemName);
             else
                 m_Counts[itemName] = total;
-            changed?.Invoke();
+            Changed(itemName);
             return Mathf.Max(0, total);
         }
 
@@ -307,7 +357,7 @@ namespace PowerOfFire.DrawToPlay
             var worn = new WornItem { slotId = row.slot.entryId, itemName = itemName };
             m_Worn.Add(worn);
             Grant(worn, Body());
-            equipmentChanged?.Invoke();
+            Changed(itemName);
             return true;
         }
 
@@ -355,8 +405,9 @@ namespace PowerOfFire.DrawToPlay
                 AttributeComponent attributes = m_CarrierAttributes;
                 for (int j = 0; j < m_Worn[i].handles.Count && attributes != null; j++)
                     attributes.RemoveModifier(m_Worn[i].handles[j]);
+                string wornName = m_Worn[i].itemName;
                 m_Worn.RemoveAt(i);
-                equipmentChanged?.Invoke();
+                Changed(wornName);
             }
         }
 
@@ -408,9 +459,10 @@ namespace PowerOfFire.DrawToPlay
                 if (count > 0)
                     m_Counts[state.itemNames[i]] = count;
             }
-            changed?.Invoke();
             for (int i = 0; i < state.wornItems.Count; i++)
                 Equip(state.wornItems[i]);
+            // A restore is not a change worth writing back — but it is worth drawing.
+            Redraw();
         }
 
         // ---- resolution ----------------------------------------------------------------
@@ -449,7 +501,7 @@ namespace PowerOfFire.DrawToPlay
                 for (int i = 0; i < m_Worn.Count; i++)
                     Grant(m_Worn[i], player);
                 if (m_Worn.Count > 0)
-                    equipmentChanged?.Invoke();
+                    Redraw();
             }
             return m_Carrier;
         }

@@ -287,6 +287,33 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void APickupObjective_AsksTheBag_WhenItBecomesCurrent()
+        {
+            // M39.2b: what is already carried counts from the start — the quest line PULLS
+            // from the bag the moment a pickup objective is current; every later change the
+            // bag reports itself from its write. No bridge, no subscription.
+            var items = ScriptableObject.CreateInstance<ItemRegistry>();
+            items.entries.Add(new ItemDef { name = "relic" });
+            m_Assets.Add(items);
+            var bagDef = ScriptableObject.CreateInstance<ServiceDef>();
+            bagDef.serviceName = "inventory";
+            bagDef.registry = items;
+            m_Assets.Add(bagDef);
+            var bag = new InventoryService(m_Level, bagDef);
+            m_Level.Provide(typeof(IBag), bag);
+            bag.Add("relic", 1);
+
+            ObjectiveDef carry = MakeObjective("carry", ObjectiveKind.Pickup);
+            carry.count = 2;
+            carry.target.entryName = "relic";
+            m_Service.Activate(carry);
+            Assert.AreEqual(1, m_Service.progress, "the relic already carried counted at once");
+
+            bag.Add("relic", 1);
+            Assert.IsNull(m_Service.current, "the bag's own write reported the second, completing");
+        }
+
+        [Test]
         public void MoveTo_ArrivesAtTheNearestZone_AndTheArrowAimsAtIt()
         {
             ObjectiveDef reach = MakeObjective("reach", ObjectiveKind.MoveTo);

@@ -25,6 +25,14 @@ namespace PowerOfFire.DrawToPlay.Tests
         private StateTreeContextHost m_Root;
         private StateTreeContextHost m_Player;
         private AttributeComponent m_Vitals;
+        private Knocks m_Knocks;
+
+        /// <summary>The save, as far as the bag can tell: something to knock on.</summary>
+        private sealed class Knocks : IAutosave
+        {
+            public int count;
+            public void MarkDirty() => count++;
+        }
         private InventoryService m_Service;
         private ItemRegistry m_Items;
         private EffectRegistry m_Effects;
@@ -122,6 +130,11 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Player.Register();
             m_Hosts.Add(m_Player);
 
+            // THE FILE, as the bag sees it: a capability it knocks on after every write —
+            // provided before the first tick, which is when the bag takes its collaborators.
+            m_Knocks = new Knocks();
+            m_Root.Provide(typeof(IAutosave), m_Knocks);
+
             // The runtime contract, honored: injected fields are valid from the first
             // tick — the heartbeat fills them — so the fixture ticks once, exactly as
             // play mode's first Update would.
@@ -184,14 +197,14 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             m_Vitals.Consume(AttributeNames.Health, 3f);   // wounded: 2 of 5
             m_Service.Add("ration", 2);
-            int changes = 0;
-            m_Service.changed += () => changes++;
+            int knocksBefore = m_Knocks.count;
 
             Assert.IsTrue(m_Service.Use("ration").used);
             Assert.AreEqual(1, m_Service.Count("ration"), "one spent");
             Assert.AreEqual(4f, m_Vitals.Value(AttributeNames.Health), 0.001f,
                 "the picked heal landed on the player's attribute");
-            Assert.AreEqual(1, changes, "the spend announced itself");
+            Assert.AreEqual(knocksBefore + 1, m_Knocks.count,
+                "the spend knocked on the save — a call from the write, not an event");
         }
 
         [Test]
@@ -213,22 +226,21 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void Equip_GrantsWornModifiers_WhileWorn()
         {
             m_Service.Add("relic");
-            int equipChanges = 0;
-            m_Service.equipmentChanged += () => equipChanges++;
+            int knocksBefore = m_Knocks.count;
 
             Assert.IsTrue(m_Service.Equip("relic"));
             Assert.IsTrue(m_Service.IsEquipped("relic"));
             Assert.AreEqual("relic", m_Service.EquippedIn("slot.trinket"));
             Assert.AreEqual(6f, m_Vitals.Effective(AttributeNames.Health), 0.001f,
                 "+1 to the cap while the relic sits in its slot");
-            Assert.AreEqual(1, equipChanges);
+            Assert.AreEqual(knocksBefore + 1, m_Knocks.count, "wearing is worth saving");
 
             m_Service.Unequip("slot.trinket");
             Assert.IsFalse(m_Service.IsEquipped("relic"));
             Assert.AreEqual("", m_Service.EquippedIn("slot.trinket"));
             Assert.AreEqual(5f, m_Vitals.Effective(AttributeNames.Health), 0.001f,
                 "taking it off reverts the grant");
-            Assert.AreEqual(2, equipChanges);
+            Assert.AreEqual(knocksBefore + 2, m_Knocks.count);
         }
 
         [Test]
@@ -299,8 +311,8 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void DefServedRequest_RunsTheDomainHook_AndConsumes()
         {
             // §4g: no state tree anywhere — the def row IS the handler. Pending key →
-            // domain hook (add) → consume, in one tick. And "show me" reaches whoever is
-            // drawing the bag as an event, not a screen the service holds.
+            // domain hook (add) → consume, in one tick. "show me" is served the same way and
+            // lands on the screen the bag holds (none in this fixture — a quiet no-op).
             m_Service.definition.requests.Add(new ServiceRequest
             {
                 key = "test.add", action = InventoryService.AddAction, namesRowOf = m_Items,
@@ -310,9 +322,6 @@ namespace PowerOfFire.DrawToPlay.Tests
             {
                 key = "test.open", action = InventoryService.OpenAction
             });
-            int opened = 0;
-            m_Service.opened += () => opened++;
-
             m_Root.Context.blackboard["test.add"] = "ration";
             m_Root.Context.blackboard["test.open"] = "1";
             m_Service.Tick(0.02f);
@@ -320,7 +329,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual(1, m_Service.Count("ration"), "the domain verb ran");
             Assert.IsFalse(m_Root.Context.blackboard.ContainsKey("test.add"),
                 "and the request was consumed");
-            Assert.AreEqual(1, opened, "the screen was asked to open, through the service");
+            Assert.IsFalse(m_Root.Context.blackboard.ContainsKey("test.open"),
+                "as was 'show me'");
         }
 
         [Test]

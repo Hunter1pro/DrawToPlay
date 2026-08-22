@@ -14,11 +14,11 @@ namespace PowerOfFire.DrawToPlay
     /// Crafting that cannot be SEEN is crafting that does not exist, which is exactly the
     /// report that produced this file.
     ///
-    /// THE STATION'S SCREEN, HT-shaped (M39): it holds its service, draws the
-    /// <see cref="CraftOffer"/> the service publishes — both numbers already counted per cost,
-    /// whether the button should be live already decided — and its one button asks the service
-    /// to start the craft. It resolves nothing and counts nothing; what it knows about the
-    /// world is what <see cref="CraftService.offerChanged"/> tells it.
+    /// THE STATION'S SCREEN, HT-shaped (M39): the bench that showed it holds it and tells it
+    /// what to draw — <see cref="Show"/> with a <see cref="CraftOffer"/> whose numbers are
+    /// already counted, <see cref="Announce"/> with what a craft came to — and its one button
+    /// asks the bench to start the craft. It subscribes to nothing, resolves nothing and
+    /// counts nothing.
     /// </summary>
     [AddComponentMenu("Draw To Play/UI/Craft Panel")]
     [RequireComponent(typeof(UIDocument))]
@@ -107,39 +107,6 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        /// <summary>SPAWN-TIME IS BIND-TIME: the UI service has injected <see cref="m_Craft"/>
-        /// by the time it calls this, so this is where the panel starts listening and draws
-        /// whatever the bench is already offering.</summary>
-        public override void Bind(IReadOnlyList<GraphTaskParameter> arguments)
-        {
-            Listen(m_Craft);
-            Show(m_Craft != null ? m_Craft.offer : null);
-        }
-
-        private void OnDisable()
-        {
-            Listen(null);
-        }
-
-        private CraftService m_Listening;
-
-        private void Listen(CraftService craft)
-        {
-            if (ReferenceEquals(m_Listening, craft))
-                return;
-            if (m_Listening != null)
-            {
-                m_Listening.offerChanged -= Show;
-                m_Listening.crafted -= Announce;
-            }
-            m_Listening = craft;
-            if (craft != null)
-            {
-                craft.offerChanged += Show;
-                craft.crafted += Announce;
-            }
-        }
-
         /// <summary>Draw an offer. Null closes — "there is no bench here" and "the bench has
         /// nothing" are the same thing to a panel.</summary>
         public void Show(CraftOffer offer)
@@ -193,7 +160,7 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>What the last craft came to, on the panel that asked for it. Bound rather
         /// than assigned, like the bag's announce line — the contract's own sentence.</summary>
-        private void Announce(CraftResult result)
+        public void Announce(CraftResult result)
         {
             if (m_Result == null || result == null)
                 return;

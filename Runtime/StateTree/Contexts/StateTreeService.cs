@@ -384,8 +384,36 @@ namespace PowerOfFire.DrawToPlay
                     Debug.LogError("Service '" + GetType().Name + "' spawns UI row '"
                         + spawn.entryName + "', which the UI registry does not have.");
                 else
-                    ui.Show(row);
+                {
+                    GameObject view = ui.Show(row);
+                    if (view != null)
+                        m_Spawned.Add(view);
+                }
             }
+        }
+
+        private readonly List<GameObject> m_Spawned = new List<GameObject>();
+
+        /// <summary>
+        /// THE SCREEN THIS SERVICE SHOWED (M39.2b) — held as the return value of showing it,
+        /// and called. HT's rule: a domain holds what it spawned and tells it what to draw;
+        /// nothing subscribes to anything. Null until the first tick has shown the spawns, or
+        /// when the def spawns no view of that type.
+        /// </summary>
+        protected T Spawned<T>() where T : Component
+        {
+            for (int i = m_Spawned.Count - 1; i >= 0; i--)
+            {
+                if (m_Spawned[i] == null)
+                {
+                    m_Spawned.RemoveAt(i);
+                    continue;
+                }
+                T view = m_Spawned[i].GetComponentInChildren<T>(true);
+                if (view != null)
+                    return view;
+            }
+            return null;
         }
 
         // ---- the subsystem's own flow tree ------------------------------------------------

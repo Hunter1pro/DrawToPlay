@@ -5,15 +5,13 @@ using UnityEngine.UIElements;
 namespace PowerOfFire.DrawToPlay
 {
     /// <summary>
-    /// THE BAG'S SCREEN (M39) — HT's <c>PlayerItemUISystem</c> shape: the screen holds its
-    /// service, draws what the service holds, and calls the service's verbs from its buttons.
-    /// It is handed the service when the UI service spawns it (the wiring law: views never
-    /// poll and never resolve), subscribes to <see cref="InventoryService.changed"/> and
-    /// redraws on it, and asks nothing of anyone else. What a press means is one method on
-    /// the bag — <c>Use</c>, <c>Equip</c>, <c>Unequip</c> — readable here, top to bottom.
-    ///
-    /// What crosses subsystems stays declared: the keeper's gift asks <c>bag.add</c>, and
-    /// "show me" asks <c>bag.open</c>, which lands here through <see cref="InventoryService.opened"/>.
+    /// THE BAG'S SCREEN (M39) — HT's <c>PlayerItemUISystem</c> shape: the bag that showed
+    /// it holds it and tells it what to draw (<see cref="Redraw"/>, <see cref="Flash"/>,
+    /// <see cref="Open"/>); the screen calls the bag's verbs from its buttons — <c>Use</c>,
+    /// <c>Equip</c>, <c>Unequip</c> — and shows what they return. It is handed the bag when
+    /// the UI service spawns it (the wiring law: views never poll and never resolve) and
+    /// subscribes to nothing: what a press means and what a change means are each one
+    /// method, readable top to bottom, on the side that owns it.
     /// </summary>
     [AddComponentMenu("Draw To Play/UI/Inventory Widget")]
     [RequireComponent(typeof(UIDocument))]
@@ -123,73 +121,7 @@ namespace PowerOfFire.DrawToPlay
         private VisualElement m_AnnounceLine;
         private Label m_Announce;
 
-        // ---- the service: handed over at spawn, listened to, called -------------------
-
-        /// <summary>SPAWN-TIME IS BIND-TIME: the UI service has injected <see cref="m_Bag"/>
-        /// by the time it calls this, so this is where the screen starts listening and draws
-        /// the first time. Re-binding (a re-show) is harmless — one subscription either way.</summary>
-        public override void Bind(IReadOnlyList<GraphTaskParameter> arguments)
-        {
-            Listen(m_Bag);
-            Redraw();
-        }
-
-        private void OnDisable()
-        {
-            Listen(null);
-        }
-
-        private InventoryService m_Listening;
-
-        private void Listen(InventoryService bag)
-        {
-            if (ReferenceEquals(m_Listening, bag))
-                return;
-            if (m_Listening != null)
-            {
-                m_Listening.changed -= Redraw;
-                m_Listening.equipmentChanged -= Redraw;
-                m_Listening.opened -= Open;
-            }
-            m_Listening = bag;
-            if (bag != null)
-            {
-                bag.changed += Redraw;
-                bag.equipmentChanged += Redraw;
-                bag.opened += Open;
-            }
-        }
-
-        /// <summary>Draw what the bag holds, and flash whatever just went UP — a gift, a
-        /// pickup, a craft — which the screen can tell from its own last drawing.</summary>
-        public void Redraw()
-        {
-            if (m_Bag == null)
-            {
-                Redraw(null, null);
-                return;
-            }
-            IReadOnlyList<ItemStack> stacks = m_Bag.Stacks();
-            Redraw(stacks, m_Bag.SlotLines());
-
-            if (m_Drawn)
-            {
-                for (int i = 0; i < stacks.Count; i++)
-                {
-                    m_LastCounts.TryGetValue(stacks[i].definition.name, out int was);
-                    if (stacks[i].count > was)
-                        Flash(stacks[i].definition.name);
-                }
-            }
-            m_Drawn = true;
-            m_LastCounts.Clear();
-            for (int i = 0; i < stacks.Count; i++)
-                m_LastCounts[stacks[i].definition.name] = stacks[i].count;
-        }
-
-        private bool m_Drawn;
-        private readonly Dictionary<string, int> m_LastCounts =
-            new Dictionary<string, int>(System.StringComparer.Ordinal);
+        // ---- the service: handed over at spawn, called from the buttons ----------------
 
         /// <summary>The answer to a use, on the line above the grid: the label's text is a
         /// DataBinding with a PropertyPath into the contract class — nameof-safe,

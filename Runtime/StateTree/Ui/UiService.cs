@@ -32,12 +32,6 @@ namespace PowerOfFire.DrawToPlay
         public UiRegistry catalog =>
             definition != null ? definition.registry as UiRegistry : null;
 
-        /// <summary>(row, spawned view) — after the view exists and its arguments bound.</summary>
-        public event Action<UiDef, GameObject> shown;
-
-        /// <summary>The row was hidden and its view destroyed.</summary>
-        public event Action<UiDef> hidden;
-
         private readonly Dictionary<string, GameObject> m_Open =
             new Dictionary<string, GameObject>(StringComparer.Ordinal);
 
@@ -115,7 +109,6 @@ namespace PowerOfFire.DrawToPlay
             view.SetActive(true);
             BindArguments(view, row, arguments, scope);
             m_Open[row.name] = view;
-            shown?.Invoke(row, view);
             return view;
         }
 
@@ -139,7 +132,6 @@ namespace PowerOfFire.DrawToPlay
                 else
                     UnityEngine.Object.DestroyImmediate(view);
             }
-            hidden?.Invoke(Find(uiName));
         }
 
         /// <summary>Row defaults with the show-site's enabled overrides applied (by id — the
