@@ -824,8 +824,13 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>Every payload class any task contract declares — the type names the
         /// project actually sends, which is what an announcement may carry.</summary>
+        private static string[] s_PayloadTypeOffers;
+
         private static string[] PayloadTypeOffers()
         {
+            // Types change only with a domain reload, which also clears this.
+            if (s_PayloadTypeOffers != null)
+                return s_PayloadTypeOffers;
             var offers = new System.Collections.Generic.List<string>();
             foreach (System.Type type in TypeCache.GetTypesDerivedFrom<StateTreeTaskAsset>())
             {
@@ -838,7 +843,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                         offers.Add(contracts[i].payloadType.Name);
                 }
             }
-            return offers.ToArray();
+            s_PayloadTypeOffers = offers.ToArray();
+            return s_PayloadTypeOffers;
         }
 
         // ---- the pickers: offers from declared contracts -------------------------------
@@ -1211,10 +1217,31 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>The prefab behind a spawned UI row name — found through the UI
         /// registries, because the def's own registry is the DOMAIN's.</summary>
+        /// <summary>UI row name → prefab, remembered until the project changes: this is asked
+        /// once per reaction row per repaint, and an asset search per ask was a visible part of
+        /// the inspector's second.</summary>
+        private static readonly System.Collections.Generic.Dictionary<string, GameObject> s_SpawnPrefabs =
+            new System.Collections.Generic.Dictionary<string, GameObject>();
+
+        [InitializeOnLoadMethod]
+        private static void ForgetSpawnPrefabsOnProjectChange()
+        {
+            EditorApplication.projectChanged += s_SpawnPrefabs.Clear;
+        }
+
         private static GameObject SpawnPrefab(string rowName)
         {
             if (string.IsNullOrEmpty(rowName))
                 return null;
+            if (s_SpawnPrefabs.TryGetValue(rowName, out GameObject remembered) && remembered != null)
+                return remembered;
+            GameObject found = FindSpawnPrefab(rowName);
+            s_SpawnPrefabs[rowName] = found;
+            return found;
+        }
+
+        private static GameObject FindSpawnPrefab(string rowName)
+        {
             string[] guids = AssetDatabase.FindAssets("t:" + nameof(UiRegistry));
             for (int i = 0; i < guids.Length; i++)
             {

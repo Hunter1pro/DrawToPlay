@@ -136,27 +136,43 @@ namespace PowerOfFire.DrawToPlay
         public Type serviceType => ResolveServiceType(serviceTypeName);
 
         /// <summary>A service type by its stored name — full name first, then the bare name
-        /// across loaded assemblies, because the older defs stored either.</summary>
+        /// across loaded assemblies, because the older defs stored either.
+        ///
+        /// CACHED, misses included. <c>Type.GetType</c> answers only an assembly-qualified name,
+        /// so every def's name — bare or full — fell through to a walk of every loaded
+        /// assembly's types: ~65 ms a call, and the settings panel asked three times per
+        /// repaint. That was the second the inspector took. A domain reload clears the
+        /// dictionary, which is exactly when the answer could change.</summary>
         public static Type ResolveServiceType(string typeName)
         {
             if (string.IsNullOrEmpty(typeName))
                 return null;
-            Type direct = Type.GetType(typeName);
-            if (direct != null)
-                return direct;
-            foreach (System.Reflection.Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            if (s_ResolvedTypes.TryGetValue(typeName, out Type known))
+                return known;
+
+            Type found = Type.GetType(typeName);
+            if (found == null)
             {
-                Type[] types;
-                try { types = assembly.GetTypes(); }
-                catch { continue; }
-                for (int i = 0; i < types.Length; i++)
+                foreach (System.Reflection.Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
                 {
-                    if (types[i].Name == typeName || types[i].FullName == typeName)
-                        return types[i];
+                    Type[] types;
+                    try { types = assembly.GetTypes(); }
+                    catch { continue; }
+                    for (int i = 0; i < types.Length && found == null; i++)
+                    {
+                        if (types[i].Name == typeName || types[i].FullName == typeName)
+                            found = types[i];
+                    }
+                    if (found != null)
+                        break;
                 }
             }
-            return null;
+            s_ResolvedTypes[typeName] = found;
+            return found;
         }
+
+        private static readonly System.Collections.Generic.Dictionary<string, Type> s_ResolvedTypes =
+            new System.Collections.Generic.Dictionary<string, Type>(StringComparer.Ordinal);
 
         /// <summary>
         /// The request for a key — AUTHORED FIRST, then derived from what this def has (M30.4).
