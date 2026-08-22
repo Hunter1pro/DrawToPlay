@@ -1494,10 +1494,18 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             if (tree == null || node == null || type == null)
                 return null;
+            return AddTask(tree, node, ScriptableObject.CreateInstance(type) as StateTreeTaskAsset, undoName);
+        }
 
-            var task = ScriptableObject.CreateInstance(type) as StateTreeTaskAsset;
-            if (task == null)
+        /// <summary>Add a task that already exists and is already configured — a declared-API
+        /// preset's — as a sub-asset in the state's list. <see cref="CreateTask"/> is this with a
+        /// blank instance.</summary>
+        internal static StateTreeTaskAsset AddTask(StateTreeAsset tree, StateTreeNodeAsset node,
+            StateTreeTaskAsset task, string undoName)
+        {
+            if (tree == null || node == null || task == null)
                 return null;
+            Type type = task.GetType();
 
             task.name = TaskAssetName(node.nodeId, type);
             AssetDatabase.AddObjectToAsset(task, tree);
@@ -1627,15 +1635,32 @@ namespace PowerOfFire.DrawToPlay.Editor
         internal static StateTreeConditionAsset SetTransitionCondition(StateTreeAsset tree,
             StateTreeNodeAsset node, StateTreeTransition transition, Type type, string undoName)
         {
+            return SetTransitionCondition(tree, node, transition,
+                type != null ? ScriptableObject.CreateInstance(type) as StateTreeConditionAsset : null,
+                type, undoName);
+        }
+
+        /// <summary>The instance flavour: a condition that already exists and is configured — a
+        /// declared-API preset's ("When · clock.dawn") — put on the transition.</summary>
+        internal static StateTreeConditionAsset SetTransitionCondition(StateTreeAsset tree,
+            StateTreeNodeAsset node, StateTreeTransition transition, StateTreeConditionAsset created,
+            string undoName)
+        {
+            return SetTransitionCondition(tree, node, transition, created,
+                created != null ? created.GetType() : null, undoName);
+        }
+
+        private static StateTreeConditionAsset SetTransitionCondition(StateTreeAsset tree,
+            StateTreeNodeAsset node, StateTreeTransition transition, StateTreeConditionAsset created,
+            Type type, string undoName)
+        {
             if (tree == null || node == null || transition == null)
                 return null;
 
             var previous = transition.condition;
 
-            StateTreeConditionAsset created = null;
             if (type != null)
             {
-                created = ScriptableObject.CreateInstance(type) as StateTreeConditionAsset;
                 if (created == null)
                     return previous;
 

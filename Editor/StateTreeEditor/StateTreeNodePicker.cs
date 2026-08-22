@@ -147,6 +147,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         private Action<StateTreeAsset> m_OnTreePicked;
         private Action<GraphTaskAsset> m_OnGraphTaskPicked;
         private Action m_OnNewSubTreeTask;
+
+        /// <summary>Set when the caller can take a CONFIGURED instance — what a declared-API
+        /// preset ("Ask · inventory · bag.add") makes. Null leaves the presets out.</summary>
+        private Action<ScriptableObject> m_OnPresetPicked;
         private Action m_OnNewTaskGraph;
         private Predicate<StateTreeAsset> m_TreeFilter;
         private string m_Title = "Add Node";
@@ -183,7 +187,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         internal static StateTreeNodePicker Show(Rect activatorScreenRect, Type baseType,
             Action<Type> onPicked, string title, Action<StateTreeAsset> onTreePicked = null,
             Predicate<StateTreeAsset> treeFilter = null, Action onNewSubTreeTask = null,
-            Action<GraphTaskAsset> onGraphTaskPicked = null, Action onNewTaskGraph = null)
+            Action<GraphTaskAsset> onGraphTaskPicked = null, Action onNewTaskGraph = null,
+            Action<ScriptableObject> onPresetPicked = null)
         {
             if (baseType == null || onPicked == null)
                 return null;
@@ -194,6 +199,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             var window = CreateInstance<StateTreeNodePicker>();
             window.m_BaseType = baseType;
             window.m_OnPicked = onPicked;
+            window.m_OnPresetPicked = onPresetPicked;
             window.m_OnTreePicked = onTreePicked;
             window.m_OnGraphTaskPicked = onGraphTaskPicked;
             window.m_OnNewSubTreeTask = onNewSubTreeTask;
@@ -469,6 +475,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
 
             CollectTypeEntries();
+            CollectPresetEntries();
             CollectAuthoredTreeEntries();
             CollectGraphTaskEntries();
             CollectActionEntries();
@@ -537,6 +544,32 @@ namespace PowerOfFire.DrawToPlay.Editor
                     persistKey = "action:new-sub-tree-task",
                     identity = "Creates " + StateTreeGraphBridge.TaskFolder + "/<name>."
                         + StateTreeGraphBridge.graphExtension + " and opens it."
+                });
+            }
+        }
+
+        /// <summary>THE DECLARED API (M38.1b): every subsystem's requests, announcements, UI rows
+        /// and verbs as rows that make a configured task or condition — the picker's half of
+        /// the circle a graph node and a def share.</summary>
+        private void CollectPresetEntries()
+        {
+            if (m_OnPresetPicked == null)
+                return;
+            List<DeclaredApiPresets.Preset> presets = DeclaredApiPresets.For(m_BaseType);
+            for (int i = 0; i < presets.Count; i++)
+            {
+                DeclaredApiPresets.Preset preset = presets[i];
+                Func<ScriptableObject> make = preset.make;
+                Action<ScriptableObject> take = m_OnPresetPicked;
+                m_Entries.Add(new Entry
+                {
+                    action = () => take(make()),
+                    displayName = preset.displayName,
+                    category = preset.category,
+                    description = preset.description,
+                    persistKey = preset.key,
+                    qualifier = "declared",
+                    identity = preset.key
                 });
             }
         }
@@ -1475,6 +1508,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_OnGraphTaskPicked = null;
             m_OnItemPicked = null;
             m_OnNewSubTreeTask = null;
+            m_OnPresetPicked = null;
             m_OnNewTaskGraph = null;
             CloseSelf();
 

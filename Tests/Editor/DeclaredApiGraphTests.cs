@@ -76,8 +76,9 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(m_Root.Context.blackboard[StateTreeService.AnnouncementSerialKey(CrierService.Key)],
                 Is.EqualTo(1), "and the announcement has a number beside it");
 
-            // THE FIRST LOOK ADOPTS: a listener that starts after the news has not just heard it.
-            Assert.That(condition.Evaluate(context), Is.False);
+            // A LISTENER ALIVE BEFORE THE FIRST ANNOUNCEMENT hears the first one.
+            Assert.That(condition.Evaluate(context), Is.True, "the first dawn is heard");
+            Assert.That(condition.Evaluate(context), Is.False, "and not again while it stands");
             crier.Cry(6.1f);
             Assert.That(condition.Evaluate(context), Is.True, "once, when the serial moves");
             Assert.That(condition.Evaluate(context), Is.False, "and not again while it stands");
@@ -87,11 +88,12 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(condition.Evaluate(context), Is.True,
                 "the same payload twice is two announcements — the serial says so, the payload could not");
 
-            // TWO LISTENERS, neither consuming: both hear the next one.
+            // A LISTENER THAT STARTS AFTER THREE ANNOUNCEMENTS has not just heard one: its first
+            // look adopts. And two listeners, neither consuming, both hear the next.
             var other = ScriptableObject.CreateInstance<AnnouncementCondition>();
             m_Junk.Add(other);
             other.key = CrierService.Key;
-            other.Evaluate(context);   // adopt
+            Assert.That(other.Evaluate(context), Is.False, "adopted, not fired");
             crier.Cry(7f);
             Assert.That(condition.Evaluate(context), Is.True);
             Assert.That(other.Evaluate(context), Is.True);

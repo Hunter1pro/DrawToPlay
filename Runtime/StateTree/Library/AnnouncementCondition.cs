@@ -35,12 +35,12 @@ namespace PowerOfFire.DrawToPlay
                 return false;
             StateTreeContextHost host = StateTreeContextHost.Resolve(context.owner, scope);
             var board = host != null && host.Context != null ? host.Context.blackboard : context.blackboard;
-            if (!board.TryGetValue(StateTreeService.AnnouncementSerialKey(key), out object held)
-                || !(held is int serial))
-                return false;
+            int serial = board.TryGetValue(StateTreeService.AnnouncementSerialKey(key), out object held)
+                && held is int count ? count : 0;
 
-            // The first evaluation ADOPTS the serial rather than firing on it: a listener that
-            // starts after three dawns has not just heard one.
+            // The first evaluation ADOPTS whatever has already been announced rather than firing
+            // on it: a listener that starts after three dawns has not just heard one. A listener
+            // that starts BEFORE the first dawn adopts zero — and hears the first.
             if (!m_Primed)
             {
                 m_Primed = true;

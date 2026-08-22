@@ -43,12 +43,17 @@ namespace PowerOfFire.DrawToPlay
             if (!string.IsNullOrEmpty(key)
                 && context.blackboard.TryGetValue(key, out object held) && held != null)
             {
-                // A string on the key is the scalar argument; anything richer is a CONTRACT
+                // A string on the key is the scalar argument; a NUMBER or a bool is too — an
+                // announced hour is a line, not a contract — and anything richer is a CONTRACT
                 // PAYLOAD (§4e) handed to the skin whole.
                 if (held is string dynamic)
                 {
                     if (!string.IsNullOrEmpty(dynamic))
                         value = dynamic;
+                }
+                else if (held.GetType().IsPrimitive)
+                {
+                    value = System.Convert.ToString(held, System.Globalization.CultureInfo.InvariantCulture);
                 }
                 else
                 {

@@ -3424,7 +3424,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             add.style.flexGrow = 1f;
             add.clicked += () => StateTreeNodePicker.Show(StateTreeNodePicker.ScreenRectOf(add),
                 typeof(StateTreeTaskAsset), AddTask, "Add Task", AddSubTreeTask, CanRunSubTree,
-                CreateSubTreeTaskGraph, AddGraphTask, CreateTaskGraph);
+                CreateSubTreeTaskGraph, AddGraphTask, CreateTaskGraph, AddPresetTask);
             row.Add(add);
 
             // The same commands as the picker's pinned rows, one click closer. They are worth both
@@ -4648,7 +4648,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             button.clicked += () => StateTreeNodePicker.Show(
                 StateTreeNodePicker.ScreenRectOf(button), typeof(StateTreeConditionAsset),
                 type => SetCondition(transition, type),
-                current != null ? "Change Condition" : "Add Condition");
+                current != null ? "Change Condition" : "Add Condition",
+                onPresetPicked: made => SetPresetCondition(transition, made));
             row.Add(button);
 
             var clear = new Button(() => SetCondition(transition, null)) { text = "✕" };
@@ -6069,6 +6070,20 @@ namespace PowerOfFire.DrawToPlay.Editor
             DeferStructuralChange();
         }
 
+        /// <summary>A declared-API preset (M38.1b): the picked row made a configured task —
+        /// "Ask · inventory · bag.add" with its key set — and the state takes it as it is.</summary>
+        private void AddPresetTask(ScriptableObject made)
+        {
+            if (!(made is StateTreeTaskAsset task) || m_Tree == null || m_Node == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup("Add Task");
+            StateTreeEditorOps.AddTask(m_Tree, m_Node, task, "Add Task");
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            DeferStructuralChange();
+        }
+
         /// <summary>The other half of "Add Task…": the picked item was an authored tree, so the
         /// state gets a composite task wired to it. Same undo shape as
         /// <see cref="AddTask"/> — one gesture, one step.</summary>
@@ -6414,6 +6429,21 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// made — the no-op guard matters because the picker can legitimately re-pick the type
         /// that is already there, and re-creating the sub-asset would silently reset its
         /// parameters.</summary>
+        /// <summary>A declared-API preset (M38.1b): "When · clock.dawn", already configured.</summary>
+        private void SetPresetCondition(StateTreeTransition transition, ScriptableObject made)
+        {
+            if (!(made is StateTreeConditionAsset condition) || m_Tree == null || m_Node == null
+                || transition == null)
+                return;
+
+            var group = StateTreeEditorOps.BeginUndoGroup("Set Transition Condition");
+            StateTreeEditorOps.SetTransitionCondition(m_Tree, m_Node, transition, condition,
+                "Set Transition Condition");
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            DeferStructuralChange();
+        }
+
         private void SetCondition(StateTreeTransition transition, Type type)
         {
             if (m_Tree == null || m_Node == null || transition == null)
