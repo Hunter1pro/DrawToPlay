@@ -1748,6 +1748,15 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
             var task = (StateTreeTaskAsset)ScriptableObject.CreateInstance(taskType);
             task.name = $"Task {index.ToString(CultureInfo.InvariantCulture)} {taskType.Name}";
             ApplyParameters(context, source, task, taskType, index);
+            // A node that grew pins the task has no field for (a Show Screen's row parameters)
+            // writes them itself — the one seam, after the field copy so it sees the result.
+            if (source is IBakesExtras extras)
+            {
+                var problems = new List<string>();
+                extras.BakeInto(task, problems);
+                for (int p = 0; p < problems.Count; p++)
+                    context.Error(problems[p], source);
+            }
             node.task = task;
             context.result.subAssets.Add(new StateTreeGraphBaker.SubAsset(task,
                 "Task:" + index.ToString(CultureInfo.InvariantCulture)));

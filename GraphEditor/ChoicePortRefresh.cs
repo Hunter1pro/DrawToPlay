@@ -44,6 +44,22 @@ namespace PowerOfFire.DrawToPlay.GraphEditor
 
                 try
                 {
+                    // A DECLARED-API NODE (M38.1) — subsystem → request → value — answers the
+                    // three questions itself; the Registry Entry node below is the same shape
+                    // with its own history.
+                    if (node is IDeclaredApiNode api)
+                    {
+                        api.DropUnoffered();
+                        bool sourcesMoved = api.AdoptChoiceSources();
+                        if (sourcesMoved || api.IsStale())
+                        {
+                            node.DefineNode();
+                            PortChoices.RequestRebuild(node);
+                            api.DropUnoffered();
+                        }
+                        continue;
+                    }
+
                     DropUnofferedValue(node);
                     if (IsStale(node))
                     {

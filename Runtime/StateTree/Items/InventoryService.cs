@@ -21,6 +21,7 @@ namespace PowerOfFire.DrawToPlay
     [ServiceActionContract(UseAction, "value = item name")]
     [ServiceActionContract(WearAction, "value = item name")]
     [ServiceActionContract(TakeoffAction, "value = slot name")]
+    [ServiceActionContract(AddAction, "value = item name — one is put in the bag")]
     public sealed class InventoryService : StateTreeService, IBag
     {
         /// <summary>
@@ -43,6 +44,10 @@ namespace PowerOfFire.DrawToPlay
         public const string UseAction = "use";
         public const string WearAction = "wear";
         public const string TakeoffAction = "takeoff";
+
+        /// <summary>The one PUBLIC verb (M38.1): put an item in the bag — what a keeper's gift, a
+        /// quest reward or a cheat asks for by key. The three above are the bag's own buttons.</summary>
+        public const string AddAction = "add";
 
         /// <summary>Raised after any carried-count change, so views redraw instead of poll.</summary>
         public event Action changed;
@@ -94,6 +99,14 @@ namespace PowerOfFire.DrawToPlay
                 case WearAction:
                     Equip(value);
                     break;
+                case AddAction:
+                {
+                    StateTreeContextHost carrier = Carrier();
+                    if (carrier != null)
+                        Add(carrier.Context, value, 1);
+                    break;
+                }
+
                 case TakeoffAction:
                 {
                     // Typed request values name ROWS; the domain speaks ids — resolved

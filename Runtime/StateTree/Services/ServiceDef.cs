@@ -395,6 +395,13 @@ namespace PowerOfFire.DrawToPlay
     /// so authoring surfaces can offer the project's request keys instead of a text box
     /// (a graph pin's picker, an inspector dropdown). The value is still a plain string:
     /// the attribute is an affordance, never a contract.</summary>
+    /// <summary>A string field that names a declared ANNOUNCEMENT key (M38.1) — the twin of
+    /// <see cref="ServiceRequestKeyAttribute"/>, so a picker can offer what the defs announce.</summary>
+    [AttributeUsage(AttributeTargets.Field)]
+    public sealed class ServiceAnnouncementKeyAttribute : Attribute
+    {
+    }
+
     [AttributeUsage(AttributeTargets.Field)]
     public sealed class ServiceRequestKeyAttribute : Attribute
     {

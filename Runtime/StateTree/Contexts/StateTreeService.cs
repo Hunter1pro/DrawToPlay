@@ -173,8 +173,24 @@ namespace PowerOfFire.DrawToPlay
         protected void Announce(string key, object payload)
         {
             Dictionary<string, object> board = Board();
-            if (board != null && !string.IsNullOrEmpty(key))
-                board[key] = payload;
+            if (board == null || string.IsNullOrEmpty(key))
+                return;
+            board[key] = payload;
+            // EVERY ANNOUNCEMENT HAS A NUMBER (M38.1). The payload stays on the key for anyone
+            // to read, and nothing consumes it — so a listener that wants "dawn happened" rather
+            // than "dawn has happened at some point" needs a way to tell the second announcement
+            // from the first even when the payload reads the same. The serial beside the key is
+            // that: it only ever grows, and AnnouncementCondition fires once per step of it.
+            string serialKey = AnnouncementSerialKey(key);
+            board[serialKey] = board.TryGetValue(serialKey, out object held) && held is int serial
+                ? serial + 1
+                : 1;
+        }
+
+        /// <summary>Where an announcement's serial lives beside its payload: <c>key.announced</c>.</summary>
+        public static string AnnouncementSerialKey(string key)
+        {
+            return key + ".announced";
         }
 
         /// <summary>Everything this subsystem holds open, released. The scope disposes what it
