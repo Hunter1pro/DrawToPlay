@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -13,27 +14,25 @@ namespace PowerOfFire.DrawToPlay
     /// Crafting that cannot be SEEN is crafting that does not exist, which is exactly the
     /// report that produced this file.
     ///
-    /// A DUMB SKIN, like the bag: it is handed a <see cref="CraftOffer"/> with both numbers
-    /// already counted per cost, and it emits one request key. It resolves nothing, counts
-    /// nothing and decides nothing — including whether the button should be live, which is a
-    /// rule and therefore the service's to answer.
+    /// THE STATION'S SCREEN, HT-shaped (M39): it holds its service, draws the
+    /// <see cref="CraftOffer"/> the service publishes — both numbers already counted per cost,
+    /// whether the button should be live already decided — and its one button asks the service
+    /// to start the craft. It resolves nothing and counts nothing; what it knows about the
+    /// world is what <see cref="CraftService.offerChanged"/> tells it.
     /// </summary>
     [AddComponentMenu("Draw To Play/UI/Craft Panel")]
     [RequireComponent(typeof(UIDocument))]
-    [UiVerbContract("show", "a CraftOffer — the station's whole offer")]
     [UiVerbContract("close")]
-    [UiVerbContract("announce", "a CraftResult — what the last craft came to")]
     public sealed class CraftPanelView : UiViewBehaviour
     {
-        /// <summary>Make one of it. Value = the recipe row's name.</summary>
-        public const string MakeKey = "ui.craft.make";
+        /// <summary>The bench this panel speaks for — handed over at spawn, never looked up.</summary>
+        [InjectService] private CraftService m_Craft;
 
         private VisualElement m_Panel;
         private Label m_Title;
         private Label m_Result;
         private VisualElement m_Costs;
         private Button m_Make;
-        private string m_Recipe = "";
 
         private static readonly Color k_Met = new Color(0.62f, 0.88f, 0.55f);
         private static readonly Color k_Short = new Color(0.95f, 0.62f, 0.45f);
@@ -77,7 +76,7 @@ namespace PowerOfFire.DrawToPlay
             m_Costs = new VisualElement();
             m_Panel.Add(m_Costs);
 
-            m_Make = new Button(() => Request(MakeKey, m_Recipe)) { text = "CRAFT" };
+            m_Make = new Button(() => m_Craft?.StartCrafting()) { text = "CRAFT" };
             m_Make.style.height = 40f;
             m_Make.style.marginTop = 8f;
             m_Make.style.fontSize = 14f;
@@ -108,19 +107,36 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        /// <summary>The payload flavour: the offer to draw, or the result to say.</summary>
-        public override bool Call(string verb, string argument, object payload)
+        /// <summary>SPAWN-TIME IS BIND-TIME: the UI service has injected <see cref="m_Craft"/>
+        /// by the time it calls this, so this is where the panel starts listening and draws
+        /// whatever the bench is already offering.</summary>
+        public override void Bind(IReadOnlyList<GraphTaskParameter> arguments)
         {
-            switch (verb)
+            Listen(m_Craft);
+            Show(m_Craft != null ? m_Craft.offer : null);
+        }
+
+        private void OnDisable()
+        {
+            Listen(null);
+        }
+
+        private CraftService m_Listening;
+
+        private void Listen(CraftService craft)
+        {
+            if (ReferenceEquals(m_Listening, craft))
+                return;
+            if (m_Listening != null)
             {
-                case "show":
-                    Show(payload as CraftOffer);
-                    return true;
-                case "announce":
-                    Announce(payload as CraftResult);
-                    return true;
-                default:
-                    return Call(verb, argument);
+                m_Listening.offerChanged -= Show;
+                m_Listening.crafted -= Announce;
+            }
+            m_Listening = craft;
+            if (craft != null)
+            {
+                craft.offerChanged += Show;
+                craft.crafted += Announce;
             }
         }
 
@@ -136,7 +152,6 @@ namespace PowerOfFire.DrawToPlay
                 return;
             }
 
-            m_Recipe = offer.recipeName;
             m_Title.text = offer.stationName + " — " + (string.IsNullOrEmpty(offer.displayName)
                 ? offer.recipeName : offer.displayName);
 

@@ -20,10 +20,8 @@ namespace PowerOfFire.DrawToPlay
     /// (equipment occupies a slot row and holds its Modifier effects as revertible attribute
     /// grants until unequipped or swapped) are the item rows' declarations, unchanged.
     /// </summary>
-    [ServiceActionContract(UseAction, "value = item name", typeof(ItemUseResult))]
-    [ServiceActionContract(WearAction, "value = item name")]
-    [ServiceActionContract(TakeoffAction, "value = slot name")]
     [ServiceActionContract(AddAction, "value = item name — one is put in the bag")]
+    [ServiceActionContract(OpenAction, "the bag panel opens — a gift wants to be seen")]
     public sealed class InventoryService : StateTreeService, IBag
     {
         /// <summary>
@@ -41,21 +39,21 @@ namespace PowerOfFire.DrawToPlay
                     definition);
         }
 
-        // The action vocabulary as SYMBOLS — the attribute above, the switch below, and
-        // the builder all reference these, so declaration and dispatch cannot drift.
-        public const string UseAction = "use";
-        public const string WearAction = "wear";
-        public const string TakeoffAction = "takeoff";
-
-        /// <summary>The one PUBLIC verb (M38.1): put an item in the bag — what a keeper's gift, a
-        /// quest reward or a cheat asks for by key. The three above are the bag's own buttons.</summary>
+        // THE DECLARED VERBS (M39): what a flow wires — a gift, and "show me". Use, wear and
+        // take off are the bag's own buttons, and its screen calls them in C#; they were rows
+        // once, marked internal, which is a def admitting nobody else should call them.
         public const string AddAction = "add";
+        public const string OpenAction = "open";
 
         /// <summary>Raised after any carried-count change, so views redraw instead of poll.</summary>
         public event Action changed;
 
         /// <summary>Raised after equip/unequip/swap.</summary>
         public event Action equipmentChanged;
+
+        /// <summary>Raised when something asked the bag to be seen — the keeper after a gift.
+        /// The screen opens on it; the service holds no screen.</summary>
+        public event Action opened;
 
         private readonly List<ItemStack> m_Stacks = new List<ItemStack>();
 
@@ -76,56 +74,30 @@ namespace PowerOfFire.DrawToPlay
         public ItemRegistry registry =>
             definition != null ? definition.registry as ItemRegistry : null;
 
-        /// <summary>
-        /// THE DOMAIN HOOK (§4g): what a request's action MEANS. Every one of the bag's
-        /// handlers is single-frame — verb, beats, consume — so no state tree serves
-        /// them; the rows say the beats, this switch says the verbs, and every served
-        /// request ends with the skin redrawn to the truth.
-        /// </summary>
+        /// <summary>THE DOMAIN HOOK (§4g): what a request's action means.</summary>
         protected override void OnRequest(ServiceRequest request, string value)
         {
             switch (request.action)
             {
-                case UseAction:
-                {
-                    ItemDef row = Row(value);
-                    bool used = Use(value);
-                    // The announcement (§4d): the whole story as one contract object —
-                    // whoever cares reads the class, and the class is where it grows.
-                    Announce(ItemUseResult.Key, new ItemUseResult
-                    {
-                        item = row, itemName = value ?? "", used = used
-                    });
-                    break;
-                }
-                case WearAction:
-                    Equip(value);
-                    break;
                 case AddAction:
                     Add(value, 1);
                     break;
-
-                case TakeoffAction:
-                {
-                    // Typed request values name ROWS; the domain speaks ids — resolved
-                    // here at the boundary, an id passing through untouched.
-                    EquipmentSlotRegistry slots = Slots();
-                    var named = slots != null
-                        ? slots.FindByName(value) as EquipmentSlotDef
-                        : null;
-                    Unequip(named != null ? named.id : value);
+                case OpenAction:
+                    Open();
                     break;
-                }
             }
-            RedrawSpawnedBags();
         }
 
-        /// <summary>Build the read model and hand it to a bag skin — the one place domain
-        /// and skin meet, shared by the def-served path and the RedrawBagTask atom.</summary>
-        public void RedrawInto(InventoryWidgetView widget)
+        /// <summary>Ask the screen to open — whoever is drawing this bag hears it.</summary>
+        public void Open()
         {
-            if (widget == null)
-                return;
+            opened?.Invoke();
+        }
+
+        /// <summary>The equipment half of what a screen draws: one line per declared slot,
+        /// with what is worn in it. Reused like <see cref="Stacks"/>.</summary>
+        public IReadOnlyList<BagSlotLine> SlotLines()
+        {
             m_Lines.Clear();
             EquipmentSlotRegistry slots = Slots();
             for (int i = 0; slots != null && i < slots.entries.Count; i++)
@@ -143,114 +115,8 @@ namespace PowerOfFire.DrawToPlay
                     worn == null ? "" : (string.IsNullOrEmpty(worn.displayName)
                         ? worn.name : worn.displayName)));
             }
-            widget.Redraw(Stacks(), m_Lines);
+            return m_Lines;
         }
-
-        /// <summary>Every bag this service is showing, redrawn to the present.</summary>
-        private void RedrawSpawnedBags()
-        {
-            for (int i = m_Bags.Count - 1; i >= 0; i--)
-            {
-                if (m_Bags[i] == null)
-                {
-                    m_Bags.RemoveAt(i);   // a destroyed skin forgets itself
-                    continue;
-                }
-                RedrawInto(m_Bags[i]);
-            }
-        }
-
-        /// <summary>
-        /// THE SKIN IS HELD, NOT HUNTED (M32). This used to re-find its own screen on every
-        /// change — ShownView by name, then GetComponentInChildren for the widget — which is a
-        /// search per redraw and the wrong answer the day two bags are open.
-        ///
-        /// The UI service says when it shows something and when it hides it. That is the moment
-        /// to take a reference and the moment to drop one, so the bag the service redraws is
-        /// exactly the bag it was given.
-        /// </summary>
-        private void OnUiShown(UiDef row, GameObject view)
-        {
-            if (row == null || view == null || !Spawns(row.name))
-                return;
-            var widget = view.GetComponentInChildren<InventoryWidgetView>(true);
-            if (widget == null || m_Bags.Contains(widget))
-                return;
-            m_Bags.Add(widget);
-            RedrawInto(widget);
-        }
-
-        private void OnUiHidden(UiDef row)
-        {
-            if (row == null || !Spawns(row.name))
-                return;
-            for (int i = m_Bags.Count - 1; i >= 0; i--)
-            {
-                if (m_Bags[i] == null || m_Bags[i].gameObject == null
-                    || !m_Bags[i].gameObject.activeInHierarchy)
-                    m_Bags.RemoveAt(i);
-            }
-        }
-
-        /// <summary>Is this one of the screens this def says it owns?</summary>
-        private bool Spawns(string uiRowName)
-        {
-            ServiceDef def = definition;
-            for (int i = 0; def != null && i < def.spawns.Count; i++)
-            {
-                if (def.spawns[i] != null && def.spawns[i].entryName == uiRowName)
-                    return true;
-            }
-            return false;
-        }
-
-        private readonly List<InventoryWidgetView> m_Bags = new List<InventoryWidgetView>();
-
-        /// <summary>
-        /// THE FIRST TICK, when the world is assembled (M33): the def is validated, the flow
-        /// tree is running and the declared screens are up — so the bag takes the one already
-        /// on screen here rather than waiting to notice it.
-        /// </summary>
-        protected override void OnStarted()
-        {
-            // IT REDRAWS ITSELF: every mutation raises these — its own verbs, a pickup, a save
-            // restore — so nobody outside needs to ask it to refresh.
-            changed += RedrawSpawnedBags;
-            equipmentChanged += RedrawSpawnedBags;
-
-            UiService ui = Ui;
-            if (ui == null)
-                return;
-            ui.shown += OnUiShown;
-            ui.hidden += OnUiHidden;
-            m_Screens = ui;
-
-            ServiceDef def = definition;
-            for (int i = 0; def != null && i < def.spawns.Count; i++)
-            {
-                var spawn = def.spawns[i];
-                if (spawn == null || string.IsNullOrEmpty(spawn.entryName))
-                    continue;
-                OnUiShown(ui.Find(spawn.entryName), ui.ShownView(spawn.entryName));
-            }
-        }
-
-        /// <summary>Everything the bag holds open, released with its scope.</summary>
-        public override void Dispose()
-        {
-            changed -= RedrawSpawnedBags;
-            equipmentChanged -= RedrawSpawnedBags;
-            if (m_Screens != null)
-            {
-                m_Screens.shown -= OnUiShown;
-                m_Screens.hidden -= OnUiHidden;
-                m_Screens = null;
-            }
-            m_Bags.Clear();
-            base.Dispose();
-        }
-
-        private UiService m_Screens;
 
         // ---- the carried counts ---------------------------------------------------------
 
@@ -358,13 +224,23 @@ namespace PowerOfFire.DrawToPlay
 
         // ---- USE: a consumable spends one for its picked effect ------------------------
 
-        /// <summary>Spend one and apply the row's use effect to the player. False when the
-        /// item is not usable, not carried, or nobody is there to apply it to.</summary>
-        public bool Use(string itemName)
+        /// <summary>Spend one and apply the row's use effect to the carrier. The answer is
+        /// returned to whoever asked AND announced under <see cref="ItemUseResult.Key"/>, so a
+        /// screen shows it directly and a graph can still react to it. Not used when the item
+        /// is not usable, not carried, or nobody is there to apply it to.</summary>
+        public ItemUseResult Use(string itemName)
         {
             ItemDef row = Row(itemName);
+            var result = new ItemUseResult { item = row, itemName = itemName ?? "", used = Spend(row) };
+            Announce(ItemUseResult.Key, result);
+            return result;
+        }
+
+        private bool Spend(ItemDef row)
+        {
             if (row == null || string.IsNullOrEmpty(row.useEffect.entryName))
                 return false;
+            string itemName = row.name;
             StateTreeContextHost player = Carrier();
             if (player == null)
                 return false;

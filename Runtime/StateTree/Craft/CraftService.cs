@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -19,7 +20,6 @@ namespace PowerOfFire.DrawToPlay
     /// player will never forgive.
     /// </summary>
     [ServiceActionContract(CraftAction, "value = recipe name", typeof(CraftResult))]
-    [ServiceActionContract(StartAction, "value = recipe name — the player performs it")]
     public sealed class CraftService : StateTreeService
     {
 
@@ -54,9 +54,18 @@ namespace PowerOfFire.DrawToPlay
         /// demo's def all reference this, so declaration and dispatch cannot drift.</summary>
         public const string CraftAction = "craft";
 
-        /// <summary>The panel button's action: START the player crafting rather than crafting
-        /// for them. Both roads end at <see cref="CraftAction"/> — one after a swing.</summary>
-        public const string StartAction = "craft-start";
+        /// <summary>What the nearest station offers right now, or null — the panel's whole
+        /// model. Recomputed each tick, announced through <see cref="offerChanged"/> only when
+        /// the sentence would differ.</summary>
+        public CraftOffer offer { get; private set; }
+
+        /// <summary>The offer changed: a bench came into reach, went out of it, or the bag's
+        /// counts moved. Null means "no bench here". What the panel draws on.</summary>
+        public event Action<CraftOffer> offerChanged;
+
+        /// <summary>What a craft came to — made or refused — as it is announced. What the
+        /// panel says on.</summary>
+        public event Action<CraftResult> crafted;
 
 
 
@@ -68,48 +77,22 @@ namespace PowerOfFire.DrawToPlay
         [InjectService] private IBag m_Inventory;
 
         /// <summary>
-        /// WHAT THE PLAYER IS STANDING AT, pushed to the panel each tick.
-        ///
-        /// The service polls and the view does not, which is the doctrine's whole shape: a
-        /// skin that asked "am I near a bench" would need the world, the player and the
-        /// recipe catalog — three references a piece of screen has no business holding. Here
-        /// it is one distance check on the subsystem that already owns all three.
+        /// WHAT THE PLAYER IS STANDING AT, recomputed each tick. The service polls and the
+        /// panel does not: a skin that asked "am I near a bench" would need the world, the
+        /// player and the recipe catalog — three references a piece of screen has no business
+        /// holding. Here it is one distance check on the subsystem that already owns all three,
+        /// and the panel hears about it only when the answer changed.
         /// </summary>
         protected override void OnTick(float deltaTime)
         {
-            PushOffer();
-        }
-
-        private void PushOffer()
-        {
-            UiService ui = Ui;
-            if (ui == null)
-                return;
-            GameObject view = ui.ShownView("craft");
-            CraftPanelView panel = view != null
-                ? view.GetComponentInChildren<CraftPanelView>(true)
-                : null;
-            if (panel == null)
-                return;
-
-            CraftOffer offer = OfferAt(StateTreeContextHost.Resolve(scope.gameObject,
+            CraftOffer next = OfferAt(StateTreeContextHost.Resolve(scope.gameObject,
                 StateTreeContextKind.Player));
-            if (offer == null)
-            {
-                if (m_Shown.Length > 0)
-                    panel.Close();
-                m_Shown = "";
-                return;
-            }
-
-            // ONLY WHEN IT CHANGED. Pushing every frame would rebuild a handful of labels
-            // sixty times a second to say the same sentence — the panel is a statement, not an
-            // animation, and its own contents are the cheapest possible description of it.
-            string signature = Signature(offer);
+            string signature = next == null ? "" : Signature(next);
             if (signature == m_Shown)
                 return;
             m_Shown = signature;
-            panel.Show(offer);
+            offer = next;
+            offerChanged?.Invoke(next);
         }
 
         private static string Signature(CraftOffer offer)
@@ -124,8 +107,8 @@ namespace PowerOfFire.DrawToPlay
             return signature;
         }
 
-        /// <summary>What the panel is currently saying, so it is only told again when the
-        /// sentence would differ. Empty means nothing is on screen.</summary>
+        /// <summary>The offer as last announced, so it is only announced again when the
+        /// sentence would differ. Empty means "no bench".</summary>
         private string m_Shown = "";
 
         /// <summary>
@@ -201,21 +184,8 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>THE DOMAIN HOOK (§4g): what the request's action means.</summary>
         protected override void OnRequest(ServiceRequest request, string value)
         {
-            switch (request.action)
-            {
-                case CraftAction:
-                    Craft(value);
-                    break;
-
-                // THE PANEL'S BUTTON IS THE WORLD PRESS. It could have crafted directly — the
-                // verb is right here — and that would have been a second way to spend three
-                // timber, with its own timing, its own animation (none) and its own bugs. It
-                // asks the PLAYER to do it instead, so the bench answers the same way however
-                // you asked, hammering included.
-                case StartAction:
-                    StartCrafting();
-                    break;
-            }
+            if (request.action == CraftAction)
+                Craft(value);
         }
 
         /// <summary>
@@ -280,39 +250,42 @@ namespace PowerOfFire.DrawToPlay
                 ? result.recipe.displayName
                 : result.itemName;
             result.line = result.count > 1 ? made + " ×" + result.count : made;
-
-            Announce(CraftResult.Key, result);
-            return result;
+            return Tell(result);
         }
 
         /// <summary>
-        /// Ask the player to perform its craft ability. The ability finds the bench itself,
-        /// holds the pose for its clip, and sends the public request when it lands — so this
-        /// method knows nothing about recipes, and the panel button and the action button are
-        /// genuinely one flow.
+        /// THE PANEL'S BUTTON IS THE WORLD PRESS. It could have crafted directly — the verb is
+        /// right here — and that would have been a second way to spend three timber, with its
+        /// own timing, its own animation (none) and its own bugs. It asks the PLAYER to perform
+        /// the craft ability instead: the ability holds the pose for its clip and asks
+        /// <see cref="CraftAction"/> when it lands, so the bench answers the same way however
+        /// you asked, hammering included.
         /// </summary>
-        private void StartCrafting()
+        public void StartCrafting()
         {
             StateTreeContextHost player = StateTreeContextHost.Resolve(scope.gameObject,
                 StateTreeContextKind.Player);
             var host = player != null ? player.GetComponent<AbilityHost>() : null;
             if (host != null && host.Activate("craft"))
                 return;
-
             // A press that does nothing is the bug this whole pass is about, so say why.
-            Announce(CraftResult.Key, new CraftResult
-            {
-                refusal = "not now", line = "not now"
-            });
+            Tell(new CraftResult { refusal = "not now", line = "not now" });
         }
 
-        /// <summary>A refusal, announced like a success. Every way of not crafting leaves the
-        /// same contract on the board, so a skin that shows craft outcomes shows this one too
-        /// without a second channel or a second beat.</summary>
+        /// <summary>A refusal, told like a success. Every way of not crafting leaves the same
+        /// contract on the board, so whoever shows craft outcomes shows this one too.</summary>
         private CraftResult Refuse(CraftResult result)
         {
             result.line = result.refusal;
+            return Tell(result);
+        }
+
+        /// <summary>One outcome, everywhere it is heard: the board (a graph's `craft.last`),
+        /// and whoever is listening in C# — the panel.</summary>
+        private CraftResult Tell(CraftResult result)
+        {
             Announce(CraftResult.Key, result);
+            crafted?.Invoke(result);
             return result;
         }
     }

@@ -187,7 +187,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             int changes = 0;
             m_Service.changed += () => changes++;
 
-            Assert.IsTrue(m_Service.Use("ration"));
+            Assert.IsTrue(m_Service.Use("ration").used);
             Assert.AreEqual(1, m_Service.Count("ration"), "one spent");
             Assert.AreEqual(4f, m_Vitals.Value(AttributeNames.Health), 0.001f,
                 "the picked heal landed on the player's attribute");
@@ -197,12 +197,12 @@ namespace PowerOfFire.DrawToPlay.Tests
         [Test]
         public void Use_RefusesAnEmptyBag_AndANonUsableRow()
         {
-            Assert.IsFalse(m_Service.Use("ration"), "not carried");
+            Assert.IsFalse(m_Service.Use("ration").used, "not carried");
             Assert.AreEqual(5f, m_Vitals.Value(AttributeNames.Health), 0.001f,
                 "nothing applied");
 
             m_Service.Add("keycard");
-            Assert.IsFalse(m_Service.Use("keycard"), "a row with no use effect is not usable");
+            Assert.IsFalse(m_Service.Use("keycard").used, "a row with no use effect is not usable");
             Assert.AreEqual(1, m_Service.Count("keycard"),
                 "and nothing was spent");
         }
@@ -284,23 +284,23 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             var use = ScriptableObject.CreateInstance<UseItemTask>();
             m_Assets.Add(use);
-            use.itemKey = new StateTreeKeyField(InventoryWidgetView.UseKey);
-            m_Root.Context.blackboard[InventoryWidgetView.UseKey] = "ration";
+            use.itemKey = new StateTreeKeyField("ui.bag.use");
+            m_Root.Context.blackboard["ui.bag.use"] = "ration";
             Assert.AreEqual(StateTreeStatus.Success, use.OnTick(m_Root.Context, 0f));
             Assert.AreEqual(4f, m_Vitals.Value(AttributeNames.Health), 0.001f,
                 "the key named the ration; the heal landed");
 
             var wear = ScriptableObject.CreateInstance<EquipItemTask>();
             m_Assets.Add(wear);
-            wear.itemKey = new StateTreeKeyField(InventoryWidgetView.WearKey);
-            m_Root.Context.blackboard[InventoryWidgetView.WearKey] = "relic";
+            wear.itemKey = new StateTreeKeyField("ui.bag.wear");
+            m_Root.Context.blackboard["ui.bag.wear"] = "relic";
             Assert.AreEqual(StateTreeStatus.Success, wear.OnTick(m_Root.Context, 0f));
             Assert.IsTrue(m_Service.IsEquipped("relic"));
 
             var takeoff = ScriptableObject.CreateInstance<UnequipItemTask>();
             m_Assets.Add(takeoff);
-            takeoff.slotKey = new StateTreeKeyField(InventoryWidgetView.TakeoffKey);
-            m_Root.Context.blackboard[InventoryWidgetView.TakeoffKey] = "slot.trinket";
+            takeoff.slotKey = new StateTreeKeyField("ui.bag.takeoff");
+            m_Root.Context.blackboard["ui.bag.takeoff"] = "slot.trinket";
             Assert.AreEqual(StateTreeStatus.Success, takeoff.OnTick(m_Root.Context, 0f));
             Assert.IsFalse(m_Service.IsEquipped("relic"),
                 "the key named the slot; the relic came off");
@@ -313,7 +313,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             var wear = ScriptableObject.CreateInstance<EquipItemTask>();
             m_Assets.Add(wear);
             wear.item.entryName = "relic";
-            wear.itemKey = new StateTreeKeyField(InventoryWidgetView.WearKey);   // key absent
+            wear.itemKey = new StateTreeKeyField("ui.bag.wear");   // key absent
             Assert.AreEqual(StateTreeStatus.Success, wear.OnTick(m_Root.Context, 0f),
                 "no request on the board — the authored row is the target");
             Assert.IsTrue(m_Service.IsEquipped("relic"));
@@ -371,28 +371,47 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void DefServedRequest_RunsTheDomainHook_AndConsumes()
         {
             // §4g: no state tree anywhere — the def row IS the handler. Pending key →
-            // domain hook (use + announce) → consume, in one tick.
-            m_Vitals.Consume(AttributeNames.Health, 3f);
-            m_Service.Add("ration", 2);
+            // domain hook (add) → consume, in one tick. And "show me" reaches whoever is
+            // drawing the bag as an event, not a screen the service holds.
             m_Service.definition.requests.Add(new ServiceRequest
             {
-                key = "test.use", action = "use", namesRowOf = m_Items,
+                key = "test.add", action = InventoryService.AddAction, namesRowOf = m_Items,
                 description = "serve directly"
             });
+            m_Service.definition.requests.Add(new ServiceRequest
+            {
+                key = "test.open", action = InventoryService.OpenAction
+            });
+            int opened = 0;
+            m_Service.opened += () => opened++;
 
-            m_Root.Context.blackboard["test.use"] = "ration";
+            m_Root.Context.blackboard["test.add"] = "ration";
+            m_Root.Context.blackboard["test.open"] = "1";
             m_Service.Tick(0.02f);
 
-            Assert.AreEqual(1, m_Service.Count("ration"),
-                "the domain verb ran");
-            Assert.AreEqual(4f, m_Vitals.Value(AttributeNames.Health), 0.001f);
-            Assert.IsFalse(m_Root.Context.blackboard.ContainsKey("test.use"),
+            Assert.AreEqual(1, m_Service.Count("ration"), "the domain verb ran");
+            Assert.IsFalse(m_Root.Context.blackboard.ContainsKey("test.add"),
                 "and the request was consumed");
+            Assert.AreEqual(1, opened, "the screen was asked to open, through the service");
+        }
+
+        [Test]
+        public void Use_AnswersWithTheContract_AndAnnouncesIt()
+        {
+            // The screen calls Use and shows the answer it gets back; a graph reads the same
+            // answer off the board under the declared key. One call, both audiences.
+            m_Vitals.Consume(AttributeNames.Health, 3f);
+            m_Service.Add("ration", 2);
+
+            ItemUseResult result = m_Service.Use("ration");
+            Assert.IsTrue(result.used);
+            Assert.AreSame(m_Service.Row("ration"), result.item,
+                "the contract carries the DEFINITION, not a name to re-resolve");
+            Assert.AreEqual(1, m_Service.Count("ration"));
+            Assert.AreEqual(4f, m_Vitals.Value(AttributeNames.Health), 0.001f);
 
             var payload = m_Root.Context.blackboard[ItemUseResult.Key] as ItemUseResult;
-            Assert.IsNotNull(payload, "the announcement landed as its contract class");
-            Assert.IsTrue(payload.used);
-            Assert.AreSame(m_Service.Row("ration"), payload.item);
+            Assert.AreSame(result, payload, "the announcement IS the answer");
         }
 
         [Test]

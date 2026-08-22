@@ -39,14 +39,8 @@ namespace PowerOfFire.DrawToPlay
             if (inventory == null)
                 return StateTreeStatus.Failure;
             string itemName = ItemTaskName.Resolve(context, itemKey, item.entryName);
-            bool used = inventory.Use(itemName);
-            m_Result = new ItemUseResult
-            {
-                item = inventory.Row(itemName),
-                itemName = itemName ?? "",
-                used = used
-            };
-            return used ? StateTreeStatus.Success : StateTreeStatus.Failure;
+            m_Result = inventory.Use(itemName);
+            return m_Result.used ? StateTreeStatus.Success : StateTreeStatus.Failure;
         }
 
         /// <summary>The contract payload rides the output channel whole; the item's name

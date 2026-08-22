@@ -5,35 +5,25 @@ using UnityEngine.UIElements;
 namespace PowerOfFire.DrawToPlay
 {
     /// <summary>
-    /// THE BAG AS A DUMB SYSTEM (the UI wiring brief, variant B) — pixels in, requests out,
-    /// and nothing else. The panel never finds a service, never subscribes, never decides:
-    /// it draws exactly what <see cref="Redraw"/> hands it, and every press becomes ONE
-    /// request key on the root blackboard (<see cref="UiViewBehaviour.Request"/>). What a
-    /// press MEANS — the domain verb, the flash, the HUD pulse, the redraw — is a flow
-    /// STATE in the session tree, readable in the dashboard as a task list. Swapping this
-    /// skin for a radial one changes a prefab reference; the flows never notice.
+    /// THE BAG'S SCREEN (M39) — HT's <c>PlayerItemUISystem</c> shape: the screen holds its
+    /// service, draws what the service holds, and calls the service's verbs from its buttons.
+    /// It is handed the service when the UI service spawns it (the wiring law: views never
+    /// poll and never resolve), subscribes to <see cref="InventoryService.changed"/> and
+    /// redraws on it, and asks nothing of anyone else. What a press means is one method on
+    /// the bag — <c>Use</c>, <c>Equip</c>, <c>Unequip</c> — readable here, top to bottom.
+    ///
+    /// What crosses subsystems stays declared: the keeper's gift asks <c>bag.add</c>, and
+    /// "show me" asks <c>bag.open</c>, which lands here through <see cref="InventoryService.opened"/>.
     /// </summary>
     [AddComponentMenu("Draw To Play/UI/Inventory Widget")]
     [RequireComponent(typeof(UIDocument))]
     [UiVerbContract("toggle")]
     [UiVerbContract("open")]
     [UiVerbContract("close")]
-    [UiVerbContract("flash", "item name")]
-    [UiVerbContract("announce", "ItemUseResult payload")]
     public sealed class InventoryWidgetView : UiViewBehaviour
     {
-        // ---- the request vocabulary: the whole surface between this skin and the flows --
-
-        public const string ToggleKey = "ui.bag.toggle";
-
-        /// <summary>Value = the item's registry name.</summary>
-        public const string UseKey = "ui.bag.use";
-
-        /// <summary>Value = the item's registry name.</summary>
-        public const string WearKey = "ui.bag.wear";
-
-        /// <summary>Value = the slot row's id.</summary>
-        public const string TakeoffKey = "ui.bag.takeoff";
+        /// <summary>The bag this screen draws — handed over at spawn, never looked up.</summary>
+        [InjectService] private InventoryService m_Bag;
 
 
         [Tooltip("Edge length of one item cell in the grid.")]
@@ -60,7 +50,7 @@ namespace PowerOfFire.DrawToPlay
             // clickable sits on an explicit pickable layer above it.
             root.pickingMode = PickingMode.Ignore;
 
-            m_Toggle = new Button(() => Request(ToggleKey)) { text = "▮ BAG" };
+            m_Toggle = new Button(ToggleOpen) { text = "▮ BAG" };
             m_Toggle.style.position = Position.Absolute;
             m_Toggle.style.top = 16f;
             m_Toggle.style.right = 16f;
@@ -133,10 +123,78 @@ namespace PowerOfFire.DrawToPlay
         private VisualElement m_AnnounceLine;
         private Label m_Announce;
 
-        /// <summary>§4e's binding demo, end to end: the flow routed a typed object here;
-        /// the label's text is a DataBinding with a PropertyPath into that class —
-        /// nameof-safe, refactor-following — shown for a beat and gone.</summary>
-        private void Announce(object payload)
+        // ---- the service: handed over at spawn, listened to, called -------------------
+
+        /// <summary>SPAWN-TIME IS BIND-TIME: the UI service has injected <see cref="m_Bag"/>
+        /// by the time it calls this, so this is where the screen starts listening and draws
+        /// the first time. Re-binding (a re-show) is harmless — one subscription either way.</summary>
+        public override void Bind(IReadOnlyList<GraphTaskParameter> arguments)
+        {
+            Listen(m_Bag);
+            Redraw();
+        }
+
+        private void OnDisable()
+        {
+            Listen(null);
+        }
+
+        private InventoryService m_Listening;
+
+        private void Listen(InventoryService bag)
+        {
+            if (ReferenceEquals(m_Listening, bag))
+                return;
+            if (m_Listening != null)
+            {
+                m_Listening.changed -= Redraw;
+                m_Listening.equipmentChanged -= Redraw;
+                m_Listening.opened -= Open;
+            }
+            m_Listening = bag;
+            if (bag != null)
+            {
+                bag.changed += Redraw;
+                bag.equipmentChanged += Redraw;
+                bag.opened += Open;
+            }
+        }
+
+        /// <summary>Draw what the bag holds, and flash whatever just went UP — a gift, a
+        /// pickup, a craft — which the screen can tell from its own last drawing.</summary>
+        public void Redraw()
+        {
+            if (m_Bag == null)
+            {
+                Redraw(null, null);
+                return;
+            }
+            IReadOnlyList<ItemStack> stacks = m_Bag.Stacks();
+            Redraw(stacks, m_Bag.SlotLines());
+
+            if (m_Drawn)
+            {
+                for (int i = 0; i < stacks.Count; i++)
+                {
+                    m_LastCounts.TryGetValue(stacks[i].definition.name, out int was);
+                    if (stacks[i].count > was)
+                        Flash(stacks[i].definition.name);
+                }
+            }
+            m_Drawn = true;
+            m_LastCounts.Clear();
+            for (int i = 0; i < stacks.Count; i++)
+                m_LastCounts[stacks[i].definition.name] = stacks[i].count;
+        }
+
+        private bool m_Drawn;
+        private readonly Dictionary<string, int> m_LastCounts =
+            new Dictionary<string, int>(System.StringComparer.Ordinal);
+
+        /// <summary>The answer to a use, on the line above the grid: the label's text is a
+        /// DataBinding with a PropertyPath into the contract class — nameof-safe,
+        /// refactor-following — shown for a beat and gone.</summary>
+        private void Announce(ItemUseResult payload)
         {
             if (m_Announce == null || payload == null)
                 return;
@@ -153,9 +211,9 @@ namespace PowerOfFire.DrawToPlay
                 .StartingIn(1400);
         }
 
-        // ---- the verbs: what a flow can tell this skin to do ---------------------------
+        // ---- the verbs: what a flow can SAY to this screen --------------------------------
 
-        /// <summary>The generic verb surface (§4c) — what UiCallTask speaks.</summary>
+        /// <summary>The generic verb surface (§4c) — what a Say To node speaks.</summary>
         public override bool Call(string verb, string argument)
         {
             switch (verb)
@@ -163,22 +221,8 @@ namespace PowerOfFire.DrawToPlay
                 case "toggle": ToggleOpen(); return true;
                 case "open": Open(); return true;
                 case "close": Close(); return true;
-                case "flash": Flash(argument); return true;
                 default: return false;
             }
-        }
-
-        /// <summary>The payload flavor (§4e): "announce" takes the routed
-        /// <see cref="ItemUseResult"/> whole and BINDS it — Unity's runtime data binding,
-        /// a PropertyPath against the contract class, no label.text plumbing between.</summary>
-        public override bool Call(string verb, string argument, object payload)
-        {
-            if (verb == "announce")
-            {
-                Announce(payload);
-                return true;
-            }
-            return Call(verb, argument);
         }
 
         public void Open()
@@ -203,8 +247,6 @@ namespace PowerOfFire.DrawToPlay
                 Open();
         }
 
-        /// <summary>Draw exactly this — the flow's redraw task built it, this skin shows
-        /// it. Called with empty lists it shows an empty bag; it never asks for more.</summary>
         /// <summary>
         /// THE BAG, UPDATED IN PLACE (M34) — cells live as long as the item is carried.
         ///
@@ -259,7 +301,6 @@ namespace PowerOfFire.DrawToPlay
                 row.label.style.color = worn
                     ? new Color(0.75f, 0.9f, 1f)
                     : new Color(1f, 1f, 1f, 0.45f);
-                row.slotName = line.slotName;
             }
 
             Prune(m_SlotRows, m_LiveSlots, row => row.root);
@@ -323,22 +364,26 @@ namespace PowerOfFire.DrawToPlay
         }
 
         /// <summary>One press, decided WHEN IT HAPPENS rather than when the cell was built —
-        /// which is what lets a cell outlive a change in what it offers.</summary>
+        /// which is what lets a cell outlive a change in what it offers. Each press is one
+        /// method on the bag; the redraw comes back through <see cref="InventoryService.changed"/>.</summary>
         private void PressCell(ItemDef definition)
         {
-            if (definition == null)
+            if (definition == null || m_Bag == null)
                 return;
             if (!string.IsNullOrEmpty(definition.useEffect.entryName))
             {
-                Request(UseKey, definition.name);
+                ItemUseResult result = m_Bag.Use(definition.name);
+                Announce(result);
+                if (result.used)
+                    Flash(definition.name);
                 return;
             }
             if (string.IsNullOrEmpty(definition.slot.entryId))
                 return;
             if (WornIn(definition.slot.entryId, definition.name))
-                Request(TakeoffKey, definition.slot.entryName);
+                m_Bag.Unequip(definition.slot.entryId);
             else
-                Request(WearKey, definition.name);
+                m_Bag.Equip(definition.name);
         }
 
         /// <summary>Drop what is no longer held, and remember what went so the flash lookup
@@ -380,7 +425,6 @@ namespace PowerOfFire.DrawToPlay
             public Label label;
             public Button button;
             public BagSlotModel model;
-            public string slotName;
         }
 
         private sealed class BagCell
@@ -392,7 +436,7 @@ namespace PowerOfFire.DrawToPlay
 
         private SlotRow BuildSlotRow(BagSlotLine slot)
         {
-            var row = new SlotRow { model = new BagSlotModel(), slotName = slot.slotName };
+            var row = new SlotRow { model = new BagSlotModel() };
             row.root = new VisualElement
             {
                 style =
@@ -406,9 +450,10 @@ namespace PowerOfFire.DrawToPlay
             Bind(row.label, row.model, nameof(BagSlotModel.line));
             row.root.Add(row.label);
 
-            // The typed request value is the slot ROW NAME (§4d): pickable, checkable. The
-            // caption is bound, so the same button reads "take off" only while something is on.
-            row.button = Verb("", () => Request(TakeoffKey, row.slotName));
+            // The caption is bound, so the same button reads "take off" only while something
+            // is on; the press is the bag's own verb.
+            string slotId = slot.slotId;
+            row.button = Verb("", () => m_Bag?.Unequip(slotId));
             Bind(row.button, row.model, nameof(BagSlotModel.verb));
             row.root.Add(row.button);
             return row;

@@ -10,7 +10,7 @@ namespace PowerOfFire.DrawToPlay
     public sealed class ItemUseResult
     {
         /// <summary>Where the bag's use flow lands it on the root blackboard.</summary>
-        public const string Key = "ui.bag.last-use";
+        public const string Key = "bag.used";
 
         /// <summary>The row that was used — the full definition, not a name to re-resolve.</summary>
         public ItemDef item;
