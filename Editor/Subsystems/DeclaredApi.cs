@@ -222,7 +222,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             var clauses = new List<string>();
             if (def.body != null && def.body.IsThing)
             {
-                var isA = new System.Text.StringBuilder("is a body — ").Append(def.body.prefab.name);
+                // A kind IS its body; a subsystem with a class BUILDS one (the quest line's
+                // marker, M42.3) — the same field, read as what it means.
+                var isA = new System.Text.StringBuilder(type != null ? "builds " : "is a body — ")
+                    .Append(def.body.prefab.name);
                 if (def.body.tags.Count > 0)
                     isA.Append(", wears ").Append(string.Join(" ", def.body.tags));
                 if (def.body.mind != ServiceBodyMind.HeldForTheWorld)

@@ -176,9 +176,7 @@ namespace PowerOfFire.DrawToPlay
             progress = 0;
             if (objective != null)
                 m_LinearCursor = objective;
-            Knock();
-            RefreshBanner();
-            AskTheBag();
+            Moved();
         }
 
         /// <summary>
@@ -198,6 +196,105 @@ namespace PowerOfFire.DrawToPlay
         }
 
         private IBag m_Bag;
+
+        /// <summary>
+        /// THE QUEST LINE MOVED — every effect of a change of <see cref="current"/>, in one
+        /// place and in order (meta-rule 1): knock on the save, redraw the banner, ask the bag
+        /// what is already carried, and put the marker where the objective is.
+        /// </summary>
+        private void Moved()
+        {
+            Knock();
+            RefreshBanner();
+            AskTheBag();
+            RefreshMarker();
+        }
+
+        // ---- the marker: the objective standing in the world (M42.3) -------------------
+
+        [ServiceSetting(true, "Put a marker in the world on the objective's target — for the "
+            + "rows that ask for one (worldMarker). Off for a level that would rather stay clean.")]
+        public bool worldMarkers = true;
+
+        /// <summary>How far above the target's feet the marker sits.</summary>
+        private const float k_MarkerGroundOffset = 0.02f;
+
+        private GameObject m_Marker;
+        private ObjectiveDef m_Marked;
+
+        /// <summary>
+        /// THE MARKER IS THE OBJECTIVE'S (M42.3): built from this def's body the moment an
+        /// objective that asks for one becomes current, and destroyed the moment that
+        /// objective is done or replaced — it is part of the objective, not a thing the level
+        /// keeps around. Its colour is the row's accent, worn through <see cref="IWorldTintable"/>
+        /// so the marker, the arrow and the objective line are visibly one thing.
+        /// </summary>
+        private void RefreshMarker()
+        {
+            bool wanted = current != null && current.worldMarker && worldMarkers
+                && definition != null && definition.body.IsThing;
+            if (!wanted)
+            {
+                DestroyMarker();
+                return;
+            }
+            if (m_Marker != null && ReferenceEquals(m_Marked, current))
+                return;
+            DestroyMarker();
+
+            Vector3? at = CurrentTargetPosition();
+            var row = new LevelObjectDef
+            {
+                id = "objective.marker", name = "Objective marker · " + current.name
+            };
+            m_Marker = ServiceBodyFactory.Build(definition, row, scope.transform,
+                MarkerPosition(at ?? scope.transform.position), Quaternion.identity);
+            m_Marked = current;
+            if (m_Marker == null)
+                return;
+            m_Marker.GetComponentInChildren<IWorldTintable>(true)?.SetTint(current.accentColor);
+            m_Marker.SetActive(at != null);
+        }
+
+        /// <summary>Every frame the marker stands: on the nearest carrier of the row's tag,
+        /// or nowhere — an objective whose place is in another level, or a kill count with
+        /// nobody left, simply has no place, which is a normal answer.</summary>
+        private void PlaceMarker()
+        {
+            if (m_Marker == null)
+                return;
+            Vector3? at = CurrentTargetPosition();
+            if (at == null)
+            {
+                if (m_Marker.activeSelf)
+                    m_Marker.SetActive(false);
+                return;
+            }
+            if (!m_Marker.activeSelf)
+                m_Marker.SetActive(true);
+            m_Marker.transform.position = MarkerPosition(at.Value);
+        }
+
+        private static Vector3 MarkerPosition(Vector3 target)
+        {
+            return new Vector3(target.x, target.y + k_MarkerGroundOffset, target.z);
+        }
+
+        private void DestroyMarker()
+        {
+            if (m_Marker != null)
+            {
+                if (Application.isPlaying)
+                    UnityEngine.Object.Destroy(m_Marker);
+                else
+                    UnityEngine.Object.DestroyImmediate(m_Marker);
+            }
+            m_Marker = null;
+            m_Marked = null;
+        }
+
+        /// <summary>The marker this quest line is holding up, or null — the test's window.</summary>
+        public GameObject marker => m_Marker;
 
         /// <summary>The quest line moved — say so to whoever listens (until M40.4 deletes the
         /// event) and knock on the save (meta-rule 1: a call from the change, not a subscription
@@ -230,6 +327,7 @@ namespace PowerOfFire.DrawToPlay
         {
             m_Widget?.Unbind(this);
             m_Widget = null;
+            DestroyMarker();   // the level goes, and the objective's marker with it
             base.Dispose();
         }
 
@@ -260,9 +358,7 @@ namespace PowerOfFire.DrawToPlay
                 m_LinearCursor = next;
                 current = next;
             }
-            Knock();
-            RefreshBanner();
-            AskTheBag();
+            Moved();
         }
 
         /// <summary>Every declared zone starts at the top of its stack. The container row
@@ -333,9 +429,7 @@ namespace PowerOfFire.DrawToPlay
                     {
                         current = m_LinearCursor;
                         progress = 0;
-                        Knock();
-                        RefreshBanner();
-                        AskTheBag();
+                        Moved();
                     }
                 }
                 return;
@@ -351,9 +445,7 @@ namespace PowerOfFire.DrawToPlay
             {
                 current = cursor;
                 progress = 0;
-                Knock();
-                RefreshBanner();
-                AskTheBag();
+                Moved();
             }
         }
 
@@ -431,6 +523,7 @@ namespace PowerOfFire.DrawToPlay
 
             if (current != null && current.kind == ObjectiveKind.MoveTo)
                 CheckArrival();
+            PlaceMarker();
         }
 
         /// <summary>The orchestrator's step, callable without a frame — tests drive it.</summary>
@@ -486,9 +579,7 @@ namespace PowerOfFire.DrawToPlay
             m_LinearCursor = Find(state.linearCursor);
             current = Find(state.currentName);
             progress = state.progress;
-            Knock();
-            RefreshBanner();
-            AskTheBag();
+            Moved();
         }
 
         /// <summary>The MoveTo watcher: nearest zone carrying the row's tag, arrived when

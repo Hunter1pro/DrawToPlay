@@ -118,6 +118,76 @@ namespace PowerOfFire.DrawToPlay.Tests
             return zone;
         }
 
+        /// <summary>A tintable the marker prefab wears — what the quest line colours through
+        /// IWorldTintable.</summary>
+        private sealed class TintRecorder : MonoBehaviour, IWorldTintable
+        {
+            public Color worn = Color.clear;
+
+            public void SetTint(Color tint)
+            {
+                worn = tint;
+            }
+        }
+
+        /// <summary>
+        /// M42.3 — the marker is the objective's. Built from the quest line's own body when an
+        /// objective that asks for one becomes current, placed on its target, tinted its accent;
+        /// destroyed when that objective completes, and never built when the install says no.
+        /// </summary>
+        [Test]
+        public void TheMarker_IsBuiltWithTheObjective_AndGoesWhenItIsDone()
+        {
+            var prefab = new GameObject("Marker") { hideFlags = HideFlags.HideAndDontSave };
+            prefab.AddComponent<TintRecorder>();
+            m_Objects.Add(prefab);
+            m_Service.definition.body.prefab = prefab;
+            m_Service.definition.body.mind = ServiceBodyMind.None;
+
+            MakeCitizen("gate", new Vector3(4f, 0f, 2f), "gate");
+            var go = new ObjectiveDef
+            {
+                id = "objective.go", name = "go", kind = ObjectiveKind.MoveTo,
+                targetTag = "gate", worldMarker = true, accentColor = Color.cyan
+            };
+            var count = new ObjectiveDef
+            {
+                id = "objective.hunt", name = "hunt", kind = ObjectiveKind.EnemyKill, count = 1,
+                targetTag = "bandit", worldMarker = false
+            };
+            m_Registry.entries.Add(go);
+            m_Registry.entries.Add(count);
+
+            Assert.That(m_Service.marker, Is.Null, "nothing current, nothing standing");
+            m_Service.Activate(go);
+            GameObject marker = m_Service.marker;
+            Assert.That(marker, Is.Not.Null, "built with the objective");
+            Assert.That(marker.transform.parent, Is.SameAs(m_Level.transform), "the level's child — it goes with the level");
+            Assert.That(marker.transform.position.x, Is.EqualTo(4f).Within(0.01f));
+            Assert.That(marker.transform.position.z, Is.EqualTo(2f).Within(0.01f));
+            Assert.That(marker.GetComponent<TintRecorder>().worn, Is.EqualTo(Color.cyan), "the row's accent");
+            Assert.That(marker.GetComponent<ServiceBodyBinding>().def, Is.SameAs(m_Service.definition), "knows what built it");
+
+            m_Service.Activate(go);
+            Assert.That(m_Service.marker, Is.SameAs(marker), "re-asserting the same objective keeps the same marker");
+
+            m_Service.Complete();
+            Assert.That(m_Service.marker, Is.Null, "done — and the marker with it");
+            Assert.That(marker == null, Is.True, "destroyed, not hidden");
+
+            m_Service.Activate(count);
+            Assert.That(m_Service.marker, Is.Null, "a row that does not ask for one gets none");
+
+            m_Service.worldMarkers = false;
+            m_Service.Activate(go);
+            Assert.That(m_Service.marker, Is.Null, "the install said no markers in this level");
+            m_Service.worldMarkers = true;
+            m_Service.Activate(go);
+            Assert.That(m_Service.marker, Is.Not.Null);
+            m_Service.Dispose();
+            Assert.That(m_Service.marker, Is.Null, "the level goes, and the objective's marker with it");
+        }
+
         private WorldObjectBehaviour MakeCitizen(string citizenName, Vector3 position,
             params string[] tags)
         {

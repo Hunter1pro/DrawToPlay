@@ -62,6 +62,14 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void TheQuestLine_BuildsItsMarker()
+        {
+            string sentence = DeclaredApi.Sentence(Def("M21ObjectiveService"));
+            Assert.That(sentence, Does.Contain("builds M21ObjectiveMarker"), "M42.3: the marker is the objective's");
+            Assert.That(sentence, Does.Not.Contain("is a body"), "a subsystem with a class builds, a kind is");
+        }
+
+        [Test]
         public void AKind_IsABodyThatHas()
         {
             string sentence = DeclaredApi.Sentence(Def("M21Kind_Player"));
