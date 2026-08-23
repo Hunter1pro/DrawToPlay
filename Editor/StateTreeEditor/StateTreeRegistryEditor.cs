@@ -55,6 +55,16 @@ namespace PowerOfFire.DrawToPlay.Editor
                 Undo.undoRedoPerformed -= Rebuild);
 
             m_Root.Add(BuildAssetFields());
+            // A LEVEL IS MORE THAN A ROW: the level registry offers to make the whole thing —
+            // content, manifest, scene, build entry — in one click (LevelFactory).
+            if (target is LevelRegistry levels)
+            {
+                m_Root.Add(new NewLevelPanel(levels, () =>
+                {
+                    serializedObject.Update();
+                    Rebuild();
+                }));
+            }
             m_Root.Add(BuildToolbar());
             m_ListRoot = new VisualElement();
             m_Root.Add(m_ListRoot);
