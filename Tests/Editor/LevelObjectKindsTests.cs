@@ -21,7 +21,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(second, Is.SameAs(first), "the second ask is the same list — no project walk");
 
             var kinds = AssetDatabase.LoadAssetAtPath<LevelObjectKindRegistry>(
-                "Assets/DrawToPlayExamples/Demo/M21/Registries/M21ObjectKinds.asset");
+                "Assets/DrawToPlayExamples/Demo/M21/Levels/M21ObjectKinds.asset");
             Assume.That(kinds, Is.Not.Null, "run Verify M21 Waystation first");
             Assert.That(first, Does.Contain(kinds));
             LevelObjectKindDef shrine = LevelObjectKinds.Find("", "shrine");
