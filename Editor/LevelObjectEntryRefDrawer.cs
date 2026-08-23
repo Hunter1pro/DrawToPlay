@@ -100,19 +100,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (string.IsNullOrEmpty(kindId) && string.IsNullOrEmpty(kindName))
                 return null;
 
-            string[] guids = AssetDatabase.FindAssets("t:" + nameof(LevelObjectKindRegistry));
-            for (int i = 0; i < guids.Length; i++)
-            {
-                var registry = AssetDatabase.LoadAssetAtPath<LevelObjectKindRegistry>(
-                    AssetDatabase.GUIDToAssetPath(guids[i]));
-                if (registry == null)
-                    continue;
-                var row = (string.IsNullOrEmpty(kindId)
-                    ? registry.FindByName(kindName)
-                    : registry.FindById(kindId)) as LevelObjectKindDef;
-                if (row != null && row.definitions != null)
-                    return row.definitions;
-            }
+            LevelObjectKindDef row = LevelObjectKinds.Find(kindId, kindName);
+            if (row != null && row.definitions != null)
+                return row.definitions;
             return null;
         }
     }

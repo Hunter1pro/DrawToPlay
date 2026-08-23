@@ -87,21 +87,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 path.Substring(0, cut + 1) + marked.kindField);
             string id = kind?.FindPropertyRelative("entryId")?.stringValue;
             string named = kind?.FindPropertyRelative("entryName")?.stringValue;
-            if (string.IsNullOrEmpty(id) && string.IsNullOrEmpty(named))
-                return null;
-
-            foreach (string guid in AssetDatabase.FindAssets(
-                "t:" + nameof(LevelObjectKindRegistry)))
-            {
-                var registry = AssetDatabase.LoadAssetAtPath<LevelObjectKindRegistry>(
-                    AssetDatabase.GUIDToAssetPath(guid));
-                var row = (string.IsNullOrEmpty(id)
-                    ? registry?.FindByName(named)
-                    : registry?.FindById(id)) as LevelObjectKindDef;
-                if (row != null)
-                    return row;
-            }
-            return null;
+            // From the cache, never a project walk: this runs in OnGUI AND GetPropertyHeight,
+            // per row, per repaint (editor rule 4).
+            return LevelObjectKinds.Find(id, named);
         }
     }
 }
