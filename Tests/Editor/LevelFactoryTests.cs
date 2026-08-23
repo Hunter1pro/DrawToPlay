@@ -21,6 +21,7 @@ namespace PowerOfFire.DrawToPlay.Tests
     {
         private const string k_Levels = "Assets/DrawToPlayExamples/Demo/M21/Registries/M21Levels.asset";
         private const string k_Folder = "Assets/DrawToPlay/Tests/Editor/Temp_Quarry";
+        private const string k_Level = k_Folder + "/QuarryTest";
         private const string k_Name = "quarry-test";
 
         private int m_RowsBefore;
@@ -42,7 +43,7 @@ namespace PowerOfFire.DrawToPlay.Tests
                 m_Levels.entries.RemoveAll(row => row != null && row.name == k_Name);
                 EditorUtility.SetDirty(m_Levels);
             }
-            LevelFactory.UnregisterFromBuild(k_Folder + "/QuarryTest.unity");
+            LevelFactory.UnregisterFromBuild(k_Level + "/QuarryTest.unity");
             if (AssetDatabase.IsValidFolder(k_Folder))
                 AssetDatabase.DeleteAsset(k_Folder);
             AssetDatabase.SaveAssets();
@@ -61,13 +62,15 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(made.group, Is.EqualTo("Tests"));
 
             // THE ASSETS, in the folder, wired to each other.
-            var content = AssetDatabase.LoadAssetAtPath<LevelContent>(k_Folder + "/QuarryTestContent.asset");
-            var manifest = AssetDatabase.LoadAssetAtPath<LevelObjectRegistry>(k_Folder + "/QuarryTestObjects.asset");
-            Assert.That(content, Is.Not.Null);
+            var content = AssetDatabase.LoadAssetAtPath<LevelContent>(k_Level + "/QuarryTestContent.asset");
+            var manifest = AssetDatabase.LoadAssetAtPath<LevelObjectRegistry>(k_Level + "/QuarryTestObjects.asset");
+            Assert.That(content, Is.Not.Null, "a folder per level: " + k_Level);
             Assert.That(manifest, Is.Not.Null);
+            Assert.That(AssetDatabase.LoadAssetAtPath<Material>(k_Level + "/QuarryTestGround.mat"), Is.Not.Null,
+                "the template's material lives in the level's folder too");
             Assert.That(made.content, Is.SameAs(content));
             Assert.That(content.objects, Is.SameAs(manifest));
-            Assert.That(content.scenePath, Is.EqualTo(k_Folder + "/QuarryTest.unity"));
+            Assert.That(content.scenePath, Is.EqualTo(k_Level + "/QuarryTest.unity"), "in a folder of its own");
             Assert.That(content.displayName, Is.EqualTo("Quarry Test"));
             Assert.That(manifest.dependsOn, Does.Contain(m_Levels), "destinations pick from the level catalog");
             Assert.That(manifest.tags, Is.Not.Empty, "wears the siblings' vocabularies");
@@ -134,9 +137,9 @@ namespace PowerOfFire.DrawToPlay.Tests
                 var template = panel.Q<UnityEngine.UIElements.DropdownField>();
                 Assert.That(template.choices, Does.Contain("Outpost room"));
                 var folder = panel.Query<UnityEngine.UIElements.TextField>().ToList()
-                    .Find(f => f.label == "Folder");
+                    .Find(f => f.label == "In folder");
                 Assert.That(folder.value, Is.EqualTo("Assets/DrawToPlayExamples/Demo/M21/Levels"),
-                    "where the first level keeps its content");
+                    "the folder the levels' own folders sit in");
             }
             finally
             {
@@ -150,7 +153,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void TheLevelContentsScene_IsPickedAsAnAsset_AndKeptAsThePath()
         {
             var content = ScriptableObject.CreateInstance<LevelContent>();
-            content.scenePath = "Assets/DrawToPlayExamples/Demo/M21/Levels/M21Yard.unity";
+            content.scenePath = "Assets/DrawToPlayExamples/Demo/M21/Levels/Yard/M21Yard.unity";
             UnityEditor.Editor editor = UnityEditor.Editor.CreateEditor(content);
             try
             {
@@ -166,9 +169,9 @@ namespace PowerOfFire.DrawToPlay.Tests
 
                 // The drop's write (a change event only dispatches inside a panel).
                 var ridge = AssetDatabase.LoadAssetAtPath<SceneAsset>(
-                    "Assets/DrawToPlayExamples/Demo/M21/Levels/M21Ridge.unity");
+                    "Assets/DrawToPlayExamples/Demo/M21/Levels/Ridge/M21Ridge.unity");
                 ScenePathDrawer.Write(editor.serializedObject, "scenePath", ridge);
-                Assert.That(content.scenePath, Is.EqualTo("Assets/DrawToPlayExamples/Demo/M21/Levels/M21Ridge.unity"),
+                Assert.That(content.scenePath, Is.EqualTo("Assets/DrawToPlayExamples/Demo/M21/Levels/Ridge/M21Ridge.unity"),
                     "dropping a scene writes its path");
                 ScenePathDrawer.Write(editor.serializedObject, "scenePath", null);
                 Assert.That(content.scenePath, Is.Empty);

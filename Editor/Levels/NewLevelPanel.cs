@@ -52,10 +52,11 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var folderRow = new VisualElement();
             folderRow.style.flexDirection = FlexDirection.Row;
-            m_Folder = new TextField("Folder") { value = LevelFactory.DefaultFolder(levels) };
+            m_Folder = new TextField("In folder") { value = LevelFactory.DefaultFolder(levels) };
             m_Folder.style.flexGrow = 1f;
-            m_Folder.tooltip = "Where the level's scene, content and manifest are made. Defaults to "
-                + "where this registry's first level keeps its content.";
+            m_Folder.tooltip = "Where the level's own folder is made — one folder per level, named "
+                + "for it, holding its scene, content, manifest and whatever the template adds. "
+                + "Defaults to the folder this registry's levels sit in.";
             folderRow.Add(m_Folder);
             var browse = new Button(Browse) { text = "…" };
             browse.style.width = 24f;

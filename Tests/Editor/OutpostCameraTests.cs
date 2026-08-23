@@ -86,10 +86,10 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             string[] manifests =
             {
-                "Assets/DrawToPlayExamples/Demo/M21/Levels/M21YardObjects.asset",
-                "Assets/DrawToPlayExamples/Demo/M21/Levels/M21RidgeObjects.asset",
-                "Assets/DrawToPlayExamples/Demo/M21/Levels/M21CaveObjects.asset",
-                "Assets/DrawToPlayExamples/Demo/M21/Levels/M21WreckObjects.asset"
+                "Assets/DrawToPlayExamples/Demo/M21/Levels/Yard/M21YardObjects.asset",
+                "Assets/DrawToPlayExamples/Demo/M21/Levels/Ridge/M21RidgeObjects.asset",
+                "Assets/DrawToPlayExamples/Demo/M21/Levels/Cave/M21CaveObjects.asset",
+                "Assets/DrawToPlayExamples/Demo/M21/Levels/Wreck/M21WreckObjects.asset"
             };
             foreach (string path in manifests)
             {

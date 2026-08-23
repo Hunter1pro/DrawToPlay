@@ -44,13 +44,22 @@ namespace PowerOfFire.DrawToPlay.Editor
                 report = "the folder must be under Assets/";
                 return null;
             }
+            // A FOLDER PER LEVEL: a level is several assets — scene, content, manifest, its
+            // material, its nav mesh, its zones — and they live together, under the folder the
+            // author chose, in a folder named for the level.
+            string stem = Stem(key);
+            folder = folder + "/" + stem;
+            if (AssetDatabase.IsValidFolder(folder))
+            {
+                report = folder + " already exists";
+                return null;
+            }
             if (!EnsureFolder(folder))
             {
                 report = "could not create " + folder;
                 return null;
             }
 
-            string stem = Stem(key);
             string scenePath = folder + "/" + stem + ".unity";
             string contentPath = folder + "/" + stem + "Content.asset";
             string objectsPath = folder + "/" + stem + "Objects.asset";
@@ -197,8 +206,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             return row;
         }
 
-        /// <summary>The folder a new level defaults to: where the registry's first level keeps
-        /// its content, or the registry's own folder.</summary>
+        /// <summary>The folder a new level defaults to — the one the levels' own folders sit in:
+        /// the parent of where the registry's first level keeps its content (each level has a
+        /// folder of its own), or the registry's own folder.</summary>
         public static string DefaultFolder(LevelRegistry levels)
         {
             if (levels == null)
@@ -207,8 +217,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 LevelContent content = levels.entries[i] != null ? levels.entries[i].content : null;
                 string path = content != null ? AssetDatabase.GetAssetPath(content) : "";
-                if (!string.IsNullOrEmpty(path))
-                    return Path.GetDirectoryName(path).Replace('\\', '/');
+                if (string.IsNullOrEmpty(path))
+                    continue;
+                string levelFolder = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "Assets";
+                string parent = Path.GetDirectoryName(levelFolder)?.Replace('\\', '/');
+                return string.IsNullOrEmpty(parent) || parent.Length < "Assets".Length ? levelFolder : parent;
             }
             string own = AssetDatabase.GetAssetPath(levels);
             return string.IsNullOrEmpty(own) ? "Assets" : Path.GetDirectoryName(own).Replace('\\', '/');
