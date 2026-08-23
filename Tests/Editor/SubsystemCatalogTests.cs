@@ -64,7 +64,9 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(craft, Is.Not.Null);
             Assert.That(craft.installedIn, Does.Contain("M21Root"));
             SubsystemCatalog.Entry world = entries.Find(e => e.def.name == "M21WorldService");
-            Assert.That(world.installedIn, Is.EquivalentTo(new[] { "M21Cave", "M21Ridge", "M21Wreck", "M21Yard" }));
+            // The four waystation levels — and any level made since with the registry's
+            // "Create level" button, which installs the world the same way.
+            Assert.That(world.installedIn, Is.SupersetOf(new[] { "M21Cave", "M21Ridge", "M21Wreck", "M21Yard" }));
 
             // A KIND is a def that names no class and builds a body — listed apart.
             SubsystemCatalog.Entry kind = entries.Find(e => e.def.name == "M21Kind_Resource");
