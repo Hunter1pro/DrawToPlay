@@ -47,6 +47,11 @@ namespace PowerOfFire.DrawToPlay
                 holder.transform.SetParent(parent, false);
 
             GameObject view = UnityEngine.Object.Instantiate(body.prefab, holder.transform);
+            // NOT LIVE UNTIL PLACED AND INJECTED: the holder is inactive, but the copy itself
+            // is active, so leaving the holder would fire OnEnable at the origin with every
+            // [InjectService] still empty (M43.1 found it: a fighter born at (0, 0)). Off now,
+            // on at the end — that is the body's birth.
+            view.SetActive(false);
             view.name = string.IsNullOrEmpty(row.name)
                 ? def.name + " " + row.entryName
                 : row.name;

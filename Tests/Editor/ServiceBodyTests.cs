@@ -17,6 +17,21 @@ namespace PowerOfFire.DrawToPlay.Tests
     {
     }
 
+    /// <summary>A part that reads where it is and what it was given the moment it is born.</summary>
+    [ExecuteAlways]
+    internal sealed class TestBornAt : MonoBehaviour
+    {
+        [InjectService] public WorldService world;
+        public Vector3 bornAt;
+        public bool hadWorldAtBirth;
+
+        private void OnEnable()
+        {
+            bornAt = transform.position;
+            hadWorldAtBirth = world != null;
+        }
+    }
+
     /// <summary>
     /// M30.3 — the def owns the body.
     ///
@@ -235,6 +250,37 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(ServiceBodyFactory.Build(subsystem, new LevelObjectDef { id = "x" }, null,
                 Vector3.zero, Quaternion.identity), Is.Null,
                 "a subsystem is a def too — asking it for a body is a question, not an error");
+        }
+
+        /// <summary>M43.1: a body is born PLACED and INJECTED — OnEnable runs at the row's
+        /// position with its services filled, not at the origin with empty fields.</summary>
+        [Test]
+        public void ABody_IsBornAtItsRow_WithItsServices()
+        {
+            var levelGo = new GameObject("Level") { hideFlags = HideFlags.HideAndDontSave };
+            m_Junk.Add(levelGo);
+            var level = levelGo.AddComponent<StateTreeContextHost>();
+            level.kind = StateTreeContextKind.Level;
+            level.autoStart = false;
+            level.Register();
+            var world = new WorldService(level, null);
+            level.Provide(world);
+            try
+            {
+                GameObject prefab = Prefab("Born");
+                prefab.AddComponent<TestBornAt>();
+                ServiceDef def = Def("born", prefab);
+                GameObject built = ServiceBodyFactory.Build(def, new LevelObjectDef { id = "place.born" },
+                    level.transform, new Vector3(-10f, 1.5f, 0f), Quaternion.identity);
+                m_Junk.Add(built);
+                var born = built.GetComponent<TestBornAt>();
+                Assert.That(born.bornAt, Is.EqualTo(new Vector3(-10f, 1.5f, 0f)), "placed before it was live");
+                Assert.That(born.hadWorldAtBirth, Is.True, "injected before it was live");
+            }
+            finally
+            {
+                level.Unregister();
+            }
         }
 
         private GameObject Prefab(string name)
