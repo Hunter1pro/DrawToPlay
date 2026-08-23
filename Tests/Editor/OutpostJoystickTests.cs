@@ -93,7 +93,7 @@ namespace PowerOfFire.DrawToPlay.Tests
                 "the bottom of the stack — every other panel sits above its touch zone");
 
             var session = AssetDatabase.LoadAssetAtPath<StateTreeAsset>(
-                "Assets/DrawToPlayExamples/Demo/M21/Levels/M21SessionTree.asset");
+                "Assets/DrawToPlayExamples/Demo/M21/Gameplay/M21SessionTree.asset");
             bool shown = false;
             foreach (Object sub in AssetDatabase.LoadAllAssetsAtPath(AssetDatabase.GetAssetPath(session)))
             {

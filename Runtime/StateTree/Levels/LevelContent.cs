@@ -22,7 +22,9 @@ namespace PowerOfFire.DrawToPlay
         public string displayName = "";
 
         /// <summary>Project path of the scene ("Assets/.../LevelA.unity"). The scene must be
-        /// in Build Settings for additive loading to find it in play mode and players.</summary>
+        /// in Build Settings for additive loading to find it in play mode and players. Picked
+        /// as the scene asset in the inspector; kept as the path the loader reads.</summary>
+        [ScenePath]
         public string scenePath = "";
 
         /// <summary>Seeded onto the LEVEL host's context blackboard right after the scene

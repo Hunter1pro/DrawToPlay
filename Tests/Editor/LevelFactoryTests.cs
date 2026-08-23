@@ -3,6 +3,7 @@ using NUnit.Framework;
 using PowerOfFire.DrawToPlay.Editor;
 using UnityEditor;
 using UnityEditor.SceneManagement;
+using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
@@ -140,6 +141,42 @@ namespace PowerOfFire.DrawToPlay.Tests
             finally
             {
                 Object.DestroyImmediate(editor);
+            }
+        }
+
+        /// <summary>The content's scene is picked as the scene ASSET and kept as the path the
+        /// loader reads; the field follows the string, and writes it.</summary>
+        [Test]
+        public void TheLevelContentsScene_IsPickedAsAnAsset_AndKeptAsThePath()
+        {
+            var content = ScriptableObject.CreateInstance<LevelContent>();
+            content.scenePath = "Assets/DrawToPlayExamples/Demo/M21/Levels/M21Yard.unity";
+            UnityEditor.Editor editor = UnityEditor.Editor.CreateEditor(content);
+            try
+            {
+                // The drawer's own element — a PropertyField asks its drawer only once it is
+                // bound inside a panel, which a test has none of.
+                SerializedProperty property = editor.serializedObject.FindProperty("scenePath");
+                VisualElement root = new ScenePathDrawer().CreatePropertyGUI(property);
+                var field = root.Q<ObjectField>();
+                Assert.That(field, Is.Not.Null, "the path is drawn as a scene field");
+                Assert.That(field.objectType, Is.EqualTo(typeof(SceneAsset)));
+                Assert.That(field.value, Is.SameAs(AssetDatabase.LoadAssetAtPath<SceneAsset>(content.scenePath)),
+                    "the field reads the scene the string names");
+
+                // The drop's write (a change event only dispatches inside a panel).
+                var ridge = AssetDatabase.LoadAssetAtPath<SceneAsset>(
+                    "Assets/DrawToPlayExamples/Demo/M21/Levels/M21Ridge.unity");
+                ScenePathDrawer.Write(editor.serializedObject, "scenePath", ridge);
+                Assert.That(content.scenePath, Is.EqualTo("Assets/DrawToPlayExamples/Demo/M21/Levels/M21Ridge.unity"),
+                    "dropping a scene writes its path");
+                ScenePathDrawer.Write(editor.serializedObject, "scenePath", null);
+                Assert.That(content.scenePath, Is.Empty);
+            }
+            finally
+            {
+                Object.DestroyImmediate(editor);
+                Object.DestroyImmediate(content);
             }
         }
 
