@@ -20,7 +20,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         private static ServiceDef Def(string name)
         {
             var def = AssetDatabase.LoadAssetAtPath<ServiceDef>(k_Registries + name + ".asset");
-            Assume.That(def, Is.Not.Null, name + " — run Verify M21 Waystation first");
+            Assume.That(def, Is.Not.Null, name + " — run Draw To Play Examples › M21 Waystation › Verify first");
             return def;
         }
 

@@ -31,7 +31,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void SetUp()
         {
             m_Levels = AssetDatabase.LoadAssetAtPath<LevelRegistry>(k_Levels);
-            Assume.That(m_Levels, Is.Not.Null, "run Verify M21 Waystation first");
+            Assume.That(m_Levels, Is.Not.Null, "run Draw To Play Examples › M21 Waystation › Verify first");
             m_RowsBefore = m_Levels.entries.Count;
         }
 

@@ -82,7 +82,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             var rows = AssetDatabase.LoadAssetAtPath<UiRegistry>(
                 "Assets/DrawToPlayExamples/Demo/M21/Registries/M21Ui.asset");
-            Assume.That(rows, Is.Not.Null, "run Verify M21 Waystation first");
+            Assume.That(rows, Is.Not.Null, "run Draw To Play Examples › M21 Waystation › Verify first");
             UiDef joystick = rows.FindByName("joystick") as UiDef;
             Assert.That(joystick, Is.Not.Null, "the joystick is a row");
             Assert.That(joystick.prefab.GetComponent<OutpostJoystickView>(), Is.Not.Null);

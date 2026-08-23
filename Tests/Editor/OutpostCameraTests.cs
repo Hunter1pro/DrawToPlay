@@ -94,7 +94,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             foreach (string path in manifests)
             {
                 var manifest = AssetDatabase.LoadAssetAtPath<LevelObjectRegistry>(path);
-                Assume.That(manifest, Is.Not.Null, path + " — run Verify M21 Waystation first");
+                Assume.That(manifest, Is.Not.Null, path + " — run Draw To Play Examples › M21 Waystation › Verify first");
                 Assert.That(manifest.entries.Exists(row => row.kind.entryName == "camera"), Is.True,
                     path + ": the camera is a row");
             }
