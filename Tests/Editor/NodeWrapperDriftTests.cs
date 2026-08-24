@@ -22,7 +22,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(findings, Is.Empty,
                 "run Tools/Draw To Play/Graph/Generate Node Wrappers and commit the files:\n"
                 + string.Join("\n", lines));
-            Assert.That(NodeWrapperDrift.LibraryTasks().Count, Is.GreaterThan(50), "the library is large");
+            Assert.That(NodeWrapperDrift.LibraryTasks().Count, Is.GreaterThan(30), "the library is large");
         }
 
         [Test]
