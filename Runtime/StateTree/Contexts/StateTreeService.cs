@@ -299,8 +299,10 @@ namespace PowerOfFire.DrawToPlay
             UiService ui = Ui;
             if (ui == null)
             {
-                Debug.LogWarning("Service '" + GetType().Name + "' declares spawns but no "
-                    + "UiService is reachable — its screen stays unshown.");
+                // Not a warning: a scope with no screens at all — a headless server, a bare
+                // test — is a legitimate place for a def that spawns one. Said once, quietly.
+                Debug.Log("Service '" + GetType().Name + "' declares spawns but this scope has no "
+                    + "UiService — nobody is watching; its screen stays unshown.");
                 return;
             }
             for (int i = 0; i < def.spawns.Count; i++)
