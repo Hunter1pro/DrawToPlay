@@ -11,6 +11,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// one button. Adding a row by hand is still there for a level that already exists as
     /// assets; this is for the one that does not yet.
     /// </summary>
+    [RegistryCreator(typeof(LevelRegistry))]
     internal sealed class NewLevelPanel : VisualElement
     {
         private readonly LevelRegistry m_Levels;

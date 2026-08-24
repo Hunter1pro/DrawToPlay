@@ -55,16 +55,16 @@ namespace PowerOfFire.DrawToPlay.Editor
                 Undo.undoRedoPerformed -= Rebuild);
 
             m_Root.Add(BuildAssetFields());
-            // A LEVEL IS MORE THAN A ROW: the level registry offers to make the whole thing —
-            // content, manifest, scene, build entry — in one click (LevelFactory).
-            if (target is LevelRegistry levels)
+            // A ROW IS OFTEN MORE THAN A ROW — a level is a scene and its content, a dialog is
+            // a graph — and a registry that knows how to make the whole thing offers to, here
+            // ([RegistryCreator]; the level registry's NewLevelPanel is the first).
+            VisualElement creator = RegistryCreators.For(target as StateTreeRegistryAsset, () =>
             {
-                m_Root.Add(new NewLevelPanel(levels, () =>
-                {
-                    serializedObject.Update();
-                    Rebuild();
-                }));
-            }
+                serializedObject.Update();
+                Rebuild();
+            });
+            if (creator != null)
+                m_Root.Add(creator);
             m_Root.Add(BuildToolbar());
             m_ListRoot = new VisualElement();
             m_Root.Add(m_ListRoot);
