@@ -101,10 +101,9 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void APickedRowFromAnUndeclaredCatalog_IsAdviceNotABlock()
         {
             SubsystemSketch clock = Sundial();
-            var attributes = AssetDatabase.LoadAssetAtPath<AttributeRegistry>(
-                AssetDatabase.GUIDToAssetPath(AssetDatabase.FindAssets("t:AttributeRegistry M21")[0]));
+            AttributeRegistry attributes = TempAttributes();
             var health = attributes.FindByName("health");
-            Assert.That(health, Is.Not.Null, "the M21 attribute catalog has health");
+            Assert.That(health, Is.Not.Null, "the temporary catalog has health");
             clock.attributes.Add(new StateTreeEntryRef<AttributeDef>
             {
                 entryId = health.id, entryName = health.name
@@ -157,14 +156,39 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void TheDefDeclaresTheHomeOfEveryPickedRow()
         {
             SubsystemSketch clock = Sundial();
-            var attributes = AssetDatabase.LoadAssetAtPath<AttributeRegistry>(
-                AssetDatabase.GUIDToAssetPath(AssetDatabase.FindAssets("t:AttributeRegistry M21")[0]));
+            AttributeRegistry attributes = TempAttributes();
             var health = attributes.FindByName("health");
             clock.attributes.Add(new StateTreeEntryRef<AttributeDef> { entryId = health.id, entryName = health.name });
 
             List<StateTreeRegistryAsset> declared = SubsystemGenerator.DeclaredCatalogs(clock);
             Assert.That(declared, Does.Contain(attributes),
                 "the def may NAME health only if it declares the catalog health lives in");
+        }
+
+        // A catalog the sketch can PICK FROM has to be an asset on disk — the generator finds
+        // the home of a picked row by scanning the project. Owned by the test, gone after it.
+        private const string k_TempFolder = "Assets/__SketchTests";
+        private const string k_TempAttributes = k_TempFolder + "/Attributes.asset";
+
+        private static AttributeRegistry TempAttributes()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<AttributeRegistry>(k_TempAttributes);
+            if (existing != null)
+                return existing;
+            if (!AssetDatabase.IsValidFolder(k_TempFolder))
+                AssetDatabase.CreateFolder("Assets", "__SketchTests");
+            var registry = ScriptableObject.CreateInstance<AttributeRegistry>();
+            registry.entries.Add(new AttributeDef { id = "attr.health", name = "health" });
+            AssetDatabase.CreateAsset(registry, k_TempAttributes);
+            AssetDatabase.SaveAssets();
+            return registry;
+        }
+
+        [TearDown]
+        public void DropTempAssets()
+        {
+            if (AssetDatabase.IsValidFolder(k_TempFolder))
+                AssetDatabase.DeleteAsset(k_TempFolder);
         }
     }
 }
