@@ -190,5 +190,16 @@ namespace PowerOfFire.DrawToPlay.Tests
             Steps(1);
             Assert.That(m_Fighter.landedThisStep, Is.False, "facts last one step");
         }
+
+        [Test]
+        public void AVolley_IsAFact_ForOneStepOnly()
+        {
+            Settle();
+            m_Fighter.Recoil(Vector2.right, 1f);
+            Assert.That(m_Fighter.firedThisStep, Is.True, "the shot is a fact");
+            Steps(1);
+            Assert.That(m_Fighter.firedThisStep, Is.False,
+                "and it lasts ONE step — a stuck flag shook the camera every frame forever");
+        }
     }
 }
