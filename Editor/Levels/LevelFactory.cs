@@ -27,6 +27,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                 report = "no level registry";
                 return null;
             }
+            // THE SCENE OPS BELOW REIMPORT. Saving the level scene and registering it in the
+            // build settings refresh the asset pipeline — synchronously in batch mode — and a
+            // refreshed registry is a NEW object: the reference handed in is destroyed by the
+            // time the row is added. Remember where it lives and re-resolve it by path.
+            string levelsPath = AssetDatabase.GetAssetPath(levels);
             string key = (levelName ?? "").Trim();
             if (key.Length == 0)
             {
@@ -183,6 +188,13 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             RegisterInBuild(scenePath);
 
+            if (levels == null && !string.IsNullOrEmpty(levelsPath))
+                levels = AssetDatabase.LoadAssetAtPath<LevelRegistry>(levelsPath);
+            if (levels == null)
+            {
+                report = "the level registry was reimported mid-build and could not be re-resolved";
+                return null;
+            }
             manifest = AssetDatabase.LoadAssetAtPath<LevelObjectRegistry>(objectsPath);
             content = AssetDatabase.LoadAssetAtPath<LevelContent>(contentPath);
             if (content.objects != manifest)
