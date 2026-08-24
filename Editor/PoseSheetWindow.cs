@@ -112,7 +112,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// modal dialog, and Godot's `_process(delta)` never sees those.</summary>
         private const double k_MaxPreviewDelta = 0.1;
 
-        private const string k_DrawnAssetFolder = "Assets/DrawToPlayExamples/Drawn";
+        private static string k_DrawnAssetFolder => DrawToPlayFolders.Drawn;
 
         // --- state ------------------------------------------------------------------------
 

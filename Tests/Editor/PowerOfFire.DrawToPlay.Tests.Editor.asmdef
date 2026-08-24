@@ -5,9 +5,7 @@
         "PowerOfFire.DrawToPlay",
         "PowerOfFire.DrawToPlay.Editor",
         "UnityEngine.TestRunner",
-        "UnityEditor.TestRunner",
-        "PowerOfFire.DrawToPlay.Examples",
-        "Unity.AI.Navigation"
+        "UnityEditor.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

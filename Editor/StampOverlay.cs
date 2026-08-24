@@ -54,7 +54,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>Godot `_folder_edit.text` ("res://content/art/terrain"), relocated to this
         /// project's own convention.</summary>
-        internal const string DefaultFolder = "Assets/DrawToPlay/Stamps";
+        internal static string DefaultFolder => DrawToPlayFolders.Stamps;
 
         /// <summary>Godot `_spin(4.0, 200.0, 2.0, 24.0, "scatter spacing px")` — px ÷ 32, so
         /// 24 px becomes 0.75 world units and the 4..200 px range becomes 0.125..6.25 wu.</summary>

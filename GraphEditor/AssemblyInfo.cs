@@ -4,3 +4,5 @@ using System.Runtime.CompilerServices;
 // building blocks the core authoring uses — the grant mirrors the core Editor's grant to
 // Examples.Editor.
 [assembly: InternalsVisibleTo("PowerOfFire.DrawToPlay.Examples.GraphEditor")]
+[assembly: InternalsVisibleTo("PowerOfFire.DrawToPlay.Examples.Tests.Editor")]
+[assembly: InternalsVisibleTo("CyberBot.GraphEditor")]

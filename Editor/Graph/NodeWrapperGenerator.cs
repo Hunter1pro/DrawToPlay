@@ -17,8 +17,6 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// </summary>
     public static class NodeWrapperGenerator
     {
-        private const string k_CoreFolder = "Assets/DrawToPlay/GraphEditor/Generated";
-        private const string k_ExamplesFolder = "Assets/DrawToPlayExamples/GraphEditor/Generated";
 
         public sealed class Result
         {
@@ -70,12 +68,10 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private static string FolderFor(Type library)
         {
-            switch (library.Assembly.GetName().Name)
-            {
-                case "PowerOfFire.DrawToPlay": return k_CoreFolder;
-                case "PowerOfFire.DrawToPlay.Examples": return k_ExamplesFolder;
-                default: return null;
-            }
+            string assembly = library.Assembly.GetName().Name;
+            if (assembly == "PowerOfFire.DrawToPlay")
+                return DrawToPlayFolders.PackageGenerated;
+            return DrawToPlayFolders.IsTaskAssembly(assembly) ? DrawToPlayFolders.projectGenerated : null;
         }
 
         public static string WrapperName(Type library, NodeWrapperDrift.Wrapper kind)

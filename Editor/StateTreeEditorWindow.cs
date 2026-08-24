@@ -41,7 +41,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     {
         private const string k_AutoOpenKey = "PowerOfFire.DrawToPlay.StateTreeAutoOpen";
         private const string k_DragKey = "PowerOfFire.DrawToPlay.StateTreeDrag";
-        private const string k_TreeFolder = "Assets/DrawToPlay/Trees";
+        private static string k_TreeFolder => DrawToPlayFolders.Trees;
 
         /// <summary>Seconds of quiet before the batched save fires. Long enough that dragging a
         /// float field does not write the asset on every frame, short enough that a crash never
@@ -893,8 +893,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void CreateTreeAsset()
         {
-            if (!AssetDatabase.IsValidFolder(k_TreeFolder))
-                AssetDatabase.CreateFolder("Assets/DrawToPlayExamples", "Trees");
+            DrawToPlayFolders.Ensure(k_TreeFolder);
 
             var path = EditorUtility.SaveFilePanelInProject("New State Tree", "StateTree", "asset",
                 "Create a State Tree asset", k_TreeFolder);

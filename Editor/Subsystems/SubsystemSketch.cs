@@ -98,10 +98,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         [Header("Where the code goes")]
         [Tooltip("The folder the class, the capability and their test are written into. It must "
             + "be inside a RUNTIME assembly — an Editor folder would make an uninstallable service.")]
-        public string codeFolder = "Assets/DrawToPlayExamples/Scripts/Subsystems";
+        public string codeFolder = DrawToPlayFolders.Subsystems;
 
         [Tooltip("The folder the generated test goes into — an Editor test assembly.")]
-        public string testFolder = "Assets/DrawToPlay/Tests/Editor";
+        public string testFolder = DrawToPlayFolders.Tests;
 
         [Header("What was generated")]
         [Tooltip("The def this sketch wrote, once it has.")]

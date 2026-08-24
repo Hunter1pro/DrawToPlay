@@ -75,12 +75,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Where graph assets authored from the Flow window land. One folder rather than
         /// "next to the entity" because a graph is a project asset shared by every instance of an
         /// archetype, exactly like the M6 preset trees it replaces.</summary>
-        internal const string GraphFolder = "Assets/DrawToPlay/Graphs";
+        internal static string GraphFolder => DrawToPlayFolders.Graphs;
 
         /// <summary>Where graph TASKS land — the authoring loop's default folder, separate from
         /// <see cref="GraphFolder"/> because a task graph is a library component, not one
         /// entity's behaviour.</summary>
-        internal const string TaskFolder = "Assets/DrawToPlayExamples/Tasks";
+        internal static string TaskFolder => DrawToPlayFolders.Tasks;
 
         /// <summary>The extension to assume when the frontend cannot be asked for its own. Used
         /// only so that "is this asset a graph?" keeps answering honestly while the frontend is

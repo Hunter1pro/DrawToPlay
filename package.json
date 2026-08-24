@@ -1,0 +1,16 @@
+{
+  "name": "com.powerofire.drawtoplay",
+  "displayName": "Draw To Play",
+  "version": "0.1.0",
+  "unity": "6000.5",
+  "unityRelease": "3f1",
+  "description": "PowerofFire's Draw-to-Play toolset: state trees, abilities, attributes, registries and service defs, levels (factory, kinds, manifests, bootstrap, level switch), UI wiring, task graphs, save/autosave, cutscenes, objectives, inventory — the shared runtime and editor that M21 and the arena are built on.",
+  "author": { "name": "PowerofFire" },
+  "dependencies": {
+    "com.unity.inputsystem": "1.19.0",
+    "com.unity.collections": "6.5.0",
+    "com.unity.modules.physicscore2d": "1.0.0",
+    "com.unity.modules.uielements": "1.0.0"
+  },
+  "keywords": [ "statetree", "abilities", "physicscore2d", "levels", "graph" ]
+}

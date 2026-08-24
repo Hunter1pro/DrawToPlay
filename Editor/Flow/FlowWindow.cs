@@ -29,7 +29,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Where trees authored from the Behavior / AI tabs land. Beside the preset trees
         /// in spirit, in their own folder in practice, so "Create Enemy Preset Trees" can never
         /// overwrite something a user authored here.</summary>
-        private const string k_TreeFolder = "Assets/DrawToPlay/Trees";
+        private static string k_TreeFolder => DrawToPlayFolders.Trees;
 
         // Badge palette. Deliberately mid-tone so it reads on both editor skins.
         private static readonly Color k_BadgeUnknown = new Color(0.55f, 0.55f, 0.55f, 0.35f);

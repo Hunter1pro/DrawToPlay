@@ -1,0 +1,6 @@
+.DS_Store
+*.csproj
+*.sln
+*.slnx
+.idea/
+obj/

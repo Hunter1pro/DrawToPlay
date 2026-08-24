@@ -1,7 +1,7 @@
 # Draw-to-Play — draw a world, rig it, animate it, give it a brain
 
 Unity port of the Godot `terrain_paint` toolset plus the `statetree` addon, per
-[`docs/draw-tool-port-brief.md`](../../../docs/draw-tool-port-brief.md).
+the sandbox's `docs/draw-tool-port-brief.md` (PhysicsExamples2D). Now a UPM package: `com.powerofire.drawtoplay` — add it to a project as `"com.powerofire.drawtoplay": "file:<path>"` or a git URL, plus UniTask (see CLAUDE.md), and list it under `testables` to run its tests.
 **Milestones M0–M7b are complete**: you can draw a shape, derive PhysicsCore2D collision from
 it, rig and skin it, animate it, ragdoll and shatter it, and author its AI **directly on the
 asset the runner runs** — without leaving the Scene view or writing a line of gameplay code.

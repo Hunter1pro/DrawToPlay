@@ -22,7 +22,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     [InitializeOnLoad]
     internal static class DrawToPlayIcons
     {
-        private const string k_Folder = "Assets/DrawToPlay/Editor/Icons";
+        private const string k_Folder = DrawToPlayFolders.Icons;
 
         static DrawToPlayIcons()
         {
@@ -63,7 +63,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             };
 
             foreach (string guid in AssetDatabase.FindAssets("t:MonoScript",
-                new[] { "Assets/DrawToPlay", "Assets/DrawToPlayExamples" }))
+                new[] { DrawToPlayFolders.Package, "Assets" }))
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 var script = AssetDatabase.LoadAssetAtPath<MonoScript>(path);

@@ -42,7 +42,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     {
         private static readonly int s_ControlHint = "PowerOfFire.DrawToPlay.RigShapeTool".GetHashCode();
 
-        private const string k_DrawnAssetFolder = "Assets/DrawToPlayExamples/Drawn";
+        private static string k_DrawnAssetFolder => DrawToPlayFolders.Drawn;
 
         /// <summary>Godot names the created node "Skeleton2D"; the Unity rig root is a plain
         /// GameObject, so it takes the plainer name.</summary>

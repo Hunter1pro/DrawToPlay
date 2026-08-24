@@ -33,7 +33,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     {
         private static readonly int s_ControlHint = "PowerOfFire.DrawToPlay.PaintShapeTool".GetHashCode();
 
-        private const string k_DrawnAssetFolder = "Assets/DrawToPlayExamples/Drawn";
+        private static string k_DrawnAssetFolder => DrawToPlayFolders.Drawn;
         private const string k_DrawnAssetName = "DrawnShape";
 
         /// <summary>Mirror of <see cref="DrawnShapeAsset.bakeInterval"/>'s default, used when an

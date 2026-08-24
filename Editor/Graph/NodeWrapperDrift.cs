@@ -42,10 +42,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>The runtime assemblies whose library types count — test stubs do not.</summary>
-        public static readonly string[] LibraryAssemblies =
-        {
-            "PowerOfFire.DrawToPlay", "PowerOfFire.DrawToPlay.Examples"
-        };
+        public static string[] LibraryAssemblies => DrawToPlayFolders.TaskAssemblies();
 
         /// <summary>Types that are pickable as tasks but are not library tasks to wrap: a baked
         /// program is picked as an asset, and the two composite wrappers run what they are
