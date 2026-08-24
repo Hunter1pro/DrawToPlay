@@ -30,9 +30,9 @@ namespace PowerOfFire.DrawToPlay.Editor
     {
         /// <summary>Same folder as the Terrain flow — referenced rather than re-typed so there is
         /// one definition of where flows live.</summary>
-        internal const string FlowFolder = TerrainFlowAsset.FlowFolder;
+        internal static string FlowFolder => TerrainFlowAsset.FlowFolder;
 
-        internal const string CharacterFlowPath = FlowFolder + "/Character.asset";
+        internal static string CharacterFlowPath => FlowFolder + "/Character.asset";
 
         [MenuItem("Tools/Draw To Play/Create Character Flow")]
         private static void CreateCharacterFlowMenuItem()

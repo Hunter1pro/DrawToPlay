@@ -21,7 +21,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     internal static class TerrainFlowAsset
     {
         internal static string FlowFolder => DrawToPlayFolders.Flows;
-        internal const string TerrainFlowPath = FlowFolder + "/Terrain.asset";
+        internal static string TerrainFlowPath => FlowFolder + "/Terrain.asset";
 
         [MenuItem("Tools/Draw To Play/Create Terrain Flow")]
         private static void CreateTerrainFlowMenuItem()
