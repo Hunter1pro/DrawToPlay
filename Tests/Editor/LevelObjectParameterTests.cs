@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using NUnit.Framework;
-using PowerOfFire.DrawToPlay.Examples;
 using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay.Tests
