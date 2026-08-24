@@ -314,7 +314,9 @@ namespace PowerOfFire.DrawToPlay
                         + spawn.entryName + "', which the UI registry does not have.");
                 else
                 {
-                    GameObject view = ui.Show(row);
+                    // ON BEHALF OF THIS SCOPE: the card's presses land on the board this
+                    // subsystem serves, and a level's card dies with the level.
+                    GameObject view = ui.Show(row, null, m_Scope);
                     if (view != null)
                         m_Spawned.Add(view);
                 }

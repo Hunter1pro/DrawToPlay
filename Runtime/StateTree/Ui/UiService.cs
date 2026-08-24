@@ -85,6 +85,20 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public GameObject Show(UiDef row, List<GraphTaskParameterOverride> arguments = null)
         {
+            return Show(row, arguments, null);
+        }
+
+        /// <summary>
+        /// Show ON BEHALF OF another scope (M43.11): a subsystem whose def declares
+        /// <c>spawns</c> shows its screen through the root's UiService, but the screen is
+        /// THAT subsystem's — its presses must land on the scope that serves them, and its
+        /// life is that scope's life. A level def's card that stamped the root here wrote its
+        /// requests onto a board nobody read: the button "did nothing".
+        /// </summary>
+        public GameObject Show(UiDef row, List<GraphTaskParameterOverride> arguments,
+            StateTreeContextHost onBehalfOf)
+        {
+            StateTreeContextHost owner = onBehalfOf != null ? onBehalfOf : scope;
             if (row == null)
                 return null;
             ValidateRows();
@@ -103,7 +117,7 @@ namespace PowerOfFire.DrawToPlay
 
             if (m_Open.TryGetValue(row.name, out GameObject held) && held != null)
             {
-                BindArguments(held, row, arguments, scope);
+                BindArguments(held, row, arguments, owner);
                 return held;
             }
 
@@ -117,13 +131,13 @@ namespace PowerOfFire.DrawToPlay
             // PARENTED TO THE SCOPE: a screen belongs to the scope that shows it, so unloading
                 // a level takes its screens with it — which is what the component's own transform
                 // used to mean, said explicitly.
-                GameObject view = UnityEngine.Object.Instantiate(row.prefab, scope.transform);
+                GameObject view = UnityEngine.Object.Instantiate(row.prefab, owner.transform);
             view.name = row.prefab.name;
             var document = view.GetComponentInChildren<UIDocument>(true);
             if (document != null)
                 document.sortingOrder = row.sortingOrder;
             view.SetActive(true);
-            BindArguments(view, row, arguments, scope);
+            BindArguments(view, row, arguments, owner);
             m_Open[row.name] = view;
             return view;
         }

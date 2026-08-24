@@ -201,5 +201,46 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(m_Fighter.firedThisStep, Is.False,
                 "and it lasts ONE step — a stuck flag shook the camera every frame forever");
         }
+
+        [Test]
+        public void Dash_IsAFlatOutBurst_AndGravityWaitsItsTurn()
+        {
+            Settle();
+            m_Fighter.Place(new Vector2(0f, 8f));
+            Steps(2);
+            m_Fighter.Dash(1f);
+            Assert.That(m_Fighter.dashedThisStep, Is.True, "the burst is a fact");
+            Steps(4);   // 0.066s — inside the 0.14s dash
+            Assert.That(m_Fighter.velocity.x, Is.EqualTo(m_Fighter.dashSpeed).Within(0.01f), "flat out");
+            Assert.That(m_Fighter.velocity.y, Is.EqualTo(0f).Within(0.01f), "gravity waits");
+            Steps(12);  // past the end
+            Assert.That(m_Fighter.velocity.x, Is.LessThanOrEqualTo(m_Fighter.maxSpeed * 1.3f + 0.01f),
+                "the end keeps a little of it, not all");
+            Assert.That(m_Fighter.velocity.y, Is.LessThan(0f), "and gravity is back");
+        }
+
+        [Test]
+        public void Dash_CoolsDown_ThenServesAgain()
+        {
+            Settle();
+            m_Fighter.Dash(1f);
+            Steps(1);
+            m_Fighter.Dash(1f);
+            Assert.That(m_Fighter.dashedThisStep, Is.False, "still cooling");
+            Steps(55);  // dash 0.14 + cooldown 0.7 = 0.84s = 51 steps
+            m_Fighter.Dash(1f);
+            Assert.That(m_Fighter.dashedThisStep, Is.True, "served again");
+        }
+
+        [Test]
+        public void Dash_WithAnIdleStick_GoesWhereTheAimPoints()
+        {
+            Settle();
+            m_Fighter.aim = Vector2.left;
+            m_Fighter.Dash(0f);
+            Steps(2);
+            Assert.That(m_Fighter.velocity.x, Is.EqualTo(-m_Fighter.dashSpeed).Within(0.01f),
+                "no stick: the dash follows the aim");
+        }
     }
 }

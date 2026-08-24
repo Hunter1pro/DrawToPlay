@@ -284,5 +284,30 @@ namespace PowerOfFire.DrawToPlay.Tests
                 "nothing answered 'unknwon'.*'known'"));
             Assert.IsFalse(UiSkin.Say(context, "panel", "unknwon", "x", null));
         }
+
+        [Test]
+        public void ShownOnBehalfOf_AnotherScope_PressesLandThere_AndLifeIsTheirs()
+        {
+            // M43.11 — the pickup card's dead button: a LEVEL def's spawned screen stamped the
+            // ROOT as its shower, so its one output edge wrote requests on a board nobody
+            // served. Shown on behalf of a scope, the view is that scope's: its presses land
+            // on that board, and it is parented under that scope so it dies with it.
+            var levelGo = new GameObject("Level") { hideFlags = HideFlags.HideAndDontSave };
+            m_Objects.Add(levelGo);
+            var level = levelGo.AddComponent<StateTreeContextHost>();
+            level.kind = StateTreeContextKind.Level;
+            level.autoStart = false;
+            level.Register();
+            m_Hosts.Add(level);
+
+            UiDef row = MakeRow("card", UiKind.Widget, 3f, withSpeaker: true);
+            GameObject shown = m_Service.Show(row, null, level);
+            Assert.That(shown, Is.Not.Null);
+            Assert.That(shown.transform.parent, Is.SameAs(level.transform),
+                "the card lives and dies with the scope it serves");
+            var view = shown.GetComponentInChildren<SpeakingView>(true);
+            Assert.That(view.shownBy, Is.SameAs(level),
+                "the press's board is the serving scope's, not the shower's");
+        }
     }
 }
