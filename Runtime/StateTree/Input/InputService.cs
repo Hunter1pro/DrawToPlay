@@ -32,11 +32,27 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>The dash press — one-shot, consumed by whoever moves the body.</summary>
         public bool dashPressed { get; set; }
 
+        /// <summary>Which way the dash was ASKED for — the flick's direction on a touch stick,
+        /// zero when the press carried none (a button, a key): then the mover falls back to
+        /// the stick, then to the aim.</summary>
+        public Vector2 dashDirection { get; set; }
+
         public bool ConsumeDash()
         {
             if (!dashPressed)
                 return false;
             dashPressed = false;
+            return true;
+        }
+
+        /// <summary>Press and direction together; the direction is spent with the press.</summary>
+        public bool ConsumeDash(out Vector2 direction)
+        {
+            direction = dashDirection;
+            if (!dashPressed)
+                return false;
+            dashPressed = false;
+            dashDirection = Vector2.zero;
             return true;
         }
 
