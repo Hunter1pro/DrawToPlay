@@ -242,5 +242,19 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.That(m_Fighter.velocity.x, Is.EqualTo(-m_Fighter.dashSpeed).Within(0.01f),
                 "no stick: the dash follows the aim");
         }
+
+        [Test]
+        public void AStaggeredFighter_SteersNothing_UntilTheSteppedClockClears()
+        {
+            // M43.13 (review M5): one clock — the stagger now runs on the same stepped time
+            // as the jump, so this test can DRIVE it, which Time.time never allowed.
+            Settle();
+            m_Fighter.Shove(new Vector2(-6f, 2f), staggerSeconds: 0.25f);
+            m_Fighter.Intent(1f, false);
+            Steps(5);
+            Assert.That(m_Fighter.velocity.x, Is.LessThan(0f), "staggered: intent buys nothing");
+            Steps(40);   // 0.75s total — well past the stagger
+            Assert.That(m_Fighter.velocity.x, Is.GreaterThan(1f), "the clock cleared and the intent works");
+        }
     }
 }
