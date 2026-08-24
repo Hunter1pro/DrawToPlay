@@ -107,5 +107,31 @@ namespace PowerOfFire.DrawToPlay.Tests
                 Object.DestroyImmediate(go);
             }
         }
+
+        [Test]
+        public void TheDash_IsARow_WhoseCooldownTheChipDrains_AndItCutsAFire()
+        {
+            // M43.12 — the ability system made visible: the dash's cooldown lives on ITS ROW
+            // (the chip only draws the fraction), and the tag vocabulary says an escape
+            // outranks a volley — cancelTags, not code.
+            var abilities = AssetDatabase.LoadAssetAtPath<AbilityRegistry>(
+                k_Root + "/Registries/ArenaAbilities.asset");
+            var dash = abilities.entries.FirstOrDefault(r => r != null && r.name == "dash");
+            Assert.That(dash, Is.Not.Null, "the dash is a row");
+            Assert.That(dash.cooldownSeconds, Is.GreaterThan(0f), "the row owns the cooldown");
+            Assert.That(dash.tree, Is.Not.Null, "and its body is a drawn tree");
+            Assert.That(dash.cancelTags, Does.Contain("fire"), "an escape outranks a volley");
+            foreach (AbilityDef row in abilities.entries)
+            {
+                if (row != null && row.name.StartsWith("fire-"))
+                    Assert.That(row.abilityTags, Does.Contain("fire"),
+                        row.name + " must wear what the dash cancels");
+            }
+
+            ServiceDef overlay = AllDefs().First(d => d.serviceName == "overlay");
+            string sentence = DeclaredApi.Sentence(overlay);
+            Assert.That(sentence, Does.Contain("shows bars"));
+            Assert.That(sentence, Does.Contain("shows dash"), "the chip is the overlay's screen too");
+        }
     }
 }
