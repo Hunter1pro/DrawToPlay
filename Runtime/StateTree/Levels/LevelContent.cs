@@ -28,8 +28,10 @@ namespace PowerOfFire.DrawToPlay
         public string scenePath = "";
 
         /// <summary>Seeded onto the LEVEL host's context blackboard right after the scene
-        /// loads, before anything ticks — the same row type and boxing rules every other
-        /// parameter surface uses.</summary>
+        /// loads, BEFORE its tree's first OnEnter — the same row type and boxing rules every
+        /// other parameter surface uses. The ordering is guaranteed by
+        /// <see cref="StateTreeContextHost.Seed"/>, which re-applies these on every start and
+        /// starts a tree again when it had already run without them.</summary>
         public List<GraphTaskParameter> parameters = new List<GraphTaskParameter>();
 
         /// <summary>The level's OBJECT REGISTRY — its WORLD MANIFEST in its own asset: every

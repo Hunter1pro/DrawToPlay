@@ -154,12 +154,73 @@ namespace PowerOfFire.DrawToPlay
             if (tree == null)
                 return;
 
+            // THE SEED IS ON THE BOARD BEFORE THE FIRST OnEnter — every start, not only the
+            // first one. A re-enable and a re-seed both come through here, so a tree can
+            // never begin against a board the seeder has not written yet.
+            ApplySeed();
             StateTreeExecutor executor = EnsureExecutor();
             executor.data = tree;
             executor.parameterOverrides = parameterOverrides;
             executor.context = Context;
             executor.owner = gameObject;
             executor.StartTree();
+        }
+
+        // --- the seed: what a scope's tree must find before it runs -----------------------
+
+        /// <summary>What was seeded onto this scope, remembered — re-applied on every start.</summary>
+        private readonly Dictionary<string, object> m_Seed = new Dictionary<string, object>();
+
+        /// <summary>The values this scope was seeded with, for a diagnostic or a test.</summary>
+        public IReadOnlyDictionary<string, object> seeded => m_Seed;
+
+        /// <summary>
+        /// THE VALUES THIS SCOPE'S TREE MUST FIND BEFORE ITS FIRST OnEnter — an ORDERING
+        /// GUARANTEE, not a convenience, and the reason it lives on the host rather than in
+        /// whatever wrote the blackboard.
+        ///
+        /// A level's parameters used to be written straight onto <see cref="Context"/> after
+        /// the scene loaded, and the claim that they landed "before anything ticks" was true
+        /// only by luck: <c>OnEnter</c> is not a tick, and three ordinary paths ran a tree
+        /// first — a scene that was already open and got ADOPTED (its hosts Started long ago),
+        /// a host RE-ENABLED (which starts its tree again with nobody re-seeding), and a
+        /// second travel to a level already up. A state that reads a key its scope declares
+        /// and finds nothing takes the wrong branch, and nothing downstream can tell that from
+        /// a level that really declares nothing.
+        ///
+        /// So: the values are remembered here, written onto the board, re-written by every
+        /// <see cref="StartTree"/>, and — when this scope's tree has ALREADY run without them
+        /// — the reason it starts again. Seeding is idempotent; seeding the same values twice
+        /// restarts nothing.
+        /// </summary>
+        public void Seed(IReadOnlyDictionary<string, object> values)
+        {
+            if (values == null || values.Count == 0)
+                return;
+            var news = false;
+            foreach (KeyValuePair<string, object> pair in values)
+            {
+                if (string.IsNullOrEmpty(pair.Key))
+                    continue;
+                news |= !m_Seed.TryGetValue(pair.Key, out object held) || !Equals(held, pair.Value);
+                m_Seed[pair.Key] = pair.Value;
+                Context.blackboard[pair.Key] = pair.Value;
+            }
+            if (!news || !isRunning)
+                return;
+            // IT ALREADY RAN WITHOUT THEM. The tree's first OnEnter is what the guarantee is
+            // about, so the tree runs again — the whole point of a fresh level being a fresh
+            // scope (meta-rule 3), reached one beat late.
+            StopTree();
+            StartTree();
+        }
+
+        /// <summary>Put the remembered seed back on the board. Called by every start, so the
+        /// order is the same however the start was reached.</summary>
+        private void ApplySeed()
+        {
+            foreach (KeyValuePair<string, object> pair in m_Seed)
+                Context.blackboard[pair.Key] = pair.Value;
         }
 
         public void StopTree()

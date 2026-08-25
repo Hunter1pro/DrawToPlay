@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
@@ -246,10 +247,20 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
-        /// <summary>The entry's parameters land on the LEVEL host's blackboard before
-        /// anything ticks — same boxing rules as every parameter surface (String as string,
+        /// <summary>
+        /// The entry's parameters land on the LEVEL host's blackboard BEFORE its tree's first
+        /// <c>OnEnter</c> — same boxing rules as every parameter surface (String as string,
         /// Bool as 1/0 float, the rest as float), so the library atoms read them unchanged.
-        /// A level scene without a Level host is a wiring error worth saying once.</summary>
+        /// A level scene without a Level host is a wiring error worth saying once.
+        ///
+        /// THE ORDERING IS THE HOST'S GUARANTEE, not this method's statement order. Writing
+        /// the blackboard from here was true only by luck — <c>OnEnter</c> is not a tick, and
+        /// three ordinary paths ran the level's tree first: an ADOPTED scene (already open, so
+        /// its hosts Started long ago), a host RE-ENABLED, and a second travel to a level
+        /// already up. <see cref="StateTreeContextHost.Seed"/> is what makes it true on all of
+        /// them: it remembers the values, re-writes them on every start, and starts the tree
+        /// again when it had already run without them.
+        /// </summary>
         private void SeedLevelParameters(LevelDef level)
         {
             StateTreeContextHost levelHost = FindLevelHost(m_LoadedScene);
@@ -261,6 +272,7 @@ namespace PowerOfFire.DrawToPlay
                 return;
             }
 
+            var seed = new Dictionary<string, object>();
             var parameters = level.parameters;
             for (int i = 0; parameters != null && i < parameters.Count; i++)
             {
@@ -280,8 +292,9 @@ namespace PowerOfFire.DrawToPlay
                         boxed = row.floatValue;
                         break;
                 }
-                levelHost.Context.blackboard[row.name] = boxed;
+                seed[row.name] = boxed;
             }
+            levelHost.Seed(seed);
         }
 
         private static StateTreeContextHost FindLevelHost(Scene scene)
