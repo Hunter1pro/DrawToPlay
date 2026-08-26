@@ -9,7 +9,6 @@
   "dependencies": {
     "com.unity.inputsystem": "1.19.0",
     "com.unity.collections": "6.5.0",
-    "com.unity.modules.physicscore2d": "1.0.0",
     "com.unity.modules.uielements": "1.0.0"
   },
   "keywords": [ "statetree", "abilities", "physicscore2d", "levels", "graph" ]
