@@ -37,7 +37,7 @@ namespace PowerOfFire.DrawToPlay
     /// Pose-column animation asset — direct port of pose_clip.gd: RAW KEYS only, no
     /// curves; playback lerps float/Vector2 linearly between columns (rotation channels
     /// shortest-path) and the pose-column model is the product (deliberately NOT
-    /// AnimationClip, per the brief §3). Authored by the Pose Sheet; played by PoseAnimator.
+    /// AnimationClip, per the brief §3). Authored by the pose sheet; played by whatever drives the channels.
     /// </summary>
     [CreateAssetMenu(menuName = "Draw To Play/Pose Clip", fileName = "PoseClip")]
     public sealed class PoseClipAsset : ScriptableObject
