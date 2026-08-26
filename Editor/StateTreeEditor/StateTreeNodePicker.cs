@@ -315,8 +315,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>The label a type gets in the picker and in the inspector: the type name minus
-        /// its Task/Condition suffix, nicified. "LineOfSightCondition" reads as "Line Of Sight",
-        /// which is what the author called it before they had to name a class.</summary>
+        /// its Task/Condition suffix, nicified. "TargetDetectedCondition" reads as
+        /// "Target Detected", which is what the author called it before they had to name a
+        /// class.</summary>
         internal static string DisplayNameOf(Type type)
         {
             if (type == null)

@@ -69,10 +69,10 @@ Two things a consumer supplies itself:
 
 - **UniTask** — a git URL cannot be a package dependency, so add it to your own manifest:
   `"com.cysharp.unitask": "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask#2.5.11"`
-- **`com.unity.modules.physicscore2d`** — the runtime still uses `Unity.U2D.Physics` in
-  `StateTree/Library/LineOfSightCondition.cs`. The package deliberately does not declare it, so
-  a project that does not want 2D physics enabled is not forced into it; declare it in your
-  manifest.
+This branch needs **no 2D physics at all.** `LineOfSightCondition` was the last thing reaching
+for `Unity.U2D.Physics`, and it went with the drawing half's dependencies — so a consuming
+project can leave `com.unity.modules.physicscore2d` disabled entirely. `main` still carries
+both the condition and the drawing runtime that needs the module.
 
 ## Conventions
 

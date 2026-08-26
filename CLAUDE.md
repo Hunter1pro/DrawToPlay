@@ -9,9 +9,10 @@ and flow over them were removed — this branch is the wiring toolset only. `mai
 full package. Nothing under `Runtime/StateTree` or the state-tree editors depended on the
 drawing half, which is why the seam was clean; do not reintroduce a dependency on it here.
 
-`com.unity.modules.physicscore2d` is also **not** declared by this package — the consuming
-project declares it. `StateTree/Library/LineOfSightCondition.cs` is the one file that still
-needs `Unity.U2D.Physics`.
+**No 2D physics on this branch.** `com.unity.modules.physicscore2d` is not declared and not
+needed: `LineOfSightCondition` was the last file touching `Unity.U2D.Physics` and it is gone,
+so a consuming project can disable the module outright. Do not reintroduce a `Unity.U2D.Physics`
+reference here — that is what `main` is for.
 
 - `Documentation~/meta-rules.md` is the constitution for runtime code — read before adding a
   service, screen, flow or wire. Five rules: call and return (no events on services); waiting
