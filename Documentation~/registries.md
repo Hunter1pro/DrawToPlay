@@ -11,16 +11,28 @@ they are how everything in this toolset names content without hardcoding a strin
 `ObjectiveRegistry`, `CutsceneRegistry`, `WorldTagRegistry`, `EquipmentSlotRegistry`,
 `EffectRegistry`, `CueRegistry`, `ContractRegistry`.
 
-Every row carries at least:
+Every row derives from `StateTreeRegistryEntry` and carries three fields:
 
 ```csharp
-public string entryId   = "";   // stable, machine-facing:  "item.rope"
-public string entryName = "";   // the human name:          "Rope"
+public string id    = "";   // the identity:  "item.rope"
+public string name  = "";   // the runtime string other rows and code key off:  "rope"
+public string group = "";   // how the picker files it:  "Consumable"
 ```
 
-`entryId` is the identity and must not change once content references it. `entryName` is for
-display and may change freely. When you see a pair like `entryId = "item.rope"` and
-`entryName = "Rope"` in generated content, the first is the wire and the second is the label.
+`id` must not change once content references it. `Describe()` is overridable per row kind, so a
+registry dashboard can summarise a row from its own data with no editor work.
+
+**Do not confuse a row with a reference.** `StateTreeEntryRef<T>` — what a def holds when it
+*points at* a row — has different field names:
+
+```csharp
+public string entryId   = "";   // matches the row's `id`
+public string entryName = "";   // matches the row's `name`
+```
+
+It stores both so it can resolve by id and still show something when the row has gone missing.
+So `row.id` and `reference.entryId` are the same value under two names. Writing `entryId` on a
+row is a compile error rather than a subtle bug, which is the one mercy here.
 
 ## Entry refs
 
