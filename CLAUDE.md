@@ -1,8 +1,17 @@
 # Draw To Play (com.powerofire.drawtoplay)
 
-The shared runtime + editor toolset for PowerofFire games (M21 in the PhysicsExamples2D
-sandbox, the arena in CyberBot). Unity 6000.5, PhysicsCore2D only (never the legacy
-Physics2D components).
+The shared runtime + editor toolset for PowerofFire games. Unity 6000.5, PhysicsCore2D only
+(never the legacy Physics2D components).
+
+**Branch `project/room204`: the drawing half is not here.** Curves, shapes, tessellation,
+painting, rigs, skins, pose animation, destructible bodies, terrain blobs and every editor tool
+and flow over them were removed — this branch is the wiring toolset only. `main` carries the
+full package. Nothing under `Runtime/StateTree` or the state-tree editors depended on the
+drawing half, which is why the seam was clean; do not reintroduce a dependency on it here.
+
+`com.unity.modules.physicscore2d` is also **not** declared by this package — the consuming
+project declares it. `StateTree/Library/LineOfSightCondition.cs` is the one file that still
+needs `Unity.U2D.Physics`.
 
 - `Documentation~/meta-rules.md` is the constitution for runtime code — read before adding a
   service, screen, flow or wire. Five rules: call and return (no events on services); waiting
