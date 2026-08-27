@@ -12,6 +12,10 @@ namespace PowerOfFire.DrawToPlay
     /// A game with MEMORY (what was killed, what walked, what was dropped) derives and answers
     /// the three questions — should this row spawn, where is it now, what else does the level
     /// hold — without touching the spawning itself.
+    ///
+    /// THE LEVEL'S OWN TREE IS HELD THE SAME WAY. A level host on this object with
+    /// <c>autoStart</c> off is started with the bodies, on frame two — its first state asks
+    /// about the citizens the rows just became, and cannot before they are adopted.
     /// </summary>
     [AddComponentMenu("Draw To Play/Levels/Manifest Spawner")]
     public class ManifestSpawner : MonoBehaviour
@@ -52,6 +56,16 @@ namespace PowerOfFire.DrawToPlay
                 Spawn(rows[i]);
             }
             OnRowsSpawned();
+            HoldOwnHost();
+        }
+
+        /// <summary>The level's own host, if it waits to be started — held with the rows'
+        /// bodies rather than started here, so it runs once the world knows them.</summary>
+        private void HoldOwnHost()
+        {
+            var own = GetComponent<StateTreeContextHost>();
+            if (own != null && !own.autoStart && own.tree != null && !own.isRunning)
+                m_Hosts.Add(own);
         }
 
         /// <summary>Once, before the rows — a place to find the services the answers need.</summary>

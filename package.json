@@ -1,7 +1,7 @@
 {
   "name": "com.powerofire.drawtoplay",
   "displayName": "Draw To Play",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "unity": "6000.5",
   "unityRelease": "3f1",
   "description": "PowerofFire's Draw-to-Play toolset: state trees, abilities, attributes, registries and service defs, levels (factory, kinds, manifests, bootstrap, level switch), UI wiring, task graphs, save/autosave, cutscenes, objectives, inventory — the shared runtime and editor that M21 and the arena are built on.",
