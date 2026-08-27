@@ -57,7 +57,14 @@ field on its def, and it is the whole mechanism.
 2. The scope's services are installed from their defs.
 3. `ManifestSpawner` walks the `LevelContent` manifest and builds each placement from its kind.
 4. Each spawned body registers with `WorldService` — that is when its tags become askable.
-5. Trees start. Anything with `autoStart = false` is started explicitly, after registration.
+5. Trees start. Anything with `autoStart = false` is started explicitly, after registration —
+   the spawned bodies' hosts, and the level's own host when it sits on the spawner's object.
+   A level tree whose first state names citizens (a beat that lights up a door) needs exactly
+   the same wait a body's tree does, so it gets the same one.
+
+A field that names a placement by id carries `[PlacementId]`: it is picked from the manifests
+the asset declares (a tree's `registries`, a registry's `dependsOn`), the way `[WorldTag]` picks
+a tag from declared vocabularies.
 
 Step 4 before step 5 is not incidental. A character whose tasks bind through the world must be a
 citizen before its tree runs, or its first tick asks about a world that has never heard of it.

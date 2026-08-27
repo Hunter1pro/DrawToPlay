@@ -314,6 +314,38 @@ namespace PowerOfFire.DrawToPlay
             }
         }
 
+        /// <summary>
+        /// THE PLACEMENTS THIS ASSET MAY NAME — the rows of every manifest it declares. A
+        /// manifest offers its own rows; anything else reaches a manifest the way it reaches any
+        /// catalog, so a level tree that lists its manifest offers exactly that level's things.
+        /// </summary>
+        public static void PlacementsFor(Object owner, List<LevelObjectDef> into)
+        {
+            if (into == null)
+                return;
+            into.Clear();
+
+            if (owner is LevelObjectRegistry manifest)
+                Collect(manifest, into);
+
+            var reachable = new List<StateTreeRegistryAsset>();
+            ReachableRegistries(owner, reachable);
+            for (int i = 0; i < reachable.Count; i++)
+                Collect(reachable[i] as LevelObjectRegistry, into);
+        }
+
+        private static void Collect(LevelObjectRegistry manifest, List<LevelObjectDef> into)
+        {
+            if (manifest == null)
+                return;
+            for (int i = 0; i < manifest.Count; i++)
+            {
+                if (manifest.EntryAt(i) is LevelObjectDef row && !string.IsNullOrEmpty(row.id)
+                    && !into.Contains(row))
+                    into.Add(row);
+            }
+        }
+
         /// <summary>Whether this asset declares that registry — the one-line form of the rule,
         /// for a validator that wants to say "this type points outside the neighbourhood".</summary>
         public static bool Declares(Object owner, StateTreeRegistryAsset registry)
