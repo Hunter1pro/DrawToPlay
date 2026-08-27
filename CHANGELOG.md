@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 — 2026-08-27
+- Constructor injection for subsystems: after `(scope, def)`, further constructor parameters
+  are resolved from the scope at install. A missing required one fails the install, naming
+  the parameter. `[InjectService]` on a service stays for late and cross-scope collaborators.
+
 ## 0.1.1 — 2026-08-27
 - `ManifestSpawner` holds the level's OWN host the way it holds spawned bodies: a level host
   with `autoStart` off on the spawner's object starts on frame two, after its rows are

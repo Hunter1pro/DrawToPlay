@@ -60,7 +60,10 @@ public sealed class BenchService
 - `[ServiceActionContract]` marks an action as part of the declared contract.
 - `[ServiceSetting(default, "description")]` declares a knob. It appears on the def's inspector
   and can be overridden at install.
-- The constructor takes `(scope, def)`. A service is **made**, not found.
+- The constructor takes `(scope, def)`. A service is **made**, not found. Any further
+  parameter is a subsystem handed from the scope at install — `(scope, def, WorldService
+  world)` — which is why an installer's list is in dependency order; a required collaborator
+  that is not installed yet fails the install out loud.
 
 **No `public event` on a service.** This is the first meta-rule and the one most often reached
 for. A subsystem that needs to know something *asks*; a subsystem that needs to wait *draws a
