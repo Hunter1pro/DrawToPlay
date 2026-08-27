@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -182,9 +183,10 @@ namespace PowerOfFire.DrawToPlay
             try
             {
                 // THE CONTRACT EVERY SUBSYSTEM SIGNS: (scope, def). Anything else it needs it
-                // asks the scope for in its own constructor, where a missing collaborator is a
-                // loud failure at install time rather than a null three frames into play.
-                instance = Activator.CreateInstance(type, host, def);
+                // names as a further constructor parameter and is handed from the scope — a
+                // missing collaborator is a loud failure at install time rather than a null
+                // three frames into play.
+                instance = Construct(type, host, def);
             }
             catch (Exception failure)
             {
@@ -207,6 +209,49 @@ namespace PowerOfFire.DrawToPlay
             var subsystem = new StateTreeSubsystem(host, def, instance as StateTreeService, type);
             m_Installed.Add(subsystem);
             return subsystem;
+        }
+
+        /// <summary>
+        /// CONSTRUCTOR INJECTION, on top of the (scope, def) contract: the constructor with
+        /// the most parameters whose first two are the scope and the def is the one built, and
+        /// every parameter after those is a subsystem resolved from the scope — which is why an
+        /// installer's list is in dependency order. An optional parameter may be missing; a
+        /// required one that is fails the install here, naming what was needed.
+        /// </summary>
+        private static object Construct(Type type, StateTreeContextHost host, ServiceDef def)
+        {
+            ConstructorInfo chosen = null;
+            ConstructorInfo[] constructors = type.GetConstructors();
+            for (int i = 0; i < constructors.Length; i++)
+            {
+                ParameterInfo[] signature = constructors[i].GetParameters();
+                if (signature.Length < 2
+                    || !signature[0].ParameterType.IsAssignableFrom(typeof(StateTreeContextHost))
+                    || !signature[1].ParameterType.IsAssignableFrom(typeof(ServiceDef)))
+                    continue;
+                if (chosen == null || signature.Length > chosen.GetParameters().Length)
+                    chosen = constructors[i];
+            }
+            if (chosen == null)
+                return Activator.CreateInstance(type, host, def);
+
+            ParameterInfo[] parameters = chosen.GetParameters();
+            var arguments = new object[parameters.Length];
+            arguments[0] = host;
+            arguments[1] = def;
+            for (int i = 2; i < parameters.Length; i++)
+            {
+                object collaborator = host.GetService(parameters[i].ParameterType);
+                if (collaborator == null && !parameters[i].IsOptional)
+                {
+                    throw new InvalidOperationException("'" + type.Name + "' needs a '"
+                        + parameters[i].ParameterType.Name + "' installed before it — "
+                        + "constructor parameter '" + parameters[i].Name + "'.");
+                }
+                arguments[i] = collaborator ?? (parameters[i].HasDefaultValue
+                    ? parameters[i].DefaultValue : null);
+            }
+            return chosen.Invoke(arguments);
         }
 
         /// <summary>The interfaces a service type offers as capabilities — the ones declared in
