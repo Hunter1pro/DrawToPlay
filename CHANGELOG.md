@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — 2026-08-31
+- Interrupts are heard along the whole active chain: a `checkWhileRunning` transition on
+  any ancestor of the current state is evaluated every tick — current state first, then up
+  the parents — so "a film pre-empts everything" is one row on the root instead of one per
+  leaf. A pre-empted task still exits `Cancelled`, never completed.
+- Entry resolution descends through a node whose only transitions are interrupts:
+  listening from the chain does not make an organizational node a resident state.
+
 ## 0.1.2 — 2026-08-27
 - Constructor injection for subsystems: after `(scope, def)`, further constructor parameters
   are resolved from the scope at install. A missing required one fails the install, naming
