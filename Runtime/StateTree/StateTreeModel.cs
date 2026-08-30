@@ -116,8 +116,9 @@ namespace PowerOfFire.DrawToPlay
 
     /// <summary>Port of state_tree_transition.gd. checkWhileRunning=false: evaluated only
     /// when every task in the source node finished (normal sequencing — exiting one state
-    /// triggers the next). true: evaluated every tick BEFORE task ticks; fires as an
-    /// interrupt and running tasks get OnExit(Cancelled).</summary>
+    /// triggers the next). true: evaluated every tick BEFORE task ticks — on the
+    /// current state and on every ancestor of it, current state first — and fires as an
+    /// interrupt: running tasks get OnExit(Cancelled).</summary>
     [Serializable]
     public sealed class StateTreeTransition
     {

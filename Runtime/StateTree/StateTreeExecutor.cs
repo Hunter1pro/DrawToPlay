@@ -9,7 +9,8 @@ namespace PowerOfFire.DrawToPlay
     /// The state-tree machine itself — everything <see cref="StateTreeRunner"/> used to do minus
     /// the MonoBehaviour. Deep-copies the tree on <see cref="StartTree"/> so each executor owns
     /// its task instances, releases that copy on <see cref="StopTree"/>, and ticks in the
-    /// verbatim order of state_tree_runner.gd (brief §7.1): interrupts (checkWhileRunning) →
+    /// verbatim order of state_tree_runner.gd (brief §7.1): interrupts (checkWhileRunning,
+    /// heard along the whole active chain — current state first, then its ancestors) →
     /// task ticks → on-completion transitions when every task is done. Any pre-emption exits
     /// running tasks with <see cref="StateTreeStatus.Cancelled"/>.
     ///
@@ -264,17 +265,23 @@ namespace PowerOfFire.DrawToPlay
             if (m_CurrentNode == null)
                 return;
 
-            // 1. Interrupt transitions — evaluated every tick, before task ticks.
-            var transitions = m_CurrentNode.transitions;
-            for (int i = 0; i < transitions.Count; i++)
+            // 1. Interrupt transitions — evaluated every tick, before task ticks, along the
+            //    whole active chain: the current state first, then its ancestors up to the
+            //    root. One row high on the tree pre-empts any running descendant; the current
+            //    state's own interrupt outranks an ancestor's passing on the same tick.
+            for (var node = m_CurrentNode; node != null; node = ParentOf(node))
             {
-                var tr = transitions[i];
-                if (tr == null || !tr.checkWhileRunning)
-                    continue;
-                if (Eval(tr.condition))
+                var interrupts = node.transitions;
+                for (int i = 0; i < interrupts.Count; i++)
                 {
-                    TransitionTo(tr);
-                    return;
+                    var tr = interrupts[i];
+                    if (tr == null || !tr.checkWhileRunning)
+                        continue;
+                    if (Eval(tr.condition))
+                    {
+                        TransitionTo(tr);
+                        return;
+                    }
                 }
             }
 
@@ -308,8 +315,7 @@ namespace PowerOfFire.DrawToPlay
 
             // A task may STOP THIS EXECUTOR from inside its own tick — a despawn deactivating
             // the host, a travel tearing the level down around it. Everything below belongs to
-            // the run that no longer exists (the local transitions list included: it is the
-            // destroyed copy's). The pre-M22 code survived this by accident; the completion
+            // the run that no longer exists. The pre-M22 code survived this by accident; the completion
             // gate reads the current node and must not.
             if (m_CurrentNode == null)
                 return;
@@ -319,6 +325,7 @@ namespace PowerOfFire.DrawToPlay
             // implicit flow (next sibling / bubble) unless the state Holds.
             if (IsComplete(m_CurrentNode))
             {
+                var transitions = m_CurrentNode.transitions;
                 for (int i = 0; i < transitions.Count; i++)
                 {
                     var tr = transitions[i];
@@ -566,16 +573,37 @@ namespace PowerOfFire.DrawToPlay
             m_RunningTaskIndices.RemoveAt(slot);
         }
 
-        /// <summary>Organizational nodes resolve to their first leaf: descend while the
-        /// node has no tasks, no transitions, and at least one child.</summary>
+        /// <summary>Organizational nodes resolve to their first leaf: descend while the node
+        /// has no tasks, at least one child, and no transition that could complete it. An
+        /// interrupt row alone does not make a node a resident state — the chain walk in
+        /// <see cref="TickTree"/> hears it from any descendant.</summary>
         private static StateTreeNodeAsset ResolveEntryNode(StateTreeNodeAsset node)
         {
             var current = node;
             int guard = 0;
-            while (current != null && current.tasks.Count == 0 && current.transitions.Count == 0
-                && current.children.Count > 0 && guard++ < 256)
+            while (current != null && current.tasks.Count == 0 && current.children.Count > 0
+                && !HasCompletionTransition(current) && guard++ < 256)
                 current = current.children[0];
             return current;
+        }
+
+        private static bool HasCompletionTransition(StateTreeNodeAsset node)
+        {
+            for (int i = 0; i < node.transitions.Count; i++)
+            {
+                var tr = node.transitions[i];
+                if (tr != null && !tr.checkWhileRunning)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>The live copy's parent of a node, null at the root.</summary>
+        private StateTreeNodeAsset ParentOf(StateTreeNodeAsset node)
+        {
+            return node != null && m_ParentIndex.TryGetValue(node, out StateTreeNodeAsset parent)
+                ? parent
+                : null;
         }
 
         private void BuildIndex(StateTreeNodeAsset node)

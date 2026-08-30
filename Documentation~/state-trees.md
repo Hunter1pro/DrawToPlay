@@ -12,7 +12,9 @@ features are a few new tasks, or a rewiring of tasks that already exist.
   2. a **sub-tree** — a whole tree run as one task,
   3. a **task graph** — a `.taskgraph` program run as one task (see [graphs.md](graphs.md)).
 - **Transition** — target state + optional condition + an *interrupt* flag. Interrupting
-  transitions are evaluated before tasks tick; non-interrupting ones only on completion.
+  transitions are evaluated before tasks tick — on the current state and on every ancestor
+  of it, current state first, so one row high on the tree pre-empts any running
+  descendant; non-interrupting ones only on completion.
 - **Executor** — `StateTreeExecutor`, headless and testable. `StateTreeRunner` is the thin
   MonoBehaviour wrapper; a tree can also be run nested from inside another tree.
 
@@ -77,7 +79,7 @@ a requirement, not a hope.
 1. A scope is created (`StateTreeContextHost` on a GameObject, kind Root/Level/Player).
 2. `StateTreeServiceInstaller` builds the services declared for that scope from their defs.
 3. A tree starts on a host. The injector fills every `[Inject*]` field on its tasks.
-4. Each tick: interrupting transitions are tested → active tasks tick → completion transitions
+4. Each tick: interrupting transitions are tested, current state first and then its ancestors, → active tasks tick → completion transitions
    are tested. A pre-emption tears the current tasks down with `Cancelled`.
 5. The scope dies. Services and trees go with it.
 
