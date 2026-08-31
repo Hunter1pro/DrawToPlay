@@ -20,6 +20,13 @@ objective condition without the objective knowing about colliders.
 A zone is a **placement** like anything else in a level — see [levels.md](levels.md) — so zones
 are authored as rows, not dragged in.
 
+A zone's stack can also be RUN FROM A TREE: `RunZoneTask` on a session- or level-tree state
+asks that zone — the tree, not distance, decides whose stack asks, and no volume is needed.
+The state completes when the stack runs past its end; pre-empted (an ancestor interrupt), it
+releases the ask and keeps the zone's cursor, so re-entering resumes. `objective-complete` is
+the service's verb for the step no watcher can see — a flow completes the current row by name
+through a declared request.
+
 ## Cutscenes
 
 `CutsceneDef` rows in a `CutsceneRegistry`. `CutsceneService` runs one; `DirectTask` is the task
