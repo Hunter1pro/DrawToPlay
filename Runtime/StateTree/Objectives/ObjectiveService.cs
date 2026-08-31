@@ -16,6 +16,8 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     [ServiceActionContract(FocusAction, "value = the target's stableId, or empty for the "
         + "nearest one")]
+    [ServiceActionContract(CompleteAction, "value = the current row's name as a guard, or "
+        + "empty to complete whatever is current")]
     public sealed class ObjectiveService : StateTreeService
     {
 
@@ -30,6 +32,11 @@ namespace PowerOfFire.DrawToPlay
         /// asked by the objective banner, by a tap on a pointer, or by any tree that wants
         /// to draw the eye to what it is asking for.</summary>
         public const string FocusAction = "objective-focus";
+
+        /// <summary>"THE FLOW SAYS WHEN." Completes the CURRENT objective — the verb for a
+        /// step no watcher can see (a door a tree opened). Named, the value is a guard
+        /// against a stale write; empty completes whatever is current.</summary>
+        public const string CompleteAction = "objective-complete";
 
 
         [Tooltip("Activated once when the service starts, empty = nothing runs until an "
@@ -122,6 +129,73 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>The asking zone's row — the widget's title line. Null on the linear line.</summary>
         public ZoneDef activeZoneRow => FindZoneById(m_ActiveZone);
+
+        /// <summary>The zone a TREE is asking for, empty while distance decides — see
+        /// <see cref="AskZone"/>.</summary>
+        public string askedZone => m_AskedZone;
+
+        private string m_AskedZone = "";
+
+        /// <summary>The zone row by NAME, from the same catalog the orchestrator reads —
+        /// what <see cref="RunZoneTask"/> resolves its picked row against.</summary>
+        public ZoneDef FindZone(string zoneName)
+        {
+            ZoneRegistry zones = Zones();
+            return zones != null && !string.IsNullOrEmpty(zoneName)
+                ? zones.FindByName(zoneName) as ZoneDef
+                : null;
+        }
+
+        /// <summary>
+        /// A TREE ASKS A ZONE: the session tree, not distance, says whose stack asks — the
+        /// orchestrator stands down while the ask stands, and no volume is needed, so a zone
+        /// with no placed geometry still runs. The cursor is the zone's own and survives the
+        /// ask: a pre-empted state re-asking resumes where the stack stood.
+        /// </summary>
+        public void AskZone(ZoneDef zone)
+        {
+            if (zone == null || string.IsNullOrEmpty(zone.id))
+                return;
+            IndexZones();
+            if (!m_ZoneIndex.ContainsKey(zone.id))
+                m_ZoneIndex.Add(zone.id, 0);
+            m_AskedZone = zone.id;
+            m_ActiveZone = zone.id;
+            ObjectiveDef cursor = StackRowAt(zone, m_ZoneIndex[zone.id]);
+            if (!ReferenceEquals(cursor, current))
+            {
+                current = cursor;
+                progress = 0;
+            }
+            Moved();
+        }
+
+        /// <summary>The ask withdrawn — only by whoever holds it. The linear line resumes
+        /// exactly where it stood; distance competes again next tick.</summary>
+        public void ReleaseZone(ZoneDef zone)
+        {
+            if (zone == null
+                || !string.Equals(m_AskedZone, zone.id, StringComparison.Ordinal))
+                return;
+            m_AskedZone = "";
+            m_ActiveZone = "";
+            if (!ReferenceEquals(current, m_LinearCursor))
+            {
+                current = m_LinearCursor;
+                progress = 0;
+            }
+            Moved();
+        }
+
+        /// <summary>Ran past its end — what a state waiting on a zone completes on.</summary>
+        public bool ZoneDone(ZoneDef zone)
+        {
+            if (zone == null || zone.asset == null || zone.asset.entries.Count == 0)
+                return true;
+            IndexZones();
+            return m_ZoneIndex.TryGetValue(zone.id, out int index)
+                && index >= zone.asset.entries.Count;
+        }
 
         /// <summary>The zone catalog: the first ZoneRegistry the objective registry lists
         /// in dependsOn — the same provenance chain every picked reference uses.</summary>
@@ -391,6 +465,9 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         private void OrchestrateZones()
         {
+            // A tree's ask outranks distance: while one stands, walking changes nothing.
+            if (!string.IsNullOrEmpty(m_AskedZone))
+                return;
             IndexZones();
             if (m_ZoneIndex.Count == 0)
                 return;
@@ -687,6 +764,13 @@ namespace PowerOfFire.DrawToPlay
 
         protected override void OnRequest(ServiceRequest request, string value)
         {
+            if (request.action == CompleteAction)
+            {
+                if (string.IsNullOrEmpty(value) || (current != null
+                    && string.Equals(current.name, value, StringComparison.Ordinal)))
+                    Complete();
+                return;
+            }
             if (request.action != FocusAction)
                 return;
             // BY STABLE ID, because the value crosses a blackboard as text: a tree or a skin

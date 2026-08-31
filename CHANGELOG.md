@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 — 2026-08-31
+- `RunZoneTask`: a tree state runs a zone's objective stack — the ordered `ZoneAsset` list
+  is the sequence, so a tree carries one state per zone instead of one per objective, and a
+  side quest is an ancestor interrupt that releases the ask and resumes the cursor on
+  re-entry. While an ask stands the distance orchestrator stands down; no volume needed.
+- `objective-complete` action on `ObjectiveService`: a flow completes the current row (named
+  as a guard) through a declared request — the step no watcher can see.
+
 ## 0.2.0 — 2026-08-31
 - Interrupts are heard along the whole active chain: a `checkWhileRunning` transition on
   any ancestor of the current state is evaluated every tick — current state first, then up
