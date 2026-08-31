@@ -277,11 +277,17 @@ namespace PowerOfFire.DrawToPlay
                     var tr = interrupts[i];
                     if (tr == null || !tr.checkWhileRunning)
                         continue;
-                    if (Eval(tr.condition))
-                    {
-                        TransitionTo(tr);
-                        return;
-                    }
+                    if (!Eval(tr.condition))
+                        continue;
+                    // A live interrupt whose target is the state already running is a
+                    // livelock, not a request - entering it again every tick would restart
+                    // its tasks forever. Skipped, so a film state can consume the fact that
+                    // called it without racing the condition.
+                    if (m_NodeIndex.TryGetValue(tr.targetNodeId ?? "", out var where)
+                        && ResolveEntryNode(where) == m_CurrentNode)
+                        continue;
+                    TransitionTo(tr);
+                    return;
                 }
             }
 

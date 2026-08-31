@@ -175,6 +175,25 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.IsNull(m_Service.current, "empty completes whatever is current");
         }
 
+        [Test]
+        public void TheVerb_AdvancesAReleasedZonesCursor()
+        {
+            ObjectiveDef meet = MakeDialog("meet", "intro");
+            ObjectiveDef brief = MakeDialog("brief", "orders");
+            MakeZone("dorm", meet, brief);
+            RunZoneTask task = MakeTask("dorm");
+            StateTreeContext context = Context();
+
+            task.OnEnter(context);
+            task.OnExit(context, StateTreeStatus.Cancelled);   // a film pre-empted the zone
+            var row = new ServiceRequest { key = "x", action = ObjectiveService.CompleteAction };
+            Serve(row, "meet");
+
+            task.OnEnter(context);
+            Assert.AreSame(brief, m_Service.current,
+                "the ledger advanced while released; re-asking resumes past the done row");
+        }
+
         // ------------------------------------------------------------------------ helpers
 
         private void Serve(ServiceRequest row, string value)
