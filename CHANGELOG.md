@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2 - 2026-09-01
+- `StateTreeContextKind.Character`: a non-player actor's host kind, so `Resolve(Player)` -
+  what the objective watchers and the zone orchestrator ask - stays unique when a level
+  holds more than one actor.
+
 ## 0.3.1 - 2026-09-01
 - `CompleteRow(name)` / the `objective-complete` verb with a name also advances a RELEASED
   zone whose cursor is that row - a film state that pre-empted the zone can still say "that
