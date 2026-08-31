@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 - 2026-09-01
+- `CompleteRow(name)` / the `objective-complete` verb with a name also advances a RELEASED
+  zone whose cursor is that row - a film state that pre-empted the zone can still say "that
+  step is done", and re-asking resumes past it.
+- An interrupt whose target resolves to the state already running is skipped instead of
+  re-entered every tick - a film state can consume the fact that called it without racing
+  its own condition.
+
 ## 0.3.0 — 2026-08-31
 - `RunZoneTask`: a tree state runs a zone's objective stack — the ordered `ZoneAsset` list
   is the sequence, so a tree carries one state per zone instead of one per objective, and a

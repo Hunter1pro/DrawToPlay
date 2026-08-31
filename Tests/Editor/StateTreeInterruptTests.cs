@@ -152,6 +152,29 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual("group", runner.activeNodeId);
         }
 
+        [Test]
+        public void AnInterruptTargetingTheRunningState_DoesNotRetrigger()
+        {
+            var slow = MakeNode("slow", MakeTask("slow", 99));
+            var film = MakeNode("film", MakeTask("film"));
+            var root = MakeNode("root");
+            root.children.Add(slow);
+            root.children.Add(film);
+            AddTransition(root, "film", MakeFlagCondition(k_FlagKey), true);
+
+            StateTreeRunner runner = MakeRunner(MakeTree(root));
+            runner.StartTree();
+            runner.context.blackboard[k_FlagKey] = true;
+            runner.TickTree(0.1f);
+            Assert.AreEqual("film", runner.activeNodeId);
+
+            runner.TickTree(0.1f);
+            runner.TickTree(0.1f);
+            int entries = Log(runner).FindAll(line => line == "film:enter").Count;
+            Assert.AreEqual(1, entries,
+                "a still-true interrupt must not restart the state it already reached");
+        }
+
         // ------------------------------------------------------------------------ helpers
 
         private StubRecordingTask MakeTask(string id, int finishOnTick = 0,

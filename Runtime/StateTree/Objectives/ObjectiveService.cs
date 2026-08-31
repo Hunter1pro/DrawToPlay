@@ -16,8 +16,9 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     [ServiceActionContract(FocusAction, "value = the target's stableId, or empty for the "
         + "nearest one")]
-    [ServiceActionContract(CompleteAction, "value = the current row's name as a guard, or "
-        + "empty to complete whatever is current")]
+    [ServiceActionContract(CompleteAction, "value = a row's name - completes it when it is "
+        + "current, or advances the released zone whose cursor it is; empty completes "
+        + "whatever is current")]
     public sealed class ObjectiveService : StateTreeService
     {
 
@@ -435,6 +436,35 @@ namespace PowerOfFire.DrawToPlay
             Moved();
         }
 
+        /// <summary>Complete a row BY NAME: the current one, or a released zone's cursor -
+        /// the ledger advances either way, which is what lets a film state that pre-empted
+        /// the zone still say "that step is done". A name that is neither is a stale write
+        /// and completes nothing.</summary>
+        public void CompleteRow(string rowName)
+        {
+            if (current != null && string.Equals(current.name, rowName, StringComparison.Ordinal))
+            {
+                Complete();
+                return;
+            }
+            IndexZones();
+            ZoneRegistry zones = Zones();
+            for (int i = 0; zones != null && i < zones.entries.Count; i++)
+            {
+                ZoneDef zone = zones.entries[i];
+                if (zone == null || string.IsNullOrEmpty(zone.id)
+                    || !m_ZoneIndex.TryGetValue(zone.id, out int index))
+                    continue;
+                ObjectiveDef cursor = StackRowAt(zone, index);
+                if (cursor == null
+                    || !string.Equals(cursor.name, rowName, StringComparison.Ordinal))
+                    continue;
+                m_ZoneIndex[zone.id] = index + 1;
+                Knock();
+                return;
+            }
+        }
+
         /// <summary>Every declared zone starts at the top of its stack. The container row
         /// IS the authoring surface: adding the next task to a zone is appending to its
         /// list — no chain wiring, no membership fields.</summary>
@@ -766,9 +796,10 @@ namespace PowerOfFire.DrawToPlay
         {
             if (request.action == CompleteAction)
             {
-                if (string.IsNullOrEmpty(value) || (current != null
-                    && string.Equals(current.name, value, StringComparison.Ordinal)))
+                if (string.IsNullOrEmpty(value))
                     Complete();
+                else
+                    CompleteRow(value);
                 return;
             }
             if (request.action != FocusAction)
