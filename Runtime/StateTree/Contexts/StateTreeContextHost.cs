@@ -12,7 +12,11 @@ namespace PowerOfFire.DrawToPlay
     {
         Root,
         Level,
-        Player
+        Player,
+
+        /// <summary>A non-player actor's own scope — resolvable as itself, never mistaken
+        /// for THE player.</summary>
+        Character
     }
 
     /// <summary>
