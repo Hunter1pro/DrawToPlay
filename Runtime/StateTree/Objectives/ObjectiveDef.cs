@@ -63,45 +63,35 @@ namespace PowerOfFire.DrawToPlay
         [Tooltip("A FACT that completes this row: a key on the service's scope board, "
             + "compared as text. Empty = no fact watcher. The flow writes facts; the ledger "
             + "hears them - no completing task in any tree.")]
-        public string factKey = "";
+        [StateTreeKey(StateTreeKeyKind.String, any: true)]
+        public StateTreeKeyField factKey = new StateTreeKeyField();
 
-        [Tooltip("The value that counts as done - a stableId, a name. Empty means 'the key "
-            + "exists'.")]
+        [Tooltip("The value that counts as done - the placement whose id the fact names. "
+            + "Empty means 'the key exists'.")]
+        [PlacementId]
         public string factValue = "";
 
         [Tooltip("A GATE: this row applies only while the scope board agrees. Key unset = "
             + "the row is PENDING (current but inert - the ledger waits for the answer); set "
             + "and equal = the row runs; set and different = the row is passed over "
             + "silently. How a choice forks a linear stack.")]
-        public string gateKey = "";
+        [StateTreeKey(StateTreeKeyKind.Float, any: true)]
+        public StateTreeKeyField gateKey = new StateTreeKeyField();
 
-        [Tooltip("The value that lets the row run.")]
-        public string gateValue = "";
-
-        [Tooltip("A declared request written on the ROOT board when this row completes - "
-            + "'video.play' with a film row's name plays a completion film. Empty = nothing "
-            + "called.")]
-        public string completeRequestKey = "";
-
-        [Tooltip("The request's value.")]
-        public string completeRequestValue = "";
-
-        [Tooltip("A GATE: this row applies only while the scope board agrees. Key unset = "
-            + "the row is PENDING (current but inert - the ledger waits for the answer); set "
-            + "and equal = the row runs; set and different = the row is passed over "
-            + "silently. How a choice forks a linear stack.")]
-        public string gateKey = "";
-
-        [Tooltip("The value that lets the row run.")]
-        public string gateValue = "";
+        [Tooltip("The number that lets the row run - an answer index, a flag (bools are "
+            + "1/0 on the board).")]
+        public float gateValue;
 
         [Tooltip("A declared request written on the ROOT board when this row completes - "
-            + "'video.play' with a film row's name plays a completion film. Empty = nothing "
+            + "'video.play' with a film row plays a completion film. Empty = nothing "
             + "called.")]
+        [ServiceRequestKey]
         public string completeRequestKey = "";
 
-        [Tooltip("The request's value.")]
-        public string completeRequestValue = "";
+        [Tooltip("The request's value - a row of a registry this catalog reaches (the film "
+            + "to play), picked, not typed.")]
+        public StateTreeEntryRef<StateTreeRegistryEntry> completeRequestValue =
+            new StateTreeEntryRef<StateTreeRegistryEntry>();
 
         [Tooltip("The LINEAR line's chain: completing this activates that. Ignored while "
             + "a zone stack asks the row — there, the stack's ORDER is the chain.")]

@@ -234,8 +234,8 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void AGatedRow_Pends_ThenRuns()
         {
             ObjectiveDef ask = MakeDialog("meet", "intro");
-            ask.gateKey = "helped";
-            ask.gateValue = "0";
+            ask.gateKey = new StateTreeKeyField("helped");
+            ask.gateValue = 0f;
             ObjectiveDef after = MakeDialog("brief", "orders");
             ZoneDef zone = MakeZone("dorm", ask, after);
             m_Service.AskZone(zone);
@@ -256,8 +256,8 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void AGateMismatch_PassesOver_Silently()
         {
             ObjectiveDef skipped = MakeDialog("meet", "intro");
-            skipped.gateKey = "helped";
-            skipped.gateValue = "0";
+            skipped.gateKey = new StateTreeKeyField("helped");
+            skipped.gateValue = 0f;
             ObjectiveDef last = MakeDialog("brief", "orders");
             ZoneDef zone = MakeZone("dorm", skipped, last);
             m_Level.Context.blackboard["helped"] = 1f;
@@ -284,8 +284,12 @@ namespace PowerOfFire.DrawToPlay.Tests
             var open = new ObjectiveDef
             {
                 id = "objective.open", name = "open", kind = ObjectiveKind.MoveTo,
-                factKey = "door.opened", factValue = "x",
-                completeRequestKey = "video.play", completeRequestValue = "hall.help"
+                factKey = new StateTreeKeyField("door.opened"), factValue = "x",
+                completeRequestKey = "video.play",
+                completeRequestValue = new StateTreeEntryRef<StateTreeRegistryEntry>
+                {
+                    entryName = "hall.help"
+                }
             };
             m_Service.Activate(open);
             m_Level.Context.blackboard["door.opened"] = "x";
