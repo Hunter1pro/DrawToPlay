@@ -308,12 +308,24 @@ namespace PowerOfFire.DrawToPlay.Editor
             return row;
         }
 
-        /// <summary>The chosen ghost shape, remembered per user across sessions.</summary>
+        /// <summary>The chosen ghost shape, remembered per user across sessions and
+        /// cached — this is read per row per repaint, and EditorPrefs is a disk hit.</summary>
         private static LevelGhostStyle style
         {
-            get => (LevelGhostStyle)EditorPrefs.GetInt(k_StyleKey, (int)LevelGhostStyle.Mesh);
-            set => EditorPrefs.SetInt(k_StyleKey, (int)value);
+            get
+            {
+                s_Style ??= (LevelGhostStyle)EditorPrefs.GetInt(
+                    k_StyleKey, (int)LevelGhostStyle.Mesh);
+                return s_Style.Value;
+            }
+            set
+            {
+                s_Style = value;
+                EditorPrefs.SetInt(k_StyleKey, (int)value);
+            }
         }
+
+        private static LevelGhostStyle? s_Style;
 
         private const string k_StyleKey = "PowerOfFire.DrawToPlay.LevelManifest.GhostStyle";
 
@@ -419,8 +431,18 @@ namespace PowerOfFire.DrawToPlay.Editor
                     continue;
                 var propertyField = new PropertyField(child);
                 propertyField.Bind(m_Objects);
-                propertyField.RegisterValueChangeCallback(_ => SceneView.RepaintAll());
                 box.Add(propertyField);
+            }
+
+            // The scene mirrors only what it draws — the handle and the ghost. Tracking
+            // those few properties, rather than every change event the binder emits (list
+            // rebinds emit them continuously), keeps an open panel from repainting the
+            // scene per tick.
+            foreach (string watched in new[] { "position", "facing", "kind", "name" })
+            {
+                SerializedProperty child = element.FindPropertyRelative(watched);
+                if (child != null)
+                    box.TrackPropertyValue(child, _ => SceneView.RepaintAll());
             }
             return box;
         }
@@ -510,9 +532,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <param name="selected">Whether this is the selected row — drawn a little more solid,
         /// so the selection reads without a second colour.</param>
         private void DrawHologram(LevelObjectRegistry manifest, LevelObjectDef def, Vector3 world,
-            bool selected)
+            bool selected, Plane[] frustum)
         {
             if (Event.current.type != EventType.Repaint)
+                return;
+            // An off-screen ghost costs nothing: a generous fixed box, because a placement's
+            // ghost is at most a character or a door.
+            if (frustum != null
+                && !GeometryUtility.TestPlanesAABB(frustum, new Bounds(world, Vector3.one * 4f)))
                 return;
             GameObject prefab = PreviewOf(def);
 
@@ -689,6 +716,9 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             LevelObjectRegistry manifest = m_Level.objects;
             List<LevelObjectDef> rows = manifest.entries;
+            Plane[] frustum = Event.current.type == EventType.Repaint && view.camera != null
+                ? GeometryUtility.CalculateFrustumPlanes(view.camera)
+                : null;
             for (int i = 0; i < rows.Count; i++)
             {
                 LevelObjectDef def = rows[i];
@@ -702,7 +732,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 float size = HandleUtility.GetHandleSize(world) * 0.12f;
                 bool selected = i == m_Selected;
 
-                DrawHologram(manifest, def, world, selected);
+                DrawHologram(manifest, def, world, selected, frustum);
 
                 using (new Handles.DrawingScope(selected
                     ? new Color(1f, 0.85f, 0.3f)
@@ -726,7 +756,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                     Undo.RecordObject(manifest, "Move Level Object");
                     def.position = manifest.ToPlan(moved);
                     EditorUtility.SetDirty(manifest);
-                    Rebuild();
+                    // No Rebuild here: tearing down and rebinding the whole panel per drag
+                    // frame is what made dragging stutter. The bound fields refresh
+                    // themselves from the SerializedObject.
                 }
             }
         }

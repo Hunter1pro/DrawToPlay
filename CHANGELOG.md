@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.4 - 2026-09-02
+- Level Manifest window no longer drags the scene down: dragging a handle re-used the
+  bound fields instead of rebuilding the whole panel per frame, the scene repaints only
+  when a drawn property (position/facing/kind/name) actually changes, the ghost style is
+  read from EditorPrefs once instead of per row per repaint, and off-screen ghosts are
+  frustum-culled before their meshes are drawn.
+
 ## 0.5.3 - 2026-09-02
 - A tree SEES the keys of the registries it lists: the picker offers them and the runtime
   resolves wired ids through them - one declaration (on the registry) serves the rows that
