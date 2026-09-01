@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.5 - 2026-09-02
+- Level Manifest: a MISSING kind catalog is cached like a found one - a level whose
+  registry does not wire `LevelRegistry.kinds` no longer re-scans the project per row per
+  repaint (ghosts fell back to stand-ins AND the scene lagged; now it only says "nothing
+  to add" once, and notices when the catalog appears via projectChanged).
+
 ## 0.5.4 - 2026-09-02
 - Level Manifest window no longer drags the scene down: dragging a handle re-used the
   bound fields instead of rebuilding the whole panel per frame, the scene repaints only
