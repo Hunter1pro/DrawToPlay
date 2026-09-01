@@ -66,6 +66,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private void OnEnable()
         {
             SceneView.duringSceneGui += OnSceneGui;
+            EditorApplication.projectChanged += OnProjectChanged;
             EditorSceneManagerHooks();
             Undo.undoRedoPerformed += Rebuild;
         }
@@ -73,6 +74,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private void OnDisable()
         {
             SceneView.duringSceneGui -= OnSceneGui;
+            EditorApplication.projectChanged -= OnProjectChanged;
             UnityEditor.SceneManagement.EditorSceneManager.sceneOpened -= OnSceneOpened;
             Undo.undoRedoPerformed -= Rebuild;
         }
@@ -806,10 +808,24 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// </summary>
         /// <returns>The catalog, or null when nothing catalogs this level yet — in which case the
         /// window offers no kinds rather than the wrong ones.</returns>
+        /// <summary>A registry that turns up later (created, or Verify wiring the ref) is
+        /// noticed here — and the panel redrawn, since "nothing to add" may have changed.</summary>
+        private void OnProjectChanged()
+        {
+            m_Kinds = null;
+            m_KindsSearched = false;
+            Rebuild();
+        }
+
+        /// <summary>The MISS is cached too: without the flag, a level whose catalog is not
+        /// wired re-ran this project scan per row per repaint — the lag this window had.</summary>
+        private bool m_KindsSearched;
+
         private LevelObjectKindRegistry Kinds()
         {
-            if (m_Kinds != null || m_Level == null)
+            if (m_Kinds != null || m_KindsSearched || m_Level == null)
                 return m_Kinds;
+            m_KindsSearched = true;
 
             string[] guids = AssetDatabase.FindAssets("t:" + nameof(LevelRegistry));
             for (int i = 0; i < guids.Length; i++)
