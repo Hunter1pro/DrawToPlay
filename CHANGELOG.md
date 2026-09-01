@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.7 - 2026-09-02
+- Auto-update: on load and on regaining focus (right after a pull), the editor asks the
+  remote where the pinned ref stands (`git ls-remote`, background, 60s cooldown); a moved
+  ref runs the same one-click update. Off-switch: Tools/Draw To Play/Auto-Update on Focus.
+  Never during play mode; an unreachable remote does nothing.
+
 ## 0.5.6 - 2026-09-02
 - Tools/Draw To Play/Update Draw To Play: one click re-fetches the pinned git tag (re-Add
   of the manifest's own URL - the official UPM way; the lock rewrites itself). For the
