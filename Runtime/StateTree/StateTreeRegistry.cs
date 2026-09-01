@@ -42,6 +42,11 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     public abstract class StateTreeRegistryAsset : ScriptableObject
     {
+        [Tooltip("The KEYS this registry's rows speak — declared once here, offered by every "
+            + "key field on a row, the way a tree declares its own. Reached through dependsOn "
+            + "like everything else.")]
+        public List<StateTreeKeyDeclaration> keys = new List<StateTreeKeyDeclaration>();
+
         /// <summary>
         /// The other registries the things in THIS registry are allowed to talk about — the
         /// M22 dependency edge, and the only way a GRAPH learns which data answers for it.

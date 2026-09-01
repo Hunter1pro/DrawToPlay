@@ -37,18 +37,19 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             var wired = !string.IsNullOrEmpty(idProperty.stringValue);
-            StateTreeAsset tree = TreeFor(property.serializedObject.targetObject);
+            Object owner = property.serializedObject.targetObject;
+            StateTreeAsset tree = TreeFor(owner);
 
             // The display half of the rename rule: a wired field shows (and keeps) the
-            // declaration's CURRENT name — a key's, or a tree PARAMETER's (both seed the
-            // blackboard by name and wire by id).
-            if (wired && tree != null)
+            // declaration's CURRENT name — a tree's key, a registry's key, or a tree
+            // PARAMETER (all seed by name and wire by id).
+            if (wired)
             {
                 StateTreeKeyDeclaration declaration =
-                    FindDeclaration(tree, idProperty.stringValue);
+                    FindDeclaration(owner, tree, idProperty.stringValue);
                 var current = declaration != null
                     ? declaration.name
-                    : FindParameter(tree, idProperty.stringValue)?.name;
+                    : tree != null ? FindParameter(tree, idProperty.stringValue)?.name : null;
                 if (!string.IsNullOrEmpty(current) && !string.Equals(current,
                         textProperty.stringValue, System.StringComparison.Ordinal))
                 {
@@ -96,10 +97,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             SerializedProperty property, SerializedProperty textProperty,
             SerializedProperty idProperty)
         {
-            StateTreeAsset tree = TreeFor(property.serializedObject.targetObject);
+            Object owner = property.serializedObject.targetObject;
+            StateTreeAsset tree = TreeFor(owner);
             var declarations = new List<StateTreeKeyDeclaration>();
             if (tree != null)
                 StateTreeKeyResolver.CollectVisible(tree, declarations);
+            var fromRegistries = new List<StateTreeKeyDeclaration>();
+            StateTreeOffers.KeysFor(owner, fromRegistries);
+            declarations.AddRange(fromRegistries);
 
             var attribute = fieldInfo != null
                 ? System.Attribute.GetCustomAttribute(fieldInfo, typeof(StateTreeKeyAttribute))
@@ -113,9 +118,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (declarations.Count == 0)
             {
                 menu.AddDisabledItem(new GUIContent(tree == null
-                    ? "No state tree reachable (no context host with a tree in the parents "
-                        + "or at the scene's Root)."
-                    : "The reachable tree declares no keys yet."));
+                    ? "No key source reachable — no tree in the parents or at the scene's "
+                        + "Root, and no registry keys behind this row."
+                    : "The reachable sources declare no keys yet."));
             }
 
             var currentId = idProperty.stringValue;
@@ -304,10 +309,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             return null;
         }
 
-        private static StateTreeKeyDeclaration FindDeclaration(StateTreeAsset tree, string keyId)
+        private static StateTreeKeyDeclaration FindDeclaration(Object owner,
+            StateTreeAsset tree, string keyId)
         {
             var declarations = new List<StateTreeKeyDeclaration>();
-            StateTreeKeyResolver.CollectVisible(tree, declarations);
+            if (tree != null)
+                StateTreeKeyResolver.CollectVisible(tree, declarations);
+            var fromRegistries = new List<StateTreeKeyDeclaration>();
+            StateTreeOffers.KeysFor(owner, fromRegistries);
+            declarations.AddRange(fromRegistries);
             foreach (StateTreeKeyDeclaration declaration in declarations)
             {
                 if (declaration != null
