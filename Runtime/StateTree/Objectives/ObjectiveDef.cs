@@ -69,6 +69,23 @@ namespace PowerOfFire.DrawToPlay
             + "exists'.")]
         public string factValue = "";
 
+        [Tooltip("A GATE: this row applies only while the scope board agrees. Key unset = "
+            + "the row is PENDING (current but inert - the ledger waits for the answer); set "
+            + "and equal = the row runs; set and different = the row is passed over "
+            + "silently. How a choice forks a linear stack.")]
+        public string gateKey = "";
+
+        [Tooltip("The value that lets the row run.")]
+        public string gateValue = "";
+
+        [Tooltip("A declared request written on the ROOT board when this row completes - "
+            + "'video.play' with a film row's name plays a completion film. Empty = nothing "
+            + "called.")]
+        public string completeRequestKey = "";
+
+        [Tooltip("The request's value.")]
+        public string completeRequestValue = "";
+
         [Tooltip("The LINEAR line's chain: completing this activates that. Ignored while "
             + "a zone stack asks the row — there, the stack's ORDER is the chain.")]
         public StateTreeEntryRef<ObjectiveDef> nextOnComplete = new StateTreeEntryRef<ObjectiveDef>();
