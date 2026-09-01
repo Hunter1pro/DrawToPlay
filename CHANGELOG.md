@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.6 - 2026-09-02
+- Tools/Draw To Play/Update Draw To Play: one click re-fetches the pinned git tag (re-Add
+  of the manifest's own URL - the official UPM way; the lock rewrites itself). For the
+  designers: no terminal, no lockfile surgery.
+
 ## 0.5.5 - 2026-09-02
 - Level Manifest: a MISSING kind catalog is cached like a found one - a level whose
   registry does not wire `LevelRegistry.kinds` no longer re-scans the project per row per
