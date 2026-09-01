@@ -175,6 +175,7 @@ namespace PowerOfFire.DrawToPlay
                 progress = 0;
             }
             Moved();
+            SettleGates();
         }
 
         /// <summary>The ask withdrawn — only by whoever holds it. The linear line resumes
@@ -424,6 +425,13 @@ namespace PowerOfFire.DrawToPlay
             progress = 0;
             m_Widget?.Completed(done);
             Announce(CompletedAnnouncement, done.name);
+            if (!string.IsNullOrEmpty(done.completeRequestKey))
+            {
+                StateTreeContextHost top = StateTreeContextHost.Resolve(
+                    scope.gameObject, StateTreeContextKind.Root);
+                if (top != null && top.Context != null)
+                    top.Context.blackboard[done.completeRequestKey] = done.completeRequestValue ?? "";
+            }
             // The asking zone owns the completion when the finished row IS its cursor —
             // then the stack's ORDER is the chain. Everything else is the linear line,
             // where nextOnComplete still speaks.
@@ -440,6 +448,69 @@ namespace PowerOfFire.DrawToPlay
                 m_LinearCursor = next;
                 current = next;
             }
+            Moved();
+            SettleGates();
+        }
+
+        /// <summary>The current row's gate against the scope board: no gate or agreement
+        /// runs; an unset key is PENDING - inert, waiting; a mismatch is passed over by
+        /// <see cref="SettleGates"/>.</summary>
+        public bool currentPending
+        {
+            get
+            {
+                if (current == null || string.IsNullOrEmpty(current.gateKey))
+                    return false;
+                var board = scope != null && scope.Context != null ? scope.Context.blackboard : null;
+                return board == null || !board.ContainsKey(current.gateKey);
+            }
+        }
+
+        /// <summary>The gate step, callable without a frame - tests drive it.</summary>
+        public void SettleNow()
+        {
+            SettleGates();
+        }
+
+        /// <summary>Pass over every current row whose gate is set and DISAGREES - silently:
+        /// a passed row never completed, so nothing announces and nothing is called.</summary>
+        private void SettleGates()
+        {
+            for (int guard = 0; guard < 64 && current != null; guard++)
+            {
+                ObjectiveDef row = current;
+                if (string.IsNullOrEmpty(row.gateKey))
+                    return;
+                var board = scope != null && scope.Context != null ? scope.Context.blackboard : null;
+                if (board == null || !board.TryGetValue(row.gateKey, out object held))
+                    return;   // pending - the ledger waits
+                if (string.Equals(held != null ? held.ToString() : "",
+                        row.gateValue, StringComparison.Ordinal))
+                    return;   // the gate agrees - the row runs
+                PassOver(row);
+                if (ReferenceEquals(current, row))
+                    return;
+            }
+        }
+
+        /// <summary>Advance past a row the way Complete does, minus everything a completion
+        /// means: it just was not this playthrough.</summary>
+        private void PassOver(ObjectiveDef row)
+        {
+            ZoneDef zone = FindZoneById(m_ActiveZone);
+            if (zone != null && m_ZoneIndex.TryGetValue(m_ActiveZone, out int index)
+                && ReferenceEquals(StackRowAt(zone, index), row))
+            {
+                m_ZoneIndex[m_ActiveZone] = index + 1;
+                current = StackRowAt(zone, index + 1);
+            }
+            else
+            {
+                ObjectiveDef next = Find(row.nextOnComplete.entryName);
+                m_LinearCursor = next;
+                current = next;
+            }
+            progress = 0;
             Moved();
         }
 
@@ -570,7 +641,7 @@ namespace PowerOfFire.DrawToPlay
         /// tag when it has one; the victim rides along so the filter can ask it.</summary>
         public void ReportKill(WorldObjectBehaviour victim)
         {
-            if (current == null || current.kind != ObjectiveKind.EnemyKill)
+            if (current == null || current.kind != ObjectiveKind.EnemyKill || currentPending)
                 return;
             if (!string.IsNullOrEmpty(current.targetTag)
                 && (victim == null || !victim.HasTag(current.targetTag)))
@@ -586,7 +657,7 @@ namespace PowerOfFire.DrawToPlay
         /// dropping an item honestly un-progresses the objective.</summary>
         public void ReportPickupCount(string itemName, int carried)
         {
-            if (current == null || current.kind != ObjectiveKind.Pickup)
+            if (current == null || current.kind != ObjectiveKind.Pickup || currentPending)
                 return;
             if (!string.Equals(current.target.entryName, itemName, StringComparison.Ordinal))
                 return;
@@ -605,7 +676,7 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>A conversation finished — by the dialog ROW's name, the registry key.</summary>
         public void ReportDialogFinished(string dialogRowName)
         {
-            if (current == null || current.kind != ObjectiveKind.Dialog)
+            if (current == null || current.kind != ObjectiveKind.Dialog || currentPending)
                 return;
             if (string.Equals(current.target.entryName, dialogRowName, StringComparison.Ordinal))
                 Complete();
@@ -635,6 +706,7 @@ namespace PowerOfFire.DrawToPlay
             }
 
             OrchestrateZones();
+            SettleGates();
 
             if (current != null && current.kind == ObjectiveKind.MoveTo)
                 CheckArrival();
@@ -646,7 +718,7 @@ namespace PowerOfFire.DrawToPlay
         /// board says so. Public so tests drive it without a frame.</summary>
         public void CheckFacts()
         {
-            if (current == null || string.IsNullOrEmpty(current.factKey))
+            if (current == null || string.IsNullOrEmpty(current.factKey) || currentPending)
                 return;
             var board = scope != null && scope.Context != null ? scope.Context.blackboard : null;
             if (board == null || !board.TryGetValue(current.factKey, out object held))
@@ -717,7 +789,7 @@ namespace PowerOfFire.DrawToPlay
         /// Public so tests drive it without a frame.</summary>
         public void CheckArrival()
         {
-            if (current == null || current.kind != ObjectiveKind.MoveTo)
+            if (current == null || current.kind != ObjectiveKind.MoveTo || currentPending)
                 return;
             StateTreeContextHost player =
                 StateTreeContextHost.Resolve(scope.gameObject, StateTreeContextKind.Player);
