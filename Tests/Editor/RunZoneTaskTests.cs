@@ -323,6 +323,27 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual(2, into.Count, "own keys and dependsOn keys are one surface");
         }
 
+        [Test]
+        public void ATree_SeesItsRegistriesKeys()
+        {
+            var stack = ScriptableObject.CreateInstance<ZoneAsset>();
+            m_Assets.Add(stack);
+            stack.keys.Add(new StateTreeKeyDeclaration
+            {
+                id = "k9", name = "helped", kind = StateTreeKeyKind.Float
+            });
+            var tree = ScriptableObject.CreateInstance<StateTreeAsset>();
+            m_Assets.Add(tree);
+            tree.registries.Add(stack);
+
+            var into = new List<StateTreeKeyDeclaration>();
+            StateTreeKeyResolver.CollectVisible(tree, into);
+            Assert.IsTrue(into.Exists(k => k != null && k.id == "k9"),
+                "a registry's key is visible to the trees that list it");
+            Assert.IsNotNull(StateTreeKeyResolver.Find(tree, null, "k9"),
+                "and resolvable by id at runtime");
+        }
+
         // ------------------------------------------------------------------------ helpers
 
         private void Serve(ServiceRequest row, string value)

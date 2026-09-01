@@ -151,6 +151,9 @@ namespace PowerOfFire.DrawToPlay
             StateTreeKeyDeclaration found = FindInTree(tree, keyId, visited);
             if (found != null)
                 return found;
+            found = FindInRegistries(tree, keyId);
+            if (found != null)
+                return found;
 
             StateTreeContextHost host = owner != null
                 ? StateTreeContextHost.ResolveNearest(owner)
@@ -159,6 +162,8 @@ namespace PowerOfFire.DrawToPlay
             while (host != null && ++guard < 32)
             {
                 found = FindInTree(host.tree, keyId, visited);
+                if (found == null)
+                    found = FindInRegistries(host.tree, keyId);
                 if (found != null)
                     return found;
                 host = host.ParentHost;
@@ -174,6 +179,39 @@ namespace PowerOfFire.DrawToPlay
         {
             var visited = new HashSet<StateTreeAsset>();
             Collect(tree, into, visited);
+
+            // A tree also SEES the keys of the registries it lists: the registry is the
+            // declaration's home when a key belongs to the data rather than to one tree.
+            if (tree == null || tree.registries == null)
+                return;
+            var fromRegistries = new List<StateTreeKeyDeclaration>();
+            for (int i = 0; i < tree.registries.Count; i++)
+            {
+                StateTreeOffers.KeysFor(tree.registries[i], fromRegistries);
+                for (int j = 0; j < fromRegistries.Count; j++)
+                {
+                    if (fromRegistries[j] != null && !into.Contains(fromRegistries[j]))
+                        into.Add(fromRegistries[j]);
+                }
+            }
+        }
+
+        private static StateTreeKeyDeclaration FindInRegistries(StateTreeAsset tree, string keyId)
+        {
+            if (tree == null || tree.registries == null)
+                return null;
+            var keys = new List<StateTreeKeyDeclaration>();
+            for (int i = 0; i < tree.registries.Count; i++)
+            {
+                StateTreeOffers.KeysFor(tree.registries[i], keys);
+                for (int j = 0; j < keys.Count; j++)
+                {
+                    if (keys[j] != null
+                        && string.Equals(keys[j].id, keyId, StringComparison.Ordinal))
+                        return keys[j];
+                }
+            }
+            return null;
         }
 
         private static StateTreeKeyDeclaration FindInTree(StateTreeAsset tree, string keyId,
