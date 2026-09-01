@@ -230,6 +230,72 @@ namespace PowerOfFire.DrawToPlay.Tests
                 ObjectiveService.CompletedAnnouncement)), "with a serial beside it");
         }
 
+        [Test]
+        public void AGatedRow_Pends_ThenRuns()
+        {
+            ObjectiveDef ask = MakeDialog("meet", "intro");
+            ask.gateKey = "helped";
+            ask.gateValue = "0";
+            ObjectiveDef after = MakeDialog("brief", "orders");
+            ZoneDef zone = MakeZone("dorm", ask, after);
+            m_Service.AskZone(zone);
+
+            Assert.AreSame(ask, m_Service.current);
+            Assert.IsTrue(m_Service.currentPending, "no answer yet: the ledger waits");
+            m_Service.ReportDialogFinished("intro");
+            Assert.AreSame(ask, m_Service.current, "a pending row's watchers are inert");
+
+            m_Level.Context.blackboard["helped"] = "0";
+            m_Service.SettleNow();
+            Assert.IsFalse(m_Service.currentPending);
+            m_Service.ReportDialogFinished("intro");
+            Assert.AreSame(after, m_Service.current, "the gate agreed and the row ran");
+        }
+
+        [Test]
+        public void AGateMismatch_PassesOver_Silently()
+        {
+            ObjectiveDef skipped = MakeDialog("meet", "intro");
+            skipped.gateKey = "helped";
+            skipped.gateValue = "0";
+            ObjectiveDef last = MakeDialog("brief", "orders");
+            ZoneDef zone = MakeZone("dorm", skipped, last);
+            m_Level.Context.blackboard["helped"] = 1f;
+            m_Service.AskZone(zone);
+
+            Assert.AreSame(last, m_Service.current, "the mismatched row was passed over");
+            Assert.IsFalse(m_Level.Context.blackboard.ContainsKey(
+                StateTreeService.AnnouncementSerialKey(ObjectiveService.CompletedAnnouncement)),
+                "a passed row never completed: nothing announced");
+        }
+
+        [Test]
+        public void ACompletion_WritesTheDeclaredRequest()
+        {
+            var rootGo = new GameObject("Root") { hideFlags = HideFlags.HideAndDontSave };
+            m_Objects.Add(rootGo);
+            var rootHost = rootGo.AddComponent<StateTreeContextHost>();
+            rootHost.kind = StateTreeContextKind.Root;
+            rootHost.autoStart = false;
+            rootHost.Register();
+            m_Hosts.Add(rootHost);
+            m_Level.transform.SetParent(rootGo.transform);
+
+            var open = new ObjectiveDef
+            {
+                id = "objective.open", name = "open", kind = ObjectiveKind.MoveTo,
+                factKey = "door.opened", factValue = "x",
+                completeRequestKey = "video.play", completeRequestValue = "hall.help"
+            };
+            m_Service.Activate(open);
+            m_Level.Context.blackboard["door.opened"] = "x";
+            m_Service.CheckFacts();
+
+            Assert.IsNull(m_Service.current, "the fact completed the row");
+            Assert.AreEqual("hall.help", rootHost.Context.blackboard["video.play"],
+                "completion called the declared request on the root board");
+        }
+
         // ------------------------------------------------------------------------ helpers
 
         private void Serve(ServiceRequest row, string value)
