@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 - 2026-09-02
+- Fact-completed rows: `ObjectiveDef.factKey/factValue` - a row completes when the scope
+  board says so. The flow writes facts; the ledger hears them; no completing task in any
+  tree.
+- Every completion is ANNOUNCED (`objective.completed`, payload = row name) - a film or a
+  flow keys off the serial with `AnnouncementCondition`, once per completion, nothing to
+  consume.
+- `RunZoneTask` releases only on completion: pre-empted, the ask - and the watching -
+  stands, so a film over the zone loses nothing.
+
 ## 0.3.2 - 2026-09-01
 - `StateTreeContextKind.Character`: a non-player actor's host kind, so `Resolve(Player)` -
   what the objective watchers and the zone orchestrator ask - stays unique when a level

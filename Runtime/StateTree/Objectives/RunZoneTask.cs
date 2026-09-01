@@ -43,7 +43,10 @@ namespace PowerOfFire.DrawToPlay
 
         public override void OnExit(StateTreeContext context, StateTreeStatus status)
         {
-            m_Service?.ReleaseZone(m_Row);
+            // Pre-empted is not finished: the question stands while a film plays over it, so
+            // the ask - and the service's watching - survives anything but completion.
+            if (status == StateTreeStatus.Success)
+                m_Service?.ReleaseZone(m_Row);
             m_Row = null;
             m_Service = null;
         }

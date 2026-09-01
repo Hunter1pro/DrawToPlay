@@ -19,6 +19,8 @@ namespace PowerOfFire.DrawToPlay
     [ServiceActionContract(CompleteAction, "value = a row's name - completes it when it is "
         + "current, or advances the released zone whose cursor it is; empty completes "
         + "whatever is current")]
+    [ServiceAnnouncement(CompletedAnnouncement, typeof(string),
+        "payload = the completed row's name; the serial beside it fires once per completion")]
     public sealed class ObjectiveService : StateTreeService
     {
 
@@ -38,6 +40,10 @@ namespace PowerOfFire.DrawToPlay
         /// step no watcher can see (a door a tree opened). Named, the value is a guard
         /// against a stale write; empty completes whatever is current.</summary>
         public const string CompleteAction = "objective-complete";
+
+        /// <summary>Announced on the scope board each time a row completes - payload is the
+        /// row's NAME; a film or a flow keys off the serial beside it.</summary>
+        public const string CompletedAnnouncement = "objective.completed";
 
 
         [Tooltip("Activated once when the service starts, empty = nothing runs until an "
@@ -417,6 +423,7 @@ namespace PowerOfFire.DrawToPlay
             current = null;
             progress = 0;
             m_Widget?.Completed(done);
+            Announce(CompletedAnnouncement, done.name);
             // The asking zone owns the completion when the finished row IS its cursor —
             // then the stack's ORDER is the chain. Everything else is the linear line,
             // where nextOnComplete still speaks.
@@ -460,6 +467,7 @@ namespace PowerOfFire.DrawToPlay
                     || !string.Equals(cursor.name, rowName, StringComparison.Ordinal))
                     continue;
                 m_ZoneIndex[zone.id] = index + 1;
+                Announce(CompletedAnnouncement, rowName);
                 Knock();
                 return;
             }
@@ -630,7 +638,22 @@ namespace PowerOfFire.DrawToPlay
 
             if (current != null && current.kind == ObjectiveKind.MoveTo)
                 CheckArrival();
+            CheckFacts();
             PlaceMarker();
+        }
+
+        /// <summary>The FACT watcher: a row naming a board key completes when the scope
+        /// board says so. Public so tests drive it without a frame.</summary>
+        public void CheckFacts()
+        {
+            if (current == null || string.IsNullOrEmpty(current.factKey))
+                return;
+            var board = scope != null && scope.Context != null ? scope.Context.blackboard : null;
+            if (board == null || !board.TryGetValue(current.factKey, out object held))
+                return;
+            if (string.IsNullOrEmpty(current.factValue) || string.Equals(
+                    held != null ? held.ToString() : "", current.factValue, StringComparison.Ordinal))
+                Complete();
         }
 
         /// <summary>The orchestrator's step, callable without a frame — tests drive it.</summary>

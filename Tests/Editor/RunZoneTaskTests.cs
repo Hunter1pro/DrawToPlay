@@ -133,8 +133,16 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             task.OnExit(context, StateTreeStatus.Cancelled);
             m_Service.OrchestrateNow();
+            Assert.AreEqual("zone.dorm", m_Service.activeZone,
+                "pre-empted is not finished: the ask survives a film");
+
+            task.OnEnter(context);
+            m_Service.ReportDialogFinished("intro");
+            Assert.AreEqual(StateTreeStatus.Success, task.OnTick(context, 0.1f));
+            task.OnExit(context, StateTreeStatus.Success);
+            m_Service.OrchestrateNow();
             Assert.AreEqual("zone.yard", m_Service.activeZone,
-                "released, distance competes again");
+                "done and released, distance competes again");
         }
 
         [Test]
@@ -149,7 +157,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             task.OnEnter(context);
             m_Service.ReportDialogFinished("intro");
             task.OnExit(context, StateTreeStatus.Cancelled);   // an ancestor pulled us out
-            Assert.IsNull(m_Service.current, "released: nothing asks");
+            Assert.AreSame(brief, m_Service.current, "pre-empted: the ask and the row stand");
 
             task.OnEnter(context);
             Assert.AreSame(brief, m_Service.current, "re-asking resumes where the stack stood");
@@ -180,18 +188,46 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             ObjectiveDef meet = MakeDialog("meet", "intro");
             ObjectiveDef brief = MakeDialog("brief", "orders");
-            MakeZone("dorm", meet, brief);
+            ZoneDef zone = MakeZone("dorm", meet, brief);
             RunZoneTask task = MakeTask("dorm");
             StateTreeContext context = Context();
 
             task.OnEnter(context);
-            task.OnExit(context, StateTreeStatus.Cancelled);   // a film pre-empted the zone
+            task.OnExit(context, StateTreeStatus.Cancelled);
+            m_Service.ReleaseZone(zone);   // the flow genuinely moved on
             var row = new ServiceRequest { key = "x", action = ObjectiveService.CompleteAction };
             Serve(row, "meet");
 
             task.OnEnter(context);
             Assert.AreSame(brief, m_Service.current,
                 "the ledger advanced while released; re-asking resumes past the done row");
+        }
+
+        [Test]
+        public void AFactRow_CompletesItself_AndAnnounces()
+        {
+            var open = new ObjectiveDef
+            {
+                id = "objective.open", name = "open", kind = ObjectiveKind.MoveTo,
+                factKey = "door.opened", factValue = "hall.door.204"
+            };
+            m_Service.Activate(open);
+
+            m_Service.CheckFacts();
+            Assert.AreSame(open, m_Service.current, "no fact yet");
+
+            m_Level.Context.blackboard["door.opened"] = "hall.door.nadine";
+            m_Service.CheckFacts();
+            Assert.AreSame(open, m_Service.current, "a different door is not this fact");
+
+            m_Level.Context.blackboard["door.opened"] = "hall.door.204";
+            m_Service.CheckFacts();
+            Assert.IsNull(m_Service.current, "the fact completed the row");
+            var board = m_Level.Context.blackboard;
+            Assert.AreEqual("open", board[ObjectiveService.CompletedAnnouncement],
+                "the completion is announced by row name");
+            Assert.IsTrue(board.ContainsKey(StateTreeService.AnnouncementSerialKey(
+                ObjectiveService.CompletedAnnouncement)), "with a serial beside it");
         }
 
         // ------------------------------------------------------------------------ helpers
