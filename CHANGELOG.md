@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.1 - 2026-09-02
+- The row params are typed, never plain text: fact and gate keys are StateTreeKeyFields,
+  the fact value is a picked placement id, the gate value is a number (the board's flag
+  domain), the completion request is a declared key plus a row picked through dependsOn.
+
+## 0.5.0 - 2026-09-02
+- Row gates (`gateKey/gateValue`): unset = the row is PENDING (current but inert - the
+  ledger waits for the answer); equal = it runs; different = it is passed over silently
+  (no completion, no announcement). How a choice forks a linear stack.
+- `completeRequestKey/Value`: a row's completion writes a declared request on the root
+  board - a completion film plays with no film state in any tree.
+
+
 ## 0.4.0 - 2026-09-02
 - Fact-completed rows: `ObjectiveDef.factKey/factValue` - a row completes when the scope
   board says so. The flow writes facts; the ledger hears them; no completing task in any
