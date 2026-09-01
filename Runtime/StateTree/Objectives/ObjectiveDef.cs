@@ -60,6 +60,15 @@ namespace PowerOfFire.DrawToPlay
             + "radius wins).")]
         public float radius = 1.5f;
 
+        [Tooltip("A FACT that completes this row: a key on the service's scope board, "
+            + "compared as text. Empty = no fact watcher. The flow writes facts; the ledger "
+            + "hears them - no completing task in any tree.")]
+        public string factKey = "";
+
+        [Tooltip("The value that counts as done - a stableId, a name. Empty means 'the key "
+            + "exists'.")]
+        public string factValue = "";
+
         [Tooltip("The LINEAR line's chain: completing this activates that. Ignored while "
             + "a zone stack asks the row — there, the stack's ORDER is the chain.")]
         public StateTreeEntryRef<ObjectiveDef> nextOnComplete = new StateTreeEntryRef<ObjectiveDef>();
