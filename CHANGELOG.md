@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2 - 2026-09-02
+- Registries declare KEYS the way trees do (`StateTreeRegistryAsset.keys`), and a
+  StateTreeKeyField on a registry row resolves its picker from them - the registry's own
+  and its dependsOn's (`StateTreeOffers.KeysFor`). No more dead picker on rows that live
+  in assets.
+
 ## 0.5.1 - 2026-09-02
 - The row params are typed, never plain text: fact and gate keys are StateTreeKeyFields,
   the fact value is a picked placement id, the gate value is a number (the board's flag

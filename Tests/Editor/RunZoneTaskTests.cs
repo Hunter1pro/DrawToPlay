@@ -300,6 +300,29 @@ namespace PowerOfFire.DrawToPlay.Tests
                 "completion called the declared request on the root board");
         }
 
+        [Test]
+        public void KeysFor_OffersTheRegistrysOwn_AndItsDependencies()
+        {
+            var upstream = ScriptableObject.CreateInstance<ZoneRegistry>();
+            m_Assets.Add(upstream);
+            upstream.keys.Add(new StateTreeKeyDeclaration
+            {
+                id = "k1", name = "door.opened", kind = StateTreeKeyKind.String
+            });
+            var stack = ScriptableObject.CreateInstance<ZoneAsset>();
+            m_Assets.Add(stack);
+            stack.dependsOn.Add(upstream);
+            stack.keys.Add(new StateTreeKeyDeclaration
+            {
+                id = "k2", name = "helped", kind = StateTreeKeyKind.Float
+            });
+
+            var into = new List<StateTreeKeyDeclaration>();
+            StateTreeOffers.KeysFor(stack, into);
+
+            Assert.AreEqual(2, into.Count, "own keys and dependsOn keys are one surface");
+        }
+
         // ------------------------------------------------------------------------ helpers
 
         private void Serve(ServiceRequest row, string value)

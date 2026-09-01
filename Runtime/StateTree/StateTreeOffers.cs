@@ -319,6 +319,36 @@ namespace PowerOfFire.DrawToPlay
         /// manifest offers its own rows; anything else reaches a manifest the way it reaches any
         /// catalog, so a level tree that lists its manifest offers exactly that level's things.
         /// </summary>
+        /// <summary>Every key declaration the owner reaches: a registry's own and those of
+        /// the registries it dependsOn — the key surface for fields on registry rows.</summary>
+        public static void KeysFor(Object owner, List<StateTreeKeyDeclaration> into)
+        {
+            if (into == null)
+                return;
+            into.Clear();
+
+            if (owner is StateTreeRegistryAsset registry)
+                CollectKeys(registry, into);
+
+            var reachable = new List<StateTreeRegistryAsset>();
+            ReachableRegistries(owner, reachable);
+            for (int i = 0; i < reachable.Count; i++)
+                CollectKeys(reachable[i], into);
+        }
+
+        private static void CollectKeys(StateTreeRegistryAsset registry,
+            List<StateTreeKeyDeclaration> into)
+        {
+            if (registry == null)
+                return;
+            for (int i = 0; i < registry.keys.Count; i++)
+            {
+                StateTreeKeyDeclaration key = registry.keys[i];
+                if (key != null && !string.IsNullOrEmpty(key.name) && !into.Contains(key))
+                    into.Add(key);
+            }
+        }
+
         public static void PlacementsFor(Object owner, List<LevelObjectDef> into)
         {
             if (into == null)
