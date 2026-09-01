@@ -209,7 +209,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             var open = new ObjectiveDef
             {
                 id = "objective.open", name = "open", kind = ObjectiveKind.MoveTo,
-                factKey = "door.opened", factValue = "hall.door.204"
+                factKey = new StateTreeKeyField("door.opened"), factValue = "hall.door.204"
             };
             m_Service.Activate(open);
 
