@@ -430,7 +430,8 @@ namespace PowerOfFire.DrawToPlay
                 StateTreeContextHost top = StateTreeContextHost.Resolve(
                     scope.gameObject, StateTreeContextKind.Root);
                 if (top != null && top.Context != null)
-                    top.Context.blackboard[done.completeRequestKey] = done.completeRequestValue ?? "";
+                    top.Context.blackboard[done.completeRequestKey] =
+                        done.completeRequestValue.entryName ?? "";
             }
             // The asking zone owns the completion when the finished row IS its cursor —
             // then the stack's ORDER is the chain. Everything else is the linear line,
@@ -459,10 +460,13 @@ namespace PowerOfFire.DrawToPlay
         {
             get
             {
-                if (current == null || string.IsNullOrEmpty(current.gateKey))
+                if (current == null)
+                    return false;
+                string key = current.gateKey;
+                if (string.IsNullOrEmpty(key))
                     return false;
                 var board = scope != null && scope.Context != null ? scope.Context.blackboard : null;
-                return board == null || !board.ContainsKey(current.gateKey);
+                return board == null || !board.ContainsKey(key);
             }
         }
 
@@ -479,17 +483,34 @@ namespace PowerOfFire.DrawToPlay
             for (int guard = 0; guard < 64 && current != null; guard++)
             {
                 ObjectiveDef row = current;
-                if (string.IsNullOrEmpty(row.gateKey))
+                string key = row.gateKey;
+                if (string.IsNullOrEmpty(key))
                     return;
                 var board = scope != null && scope.Context != null ? scope.Context.blackboard : null;
-                if (board == null || !board.TryGetValue(row.gateKey, out object held))
+                if (board == null || !board.TryGetValue(key, out object held))
                     return;   // pending - the ledger waits
-                if (string.Equals(held != null ? held.ToString() : "",
-                        row.gateValue, StringComparison.Ordinal))
+                if (GateAgrees(held, row.gateValue))
                     return;   // the gate agrees - the row runs
                 PassOver(row);
                 if (ReferenceEquals(current, row))
                     return;
+            }
+        }
+
+        /// <summary>The board's number, however it was boxed - the same tolerance the
+        /// compare condition reads with.</summary>
+        private static bool GateAgrees(object held, float wanted)
+        {
+            switch (held)
+            {
+                case float f: return Mathf.Approximately(f, wanted);
+                case int i: return Mathf.Approximately(i, wanted);
+                case double d: return Mathf.Approximately((float)d, wanted);
+                case string s: return float.TryParse(s,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float parsed)
+                    && Mathf.Approximately(parsed, wanted);
+                default: return false;
             }
         }
 
@@ -718,10 +739,13 @@ namespace PowerOfFire.DrawToPlay
         /// board says so. Public so tests drive it without a frame.</summary>
         public void CheckFacts()
         {
-            if (current == null || string.IsNullOrEmpty(current.factKey) || currentPending)
+            if (current == null || currentPending)
+                return;
+            string key = current.factKey;
+            if (string.IsNullOrEmpty(key))
                 return;
             var board = scope != null && scope.Context != null ? scope.Context.blackboard : null;
-            if (board == null || !board.TryGetValue(current.factKey, out object held))
+            if (board == null || !board.TryGetValue(key, out object held))
                 return;
             if (string.IsNullOrEmpty(current.factValue) || string.Equals(
                     held != null ? held.ToString() : "", current.factValue, StringComparison.Ordinal))
