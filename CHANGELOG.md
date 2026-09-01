@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3 - 2026-09-02
+- A tree SEES the keys of the registries it lists: the picker offers them and the runtime
+  resolves wired ids through them - one declaration (on the registry) serves the rows that
+  gate on a key and the tree tasks that write it.
+
 ## 0.5.2 - 2026-09-02
 - Registries declare KEYS the way trees do (`StateTreeRegistryAsset.keys`), and a
   StateTreeKeyField on a registry row resolves its picker from them - the registry's own
