@@ -340,7 +340,7 @@ namespace PowerOfFire.DrawToPlay
             {
                 // ADDED IF MISSING rather than required on the prefab: a kind that has never been
                 // painted should not need its prefab opened before it can be.
-                Type type = TypeNamed(def.body.tintPart);
+                Type type = TypeNamed(def.body.tintPart, view);
                 if (type != null && typeof(Component).IsAssignableFrom(type))
                     part = view.AddComponent(type) as IWorldTintable;
             }
@@ -387,21 +387,63 @@ namespace PowerOfFire.DrawToPlay
                 info.SetValue(reference, value ?? "");
         }
 
-        private static Type TypeNamed(string name)
+        /// <summary>
+        /// Types already looked up by name, MISSES INCLUDED — cleared by a domain reload, which is
+        /// the only moment the answer can change.
+        ///
+        /// WHY IT EXISTS. The search below walks every assembly in the AppDomain and asks each for
+        /// every type it holds. Measured in this project: 755 ms over 354 assemblies and 55 789
+        /// types. It ran once PER SPAWNED ROW — the Gully has 60 rows whose def tints — and that
+        /// was the whole of the freeze when a level came up: 932 ms in ManifestSpawner.Update, on
+        /// the one frame where the level is built, every time you travel to it.
+        /// </summary>
+        private static readonly Dictionary<string, Type> s_TypesByName =
+            new Dictionary<string, Type>(StringComparer.Ordinal);
+
+        /// <summary>The type a def names, looked for NEAR THE BODY first.</summary>
+        /// <param name="name">A type's name or full name, as a def writes it.</param>
+        /// <param name="near">The body being built — the part asked for is a component of the same
+        /// game the rest of the prefab is written in, so its assembly is one or two away. Looking
+        /// there first means even the first lookup of a session rarely walks the AppDomain.</param>
+        private static Type TypeNamed(string name, GameObject near)
         {
-            Type direct = Type.GetType(name);
-            if (direct != null)
-                return direct;
-            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            if (string.IsNullOrEmpty(name))
+                return null;
+            if (s_TypesByName.TryGetValue(name, out Type known))
+                return known;
+
+            Type found = Type.GetType(name);
+            if (found == null && near != null)
             {
-                Type[] types;
-                try { types = assembly.GetTypes(); }
-                catch { continue; }
-                for (int i = 0; i < types.Length; i++)
+                Component[] parts = near.GetComponentsInChildren<Component>(true);
+                for (int i = 0; i < parts.Length && found == null; i++)
+                    if (parts[i] != null)
+                        found = NamedIn(parts[i].GetType().Assembly, name);
+            }
+            if (found == null)
+            {
+                foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
                 {
-                    if (types[i].Name == name || types[i].FullName == name)
-                        return types[i];
+                    found = NamedIn(assembly, name);
+                    if (found != null)
+                        break;
                 }
+            }
+            s_TypesByName[name] = found;
+            return found;
+        }
+
+        /// <summary>The type of this name in one assembly, or null — including when the assembly
+        /// refuses to list its types.</summary>
+        private static Type NamedIn(Assembly assembly, string name)
+        {
+            Type[] types;
+            try { types = assembly.GetTypes(); }
+            catch { return null; }
+            for (int i = 0; i < types.Length; i++)
+            {
+                if (types[i].Name == name || types[i].FullName == name)
+                    return types[i];
             }
             return null;
         }
