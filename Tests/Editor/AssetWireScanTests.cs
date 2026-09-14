@@ -246,5 +246,66 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual(1, uses.Count);
             StringAssert.Contains("argument 'destination'", uses[0].description);
         }
+
+        [Test]
+        public void APlacementIdString_AndEachListElement_AreUses_OfTheManifestRow()
+        {
+            var manifest = Make<LevelObjectRegistry>("HallObjects");
+            var door = new LevelObjectDef { id = "x.y", name = "door" };
+            manifest.entries.Add(door);
+
+            var tree = Make<StateTreeAsset>("BeatTree");
+            var root = Make<StateTreeNodeAsset>("root");
+            root.nodeId = "arrive";
+            tree.root = root;
+            var beat = Make<PlacementNamingTask>("beat");
+            beat.target = "x.y";
+            beat.liveIds.Add("x.y");
+            root.tasks.Add(beat);
+
+            var index = new AssetWireScan.Index();
+            AssetWireScan.ScanRegistry(manifest, index);
+            AssetWireScan.ScanTree(tree, index);
+
+            List<AssetWireScan.WireUse> uses = AssetWireScan.UsersOfRow(index, door);
+            Assert.AreEqual(2, uses.Count, "the string and the list element, one use each");
+            StringAssert.Contains("target", uses[0].description);
+            StringAssert.Contains("liveIds", uses[1].description);
+            StringAssert.Contains("'arrive'", uses[0].description);
+            Assert.AreSame(tree, uses[0].context);
+        }
+
+        [Test]
+        public void APlainString_EqualToARowId_IsNotAWire()
+        {
+            // The attribute is the whole point: the field SAYS it is a placement. A string
+            // that merely spells a row's id is a coincidence, not a reference.
+            var manifest = Make<LevelObjectRegistry>("HallObjects");
+            var door = new LevelObjectDef { id = "x.y", name = "door" };
+            manifest.entries.Add(door);
+
+            var tree = Make<StateTreeAsset>("BeatTree");
+            var root = Make<StateTreeNodeAsset>("root");
+            root.nodeId = "arrive";
+            tree.root = root;
+            var beat = Make<PlacementNamingTask>("beat");
+            beat.note = "x.y";
+            root.tasks.Add(beat);
+
+            var index = new AssetWireScan.Index();
+            AssetWireScan.ScanRegistry(manifest, index);
+            AssetWireScan.ScanTree(tree, index);
+
+            Assert.AreEqual(0, AssetWireScan.UsersOfRow(index, door).Count);
+        }
+    }
+
+    /// <summary>A task that names placements the way a beat does — one marked string, one
+    /// marked list, and one plain string that only looks like an id.</summary>
+    internal sealed class PlacementNamingTask : StateTreeTaskAsset
+    {
+        [PlacementId] public string target = "";
+        [PlacementId] public List<string> liveIds = new List<string>();
+        public string note = "";
     }
 }

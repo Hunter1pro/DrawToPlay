@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.8 - 2026-09-14
+- The wire map counts a `[PlacementId]` string (and each element of a `[PlacementId]`
+  list) as a use of the manifest row it names - a set, a door, a mark reached only by
+  placement id no longer shows "unused" in the registry inspector.
+
 ## 0.5.7 - 2026-09-02
 - Auto-update: on load and on regaining focus (right after a pull), the editor asks the
   remote where the pinned ref stands (`git ls-remote`, background, 60s cooldown); a moved

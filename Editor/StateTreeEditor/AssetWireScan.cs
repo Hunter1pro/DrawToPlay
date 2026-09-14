@@ -534,6 +534,21 @@ namespace PowerOfFire.DrawToPlay.Editor
             });
         }
 
+        /// <summary>A placement id is a row id in a <see cref="LevelObjectRegistry"/> — the
+        /// use lands in the same bucket a picked reference would.</summary>
+        private static void AddPlacement(Index index, string id, UnityEngine.Object context,
+            string label, string field, StateTreeRegistryEntry viaRow)
+        {
+            if (string.IsNullOrEmpty(id))
+                return;
+            index.AddRowUse(id, "", new WireUse
+            {
+                context = context,
+                description = label + " · " + field,
+                viaRow = viaRow
+            });
+        }
+
         /// <summary>
         /// Does this field PUT the tag on something, or LOOK for it?
         ///
@@ -608,6 +623,26 @@ namespace PowerOfFire.DrawToPlay.Editor
                     {
                         for (int t = 0; t < many.Count; t++)
                             AddTag(index, many[t], context, label, fields[i].Name, viaRow, wears);
+                    }
+                }
+
+                // A PLACEMENT: the field SAYS it names a manifest row, so the string is the
+                // row's id — the same wire a picker writes, and the one a set, a door or a
+                // mark is usually reached by. Lists are walked element by element, because
+                // a beat's liveIds is a list.
+                if (System.Attribute.IsDefined(fields[i], typeof(PlacementIdAttribute)))
+                {
+                    if (value is string placement)
+                    {
+                        AddPlacement(index, placement, context, label, fields[i].Name, viaRow);
+                    }
+                    else if (value is List<string> placements)
+                    {
+                        for (int p = 0; p < placements.Count; p++)
+                        {
+                            AddPlacement(index, placements[p], context, label, fields[i].Name,
+                                viaRow);
+                        }
                     }
                 }
 
