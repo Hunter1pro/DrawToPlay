@@ -11,6 +11,7 @@ and the scene is what the manifest builds.
 | `LevelObjectDef` / `LevelObjectRegistry` | one **placement** — what to put down, where |
 | `LevelObjectKindDef` / `LevelObjectKindRegistry` | the **kinds** a placement can be |
 | `LevelContent` | the manifest: the placements that make up one level |
+| `LevelContent.data` / `Data<T>()` | what else a level carries — per-level assets the game reads by type; the runtime never does |
 | `ManifestSpawner` | what turns a manifest into objects |
 | `LevelBootstrap` | what starts a level |
 | `LevelService` | travel, and the current level |
