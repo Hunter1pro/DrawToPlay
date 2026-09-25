@@ -42,6 +42,27 @@ namespace PowerOfFire.DrawToPlay
         /// is a spawner change, not a data change.</summary>
         public LevelObjectRegistry objects;
 
+        /// <summary>What else this level carries — per-level data the GAME reads by type (a
+        /// look, a soundtrack, a tuning table). The runtime never reads it; the game's own
+        /// builders and services do, through <see cref="Data{T}"/>, so a new level brings
+        /// its data as a row instead of as a constant in code.</summary>
+        [Tooltip("What else this level carries: per-level data the game reads by type. The runtime never reads it; the game's own builders and services do.")]
+        public List<ScriptableObject> data = new List<ScriptableObject>();
+
+        /// <summary>The first <see cref="data"/> entry of type <typeparamref name="T"/>, or
+        /// null. Asked by type, never by index — the list's order is not a contract.</summary>
+        public T Data<T>() where T : ScriptableObject
+        {
+            if (data == null)
+                return null;
+            for (int i = 0; i < data.Count; i++)
+            {
+                if (data[i] is T typed)
+                    return typed;
+            }
+            return null;
+        }
+
         /// <summary>Which tags this level's objects carry — DERIVED from
         /// <see cref="objects"/> (each row's kind plus its placement tags), never stored: a
         /// hand-kept summary of the manifest is a copy that drifts. This is the "what lives

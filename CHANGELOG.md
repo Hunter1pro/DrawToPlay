@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.9 - 2026-09-25
+- `LevelContent.data`: a list of per-level ScriptableObjects the game reads by type through
+  `Data<T>()` (first of the type, or null). The runtime never reads it - a level's own data
+  (a look, a tuning table) rides the level instead of a path constant in game code.
+
 ## 0.5.8 - 2026-09-14
 - The wire map counts a `[PlacementId]` string (and each element of a `[PlacementId]`
   list) as a use of the manifest row it names - a set, a door, a mark reached only by
