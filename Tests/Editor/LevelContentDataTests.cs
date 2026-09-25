@@ -70,8 +70,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             LevelRegistry carried = Make<LevelRegistry>("Carried");
             content.data.Add(carried);
 
-            LevelContent copy = Make<LevelContent>("Copy");
-            EditorJsonUtility.FromJsonOverwrite(EditorJsonUtility.ToJson(content), copy);
+            LevelContent copy = Object.Instantiate(content);
+            m_Objects.Add(copy);
             Assert.AreEqual(1, copy.data.Count);
             Assert.AreSame(carried, copy.Data<LevelRegistry>());
 
