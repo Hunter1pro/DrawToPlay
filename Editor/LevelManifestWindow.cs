@@ -434,19 +434,79 @@ namespace PowerOfFire.DrawToPlay.Editor
                 var propertyField = new PropertyField(child);
                 propertyField.Bind(m_Objects);
                 box.Add(propertyField);
+                if (field == "position")
+                    box.Add(HeightLine(element, rows[m_Selected]));
             }
 
             // The scene mirrors only what it draws — the handle and the ghost. Tracking
             // those few properties, rather than every change event the binder emits (list
             // rebinds emit them continuously), keeps an open panel from repainting the
             // scene per tick.
-            foreach (string watched in new[] { "position", "facing", "kind", "name" })
+            foreach (string watched in new[] { "position", "overrideHeight", "height", "facing", "kind", "name" })
             {
                 SerializedProperty child = element.FindPropertyRelative(watched);
                 if (child != null)
                     box.TrackPropertyValue(child, _ => SceneView.RepaintAll());
             }
             return box;
+        }
+
+        /// <summary>
+        /// The row's height under its position: one field that always shows where the row really
+        /// stands (its own height, or the kind's while it has none) and an "Own" toggle. Typing a
+        /// value turns Own on; turning Own on starts from the kind's height, so the row does not
+        /// drop to the floor the moment it gets a height of its own.
+        /// </summary>
+        private VisualElement HeightLine(SerializedProperty element, LevelObjectDef def)
+        {
+            SerializedProperty own = element.FindPropertyRelative("overrideHeight");
+            SerializedProperty height = element.FindPropertyRelative("height");
+            var line = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+            if (own == null || height == null)
+                return line;
+
+            var value = new FloatField("Height") { style = { flexGrow = 1f } };
+            value.AddToClassList(BaseField<float>.alignedFieldUssClassName);
+            var toggle = new Toggle { text = "Own", style = { flexShrink = 0f, marginLeft = 4f } };
+            toggle.tooltip = "Stand at this row's own height instead of the kind's body height.";
+
+            void Refresh()
+            {
+                m_Objects.Update();
+                float kind = KindHeightOf(def);
+                toggle.SetValueWithoutNotify(own.boolValue);
+                value.SetValueWithoutNotify(own.boolValue ? height.floatValue : kind);
+                value.tooltip = own.boolValue
+                    ? "This row's own height above the ground plane."
+                    : $"The kind's body height ({kind:0.###}). Type a value to give this row its own.";
+            }
+
+            value.RegisterValueChangedCallback(changed =>
+            {
+                m_Objects.Update();
+                own.boolValue = true;
+                height.floatValue = changed.newValue;
+                m_Objects.ApplyModifiedProperties();
+            });
+            toggle.RegisterValueChangedCallback(changed =>
+            {
+                m_Objects.Update();
+                if (changed.newValue && !own.boolValue)
+                    height.floatValue = KindHeightOf(def);
+                own.boolValue = changed.newValue;
+                m_Objects.ApplyModifiedProperties();
+                Refresh();
+            });
+            line.TrackPropertyValue(own, _ => Refresh());
+            line.TrackPropertyValue(height, _ => Refresh());
+            SerializedProperty kindProperty = element.FindPropertyRelative("kind");
+            if (kindProperty != null)
+                line.TrackPropertyValue(kindProperty, _ => Refresh());
+
+            line.Add(value);
+            line.Add(toggle);
+            Refresh();
+            return line;
         }
 
         // ---- edits -----------------------------------------------------------------------
@@ -730,11 +790,15 @@ namespace PowerOfFire.DrawToPlay.Editor
                 // THROUGH THE MANIFEST'S PLANE, never assumed: the same call the spawner makes,
                 // so the handle is where the object will be rather than where a 2D level's would
                 // have been. See LevelGroundPlane.
-                Vector3 world = manifest.ToWorld(def.position);
+                float kindHeight = KindHeightOf(def);
+                float up = def.HeightOr(kindHeight);
+                Vector3 world = manifest.ToWorld(def.position, up);
                 float size = HandleUtility.GetHandleSize(world) * 0.12f;
                 bool selected = i == m_Selected;
 
                 DrawHologram(manifest, def, world, selected, frustum);
+                if (!Mathf.Approximately(up, 0f))
+                    DrawFootprint(manifest, def, world, size, selected);
 
                 using (new Handles.DrawingScope(selected
                     ? new Color(1f, 0.85f, 0.3f)
@@ -756,13 +820,40 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (EditorGUI.EndChangeCheck())
                 {
                     Undo.RecordObject(manifest, "Move Level Object");
-                    def.position = manifest.ToPlan(moved);
+                    manifest.Place(def, moved, kindHeight);
                     EditorUtility.SetDirty(manifest);
                     // No Rebuild here: tearing down and rebinding the whole panel per drag
                     // frame is what made dragging stutter. The bound fields refresh
                     // themselves from the SerializedObject.
                 }
             }
+        }
+
+        /// <summary>A raised row's spot on the ground plane — a ring there and a dotted drop line
+        /// up to the handle, so a find on a desk still reads as standing over a place on the
+        /// plan.</summary>
+        private static void DrawFootprint(LevelObjectRegistry manifest, LevelObjectDef def,
+            Vector3 world, float size, bool selected)
+        {
+            Vector3 ground = manifest.ToWorld(def.position);
+            Vector3 normal = manifest.ToWorld(Vector2.zero, 1f);
+            using (new Handles.DrawingScope(selected
+                ? new Color(1f, 0.85f, 0.3f, 0.9f)
+                : new Color(0.45f, 0.8f, 1f, 0.5f)))
+            {
+                Handles.DrawWireDisc(ground, normal, size * 1.5f);
+                Handles.DrawDottedLine(ground, world, 3f);
+            }
+        }
+
+        /// <summary>Where a row of this kind stands unless it sets its own height — the kind's
+        /// body height, zero for a kind the catalog does not know.</summary>
+        private float KindHeightOf(LevelObjectDef def)
+        {
+            LevelObjectKindRegistry kinds = Kinds();
+            return kinds != null && kinds.FindByName(def.kind.entryName) is LevelObjectKindDef kind
+                ? kind.bodyHeight
+                : 0f;
         }
 
         // ---- lookups ---------------------------------------------------------------------

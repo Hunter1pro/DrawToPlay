@@ -35,7 +35,8 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>A placement's ground plan as a world position.</summary>
         /// <param name="position">The row's position.</param>
         /// <param name="up">How far off the ground it sits — a person stands at zero, a pickup
-        /// hovers. The spawner decides this per kind; the plane decides which axis it is.</param>
+        /// hovers. The row's own height when it sets one, the kind's otherwise
+        /// (<see cref="LevelObjectDef.HeightOr"/>); the plane decides which axis it is.</param>
         /// <returns>Where the object goes.</returns>
         public Vector3 ToWorld(Vector2 position, float up = 0f)
         {
@@ -44,9 +45,9 @@ namespace PowerOfFire.DrawToPlay
                 : new Vector3(position.x, position.y, up);
         }
 
-        /// <summary>A world position back as a ground plan — what a moved handle writes to the
-        /// row. The inverse of <see cref="ToWorld"/>, and the height is dropped because the row
-        /// never held it.</summary>
+        /// <summary>A world position back as a ground plan — the inverse of
+        /// <see cref="ToWorld"/> for the two plan axes. The third axis is
+        /// <see cref="HeightOf"/>.</summary>
         /// <param name="world">A position in the level.</param>
         /// <returns>The row's two numbers.</returns>
         public Vector2 ToPlan(Vector3 world)
@@ -55,6 +56,37 @@ namespace PowerOfFire.DrawToPlay
                 ? new Vector2(world.x, world.z)
                 : new Vector2(world.x, world.y);
         }
+
+        /// <summary>How far off this level's ground plane a world position is — the
+        /// <c>up</c> that <see cref="ToWorld"/> took.</summary>
+        /// <param name="world">A position in the level.</param>
+        public float HeightOf(Vector3 world)
+        {
+            return plane == LevelGroundPlane.XZ ? world.y : world.z;
+        }
+
+        /// <summary>
+        /// What a moved handle writes to a row: the plan axes to <see cref="LevelObjectDef.position"/>,
+        /// the up axis to <see cref="LevelObjectDef.height"/>. A row still on its kind's height is
+        /// left on it unless the drag actually changed the height — a sideways drag must not pin a
+        /// row to today's kind height and stop it following the kind.
+        /// </summary>
+        /// <param name="row">The row being moved.</param>
+        /// <param name="world">Where the handle now is.</param>
+        /// <param name="kindHeight">The row's kind's body height — where it stood before.</param>
+        public void Place(LevelObjectDef row, Vector3 world, float kindHeight)
+        {
+            row.position = ToPlan(world);
+            float up = HeightOf(world);
+            if (!row.overrideHeight && Mathf.Abs(up - kindHeight) <= k_HeightSlack)
+                return;
+            row.overrideHeight = true;
+            row.height = up;
+        }
+
+        /// <summary>Float noise a sideways drag can put on the up axis — far below anything an
+        /// author means as a height.</summary>
+        private const float k_HeightSlack = 1e-4f;
 
         /// <summary>A row's <see cref="LevelObjectDef.facing"/> as a rotation: about the plane's
         /// own normal, so a degree means the same turn in either plane.</summary>

@@ -132,6 +132,27 @@ namespace PowerOfFire.DrawToPlay
         public Vector2 position;
 
         /// <summary>
+        /// Whether this placement stands at its own <see cref="height"/> rather than the kind's
+        /// (<see cref="ServiceBody.height"/>). Off is the ordinary case and what every row written
+        /// before the field existed reads as: a person on the floor, a pickup at its kind's hover.
+        /// On is the one row that is not where its kind usually is — the find on the desk, the
+        /// lamp on the shelf — without a second kind invented for a number.
+        /// </summary>
+        [Tooltip("Stand at this row's own height instead of the kind's body height.")]
+        public bool overrideHeight;
+
+        /// <summary>How far off the ground plane this placement stands when
+        /// <see cref="overrideHeight"/> is on — along the plane's up axis, the same number
+        /// <see cref="LevelObjectRegistry.ToWorld"/> takes. Ignored while it is off.</summary>
+        [Tooltip("Height above the level's ground plane, used when Override Height is on.")]
+        public float height;
+
+        /// <summary>Where off the ground this row stands: its own height when it sets one, the
+        /// kind's otherwise.</summary>
+        /// <param name="kindHeight">The kind's body height.</param>
+        public float HeightOr(float kindHeight) => overrideHeight ? height : kindHeight;
+
+        /// <summary>
         /// Which way it faces, in degrees about the up axis.
         ///
         /// A 2D level does not need this and leaves it at zero. A 3D one does: an NPC placed

@@ -18,6 +18,10 @@ namespace PowerOfFire.DrawToPlay
         /// keep without knowing what a 'kind' is.</summary>
         public ServiceDef ServiceDef => service;
 
+        /// <summary>How far off the ground a row of this kind stands unless it says otherwise —
+        /// the def's <see cref="ServiceBody.height"/>, zero for a kind with no def.</summary>
+        public float bodyHeight => service != null ? service.body.height : 0f;
+
         [TextArea]
         public string description = "";
 

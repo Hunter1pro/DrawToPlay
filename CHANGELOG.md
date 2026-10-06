@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.10 - 2026-10-06
+- A placement can stand at its own height: `LevelObjectDef.overrideHeight` + `height`, along
+  the manifest plane's up axis. Off (every existing row) keeps the kind's `body.height`; the
+  spawner reads `row.HeightOr(kindHeight)`.
+- Level Manifest: handles and ghosts draw at the row's real height (they used to sit on the
+  ground plane whatever the kind said); the move handle writes the plan axes to `position` and
+  the up axis to `height`, turning the override on only for a vertical drag
+  (`LevelObjectRegistry.Place`, `HeightOf`). A raised row draws a ring on the ground under it.
+  The selected row shows Height under Position with an Own toggle.
+- From main: the def-named tint part is looked up once per name (misses included), the Scopes
+  window reads the live tree once per pass, and two graph tools stop walking every window.
+
 ## 0.5.9 - 2026-09-25
 - `LevelContent.data`: a list of per-level ScriptableObjects the game reads by type through
   `Data<T>()` (first of the type, or null). The runtime never reads it - a level's own data

@@ -33,6 +33,11 @@ Placement  "yard.exit.ridge"   kind "exit"   at (1.0, -0.6)   facing 180°
 per-placement overrides; `[PlacementAttributes]` declares which attributes a kind exposes to a
 placement. `LevelGroundPlane` (`XY` by default) says which plane the level lies in.
 
+A placement stands at its kind's `body.height` off that plane unless it sets its own:
+`overrideHeight` + `height` on the row (the desk's finds, the lamp on a shelf). The Level
+Manifest's handle moves it in all three axes — X/Z (or X/Y) to `position`, the plane's up axis
+to `height`, which turns the override on only when the drag was vertical.
+
 This is why *nothing is placed by hand*: a level is a list of rows, so it can be generated,
 diffed, validated and regenerated. A hand-dragged object in a scene is invisible to all of that
 and is overwritten the next time the level is built.

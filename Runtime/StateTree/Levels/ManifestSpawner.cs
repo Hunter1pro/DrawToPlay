@@ -126,7 +126,7 @@ namespace PowerOfFire.DrawToPlay
             if (definition != null && definition.body.IsThing)
             {
                 GameObject spawned = ServiceBodyFactory.Build(definition, row, transform,
-                    level.objects.ToWorld(GroundOf(row), definition.body.height),
+                    level.objects.ToWorld(GroundOf(row), row.HeightOr(definition.body.height)),
                     level.objects.Facing(row.facing), m_Hosts);
                 if (spawned != null)
                     m_Citizens.AddRange(spawned.GetComponentsInChildren<WorldObjectBehaviour>(true));
