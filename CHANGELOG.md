@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0 - 2026-10-29
+- Episode trees: a context host of kind `Episode` holds a tree above the levels. A level joins it
+  once put back (`JoinEpisodeTask`); its `IStateTreeLevel` node runs on the level's board and
+  spine, may not leave that node (`StateTreeExecutor.boundaryNodeId`), and keeps where it stood per
+  level (`StateTreeEpisodeCursor`: `CursorOf` / `RestoreCursor`, for the game's save) through
+  travel. `episode:step` on the level's board names the step running.
+- The executor: a group's data (`IStateTreeNodeContext`; `IStateTreeArea` is one) never runs, and
+  a state holding only data is entered through its first child — a zone runs its steps in order.
+  `StartTree(node, complete)` resumes at a state, without re-running a finished one.
+- Schema kinds: `rests` (a level, a branch hold where their run ends) and `routeBy` (a question goes
+  to the branch its answer names; `ApplyDerived` writes the routes). `StateTreeDomainKeep.MoveTo`
+  carries mission nodes into another tree.
+- One picker: every reference field (`[RowName]`, `[KeyName]`, `[ScopeId]`, `[SubTreeState]`,
+  `[PlacementId]`, `[WorldTag]`, entry refs, key fields, keys-of, the mission inspector's steps) opens the same
+  searchable dropdown — this tree's picks first, the catalogue grouped (keys by prefix), a meaning
+  per item (a `[KeyCatalog]` constant's from its summary), narrowed by the field.
+
 ## 0.5.9 - 2026-09-25
 - `LevelContent.data`: a list of per-level ScriptableObjects the game reads by type through
   `Data<T>()` (first of the type, or null). The runtime never reads it - a level's own data

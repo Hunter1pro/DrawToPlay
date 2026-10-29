@@ -133,6 +133,30 @@ the schema's mode, on the same asset. The toolbar's **Dev** toggle is today's wi
   bindings are applied before keys and entry refs resolve.
 - **Builders** — a script that re-authors a tree calls `StateTreeDomainKeep.Detach(tree)`, skips
   what it `Keeps` while clearing sub-assets, and `Reattach`es the domain nodes to the new root.
+  `MoveTo(from, to, parent)` carries them (as the same objects, with what a designer set) into
+  another tree — how a level's mission moves up into an episode's.
+- **Groups run their children** — a group's context task implements `IStateTreeNodeContext`
+  (`IStateTreeArea` and `IStateTreeLevel` do): the executor never runs it, and a state holding
+  only context is entered through its first child. So a zone runs its steps in order, each when
+  the one before it is done. A kind with `rests` (a level, a branch) holds where its run ends
+  instead of going on to its next sibling; a kind with `routeBy` (a question) goes to its i-th
+  child when the parameter's key holds i — the routes are written by `ApplyDerived`, never authored.
+
+## Episode trees: one story above the levels
+
+A host of kind `Episode` (a child of the root) holds a tree whose nodes with an `IStateTreeLevel`
+context are the levels of the story. It never runs that tree on its own board. A level, put back
+from its save, **joins** it (`JoinEpisodeTask`, or `StateTreeContextHost.JoinEpisode(level, host)`):
+the level's node runs on the level's board and spine — its steps see the level's services, the
+facts they write are the level's and are saved with it — and the run may not leave that node
+(`StateTreeExecutor.boundaryNodeId`: a move past it stops the run and is kept as where the next
+level's part starts). When the level's host unregisters, the episode keeps where its run stood —
+a `StateTreeEpisodeCursor` (the state, and whether it had finished) per level — which a game's
+save carries (`CursorOf`) and puts back (`RestoreCursor`) before the next join. A resumed state
+that had finished is entered without running its tasks again (`StartTree(node, complete)`).
+
+While a step runs, the level's board holds `episode:step` = the step's kind, so a level's own
+tree can step aside for it and come back when it is gone.
 
 ## A parameter is a reference — never a string
 
@@ -142,6 +166,11 @@ key, stored by name), `[ScopeId]`, `[SubTreeState]`, a `StateTreeKeyField` or a
 `StateTreeEntryRef<T>`. Free text is for words a person reads (`[HumanText]`, `[TextArea]`) and for
 literal values (`[LiteralValue]`). Every picker is a `StateTreePickField` — a dropdown showing the
 pick, ◎ to what it names (a row's asset; ▶ opens it), a value that names nothing shown as an error.
+Every picker opens the one searchable dropdown (`StateTreePickMenu`): what this tree already uses
+first, then the catalogue grouped by meaning (keys by their dotted prefix, rows by catalog and group,
+placements by manifest), a one-line meaning per item, and what the field narrows out under "Other" —
+a presence check is offered flags (Bool/Event keys) first, a typed key field its own kind, a placement
+or a row in an episode tree the enclosing Level's (or Zone's) catalog.
 A key is picked from the declarations a tree sees and the constants of `[KeyCatalog]` classes, or
 declared from the menu. `StateTreeStringRule` decides what a string is; `StateTreePickTests` fails on
 a new free-text reference.
