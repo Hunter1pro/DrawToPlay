@@ -75,39 +75,17 @@ namespace PowerOfFire.DrawToPlay.Editor
             WorldTagAttribute marked = Marked();
             var offers = new List<WorldTagDef>();
             bool declared = Offers(owner.targetObject, marked, offers);
-
-            var menu = new GenericMenu();
-            if (offers.Count == 0)
-            {
-                menu.AddDisabledItem(new GUIContent(owner.targetObject is LevelObjectRegistry
-                    ? "this manifest lists no tag vocabulary — add one to its Tags"
-                    : "nothing here declares a tag vocabulary"));
-            }
-            else if (!declared)
-            {
-                // SAID OUT LOUD: a component in a scene has no Depends On to read, so it is
-                // offered the project's vocabularies rather than nothing. That is a weaker
-                // guarantee than an asset's, and the menu should not pretend otherwise.
-                menu.AddDisabledItem(new GUIContent("— project-wide (this object declares "
-                    + "nothing) —"));
-            }
-
             SerializedProperty live = owner.FindProperty(path);
             string current = live != null ? live.stringValue : "";
-            for (int i = 0; i < offers.Count; i++)
-            {
-                WorldTagDef row = offers[i];
-                string entry = string.IsNullOrEmpty(row.group)
-                    ? row.name
-                    : row.group + "/" + row.name;
-                menu.AddItem(new GUIContent(entry), row.name == current,
-                    () => Set(owner, path, container, label, row.name, row.id));
-            }
-
-            menu.AddSeparator("");
-            menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(current),
-                () => Set(owner, path, container, label, "", ""));
-            menu.DropDown(anchor);
+            StateTreePickMenu menu = StateTreePickItems.Tags(offers, StateTreePickItems.Owning(owner.targetObject, out _));
+            if (owner.targetObject is LevelObjectRegistry)
+                menu.empty = "this manifest lists no tag vocabulary — add one to its Tags";
+            if (!declared && offers.Count > 0)
+                // SAID OUT LOUD: a component in a scene has no Depends On to read, so it is offered the
+                // project's vocabularies rather than nothing — a weaker guarantee than an asset's.
+                menu.title = "Tag (project-wide: this object declares nothing)";
+            menu.Show(anchor, current, picked =>
+                Set(owner, path, container, label, picked.value, (picked.payload as WorldTagDef)?.id ?? ""));
         }
 
         private void Set(SerializedObject owner, string path, VisualElement container, string label,

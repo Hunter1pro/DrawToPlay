@@ -53,28 +53,15 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             var offers = new List<LevelObjectDef>();
             bool declared = Offers(owner.targetObject, offers);
-
-            var menu = new GenericMenu();
-            if (offers.Count == 0)
-                menu.AddDisabledItem(new GUIContent("nothing here declares a manifest"));
-            else if (!declared)
-                menu.AddDisabledItem(new GUIContent("— project-wide (this object declares nothing) —"));
-
             SerializedProperty live = owner.FindProperty(path);
             string current = live != null ? live.stringValue : "";
-            for (int i = 0; i < offers.Count; i++)
-            {
-                LevelObjectDef row = offers[i];
-                string entry = (string.IsNullOrEmpty(row.group) ? "" : row.group + "/")
-                    + row.name + "  (" + row.id + ")";
-                menu.AddItem(new GUIContent(entry), row.id == current,
-                    () => Set(owner, path, container, label, row.id));
-            }
-
-            menu.AddSeparator("");
-            menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(current),
-                () => Set(owner, path, container, label, ""));
-            menu.DropDown(anchor);
+            // In a schema's tree, the enclosing Level's manifest is this field's level.
+            var level = StateTreePickItems.Enclosing(owner.targetObject, typeof(LevelObjectDef)) as LevelObjectRegistry;
+            StateTreePickMenu menu = StateTreePickItems.Placements(offers,
+                StateTreePickItems.Owning(owner.targetObject, out _), level);
+            if (!declared)
+                menu.title = "Placement (project-wide: this object declares nothing)";
+            menu.Show(anchor, current, picked => Set(owner, path, container, label, picked.value));
         }
 
         private static void Set(SerializedObject owner, string path, VisualElement container,

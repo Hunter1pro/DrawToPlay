@@ -35,11 +35,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 row != null ? row.Describe() : "A " + kind + " row" + (declared ? "" : " (project-wide: this asset declares no catalog of them)"),
                 at =>
                 {
-                    var menu = new GenericMenu();
-                    menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(current), () => Set(container, owner, path, label, entryType, ""));
-                    menu.AddSeparator("");
-                    StateTreeRowOffers.AddTo(menu, catalogs, current, picked => Set(container, owner, path, label, entryType, picked.name));
-                    menu.DropDown(at);
+                    StateTreeRegistryAsset level = StateTreePickItems.Enclosing(owner.targetObject, entryType);
+                    StateTreePickItems.Rows(catalogs, StateTreePickItems.Owning(owner.targetObject, out _), entryType, level)
+                        .Show(at, current, picked => Set(container, owner, path, label, entryType, picked.value));
                 });
             field.WithRowButtons(row, row != null ? StateTreeRowOffers.CatalogOf(catalogs, row) : catalogs.Count > 0 ? catalogs[0] : null);
             container.Add(field);

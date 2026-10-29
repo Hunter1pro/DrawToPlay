@@ -13,14 +13,10 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// field and would otherwise show a raw id/name pair for a reference that is supposed to be
     /// a known-list choice.
     ///
-    /// IT OPENS THE NODE PICKER, not a dropdown. A <c>DropdownField</c> is a flat alphabetical
-    /// strip of names: fine for four items, unusable at a hundred, and it can never say what a row
-    /// IS. A registry is exactly the thing that grows — items, levels, tags, doors — so the
-    /// picker's search, collapsible categories (the row's own <c>group</c> path) and one-line
-    /// description are worth more here than anywhere. It is the same window the task list uses
-    /// (<see cref="StateTreeNodePicker"/>) through the rows-supplied seam
-    /// (<see cref="StateTreePickerItem"/>), so choosing a task and choosing a row feel like one
-    /// gesture rather than two conventions.
+    /// IT OPENS THE ONE SEARCHABLE PICKER (<see cref="StateTreePickMenu"/>), not a flat dropdown: a
+    /// registry is exactly the thing that grows — items, levels, tags, doors — so search, the rows'
+    /// own <c>group</c> paths and a one-line meaning per row are worth more here than anywhere, and
+    /// every other reference field opens the same one.
     ///
     /// The entry TYPE comes from the field's own generic argument, and the rows come from every
     /// registry asset in the project whose <see cref="StateTreeRegistryAsset.entryType"/>
@@ -71,9 +67,18 @@ namespace PowerOfFire.DrawToPlay.Editor
                 var rows = new List<SourcedRow>();
                 CollectRows(entryType, rows, owner);
 
-                StateTreeNodePicker.ShowItems(StateTreeNodePicker.ScreenRectOf(button),
-                    ItemsFor(entryType, rows),
-                    payload =>
+                // The one searchable picker: this tree's picks first, the rows by catalog and group,
+                // the enclosing Level's (or Zone's) catalog before the others.
+                UnityEngine.Object target = property.serializedObject.targetObject;
+                var catalogs = new List<StateTreeRegistryAsset>();
+                foreach (SourcedRow sourced in rows)
+                {
+                    if (sourced.registry != null && !catalogs.Contains(sourced.registry))
+                        catalogs.Add(sourced.registry);
+                }
+                StateTreePickItems.Rows(catalogs, StateTreePickItems.Owning(target, out _), entryType,
+                        StateTreePickItems.Enclosing(target, entryType))
+                    .Show(button.worldBound, nameProperty.stringValue, item =>
                     {
                         // Re-fetched rather than captured: the picker outlives this callback's
                         // creation, and a SerializedProperty from a stale SerializedObject would
@@ -84,15 +89,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                         SerializedProperty liveName = property.serializedObject
                             .FindProperty(property.propertyPath).FindPropertyRelative("entryName");
 
-                        var picked = payload as StateTreeRegistryEntry;
+                        var picked = item.payload as StateTreeRegistryEntry;
                         liveName.stringValue = picked != null ? picked.name : string.Empty;
                         liveId.stringValue = picked != null ? picked.id : string.Empty;
                         property.serializedObject.ApplyModifiedProperties();
                         button.text = ButtonText(liveName.stringValue);
                         revealState?.Invoke(!string.IsNullOrEmpty(liveName.stringValue));
-                    },
-                    "Pick " + entryType.Name.Replace("Def", ""),
-                    "Entry_" + entryType.Name);
+                    });
             };
             row.Add(button);
 
@@ -148,60 +151,6 @@ namespace PowerOfFire.DrawToPlay.Editor
         private static string ButtonText(string entryName)
         {
             return string.IsNullOrEmpty(entryName) ? k_Unset : entryName;
-        }
-
-        /// <summary>
-        /// The rows as picker items: the row's <c>group</c> becomes the category, and the first
-        /// text field the entry class adds beyond the base three becomes the description.
-        ///
-        /// THE DESCRIPTION IS FOUND BY SHAPE, not named: an entry class is free to call its human
-        /// text whatever it likes (<c>displayName</c>, <c>speaker</c>, <c>summary</c>), and the
-        /// M13 rule is that declaring a registry kind costs an entry class and nothing else. A
-        /// convention that required a specific field name would be a second thing to remember, and
-        /// the row would silently lose its description when someone forgot it.
-        /// </summary>
-        /// <param name="entryType">The entry class being listed.</param>
-        /// <param name="rows">The rows to offer, each with the registry it came from.</param>
-        /// <returns>One item per row.</returns>
-        private static List<StateTreePickerItem> ItemsFor(Type entryType, List<SourcedRow> rows)
-        {
-            System.Reflection.FieldInfo descriptionField = null;
-            foreach (System.Reflection.FieldInfo field in entryType.GetFields(
-                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
-            {
-                if (field.FieldType != typeof(string))
-                    continue;
-                if (field.Name == "id" || field.Name == "name" || field.Name == "group")
-                    continue;
-                descriptionField = field;
-                break;
-            }
-
-            var items = new List<StateTreePickerItem>(rows.Count);
-            for (int i = 0; i < rows.Count; i++)
-            {
-                StateTreeRegistryEntry entry = rows[i].entry;
-                if (entry == null || string.IsNullOrEmpty(entry.name))
-                    continue;
-
-                items.Add(new StateTreePickerItem
-                {
-                    displayName = entry.name,
-                    category = entry.group ?? string.Empty,
-                    description = descriptionField?.GetValue(entry) as string ?? string.Empty,
-                    // WHICH CATALOG, because two registries of the same kind routinely hold rows
-                    // with the same name — three area manifests each with a 'medkit 1'. Without
-                    // this the list shows the same word three times and the author has to guess.
-                    identity = rows[i].registry != null
-                        ? rows[i].registry.name
-                        : entryType.Name,
-                    // The ID, so starring a row survives renaming it — the same promise the
-                    // reference itself makes.
-                    persistKey = entry.id,
-                    payload = entry
-                });
-            }
-            return items;
         }
 
         private static string NiceLabel(SerializedProperty property, Type entryType)

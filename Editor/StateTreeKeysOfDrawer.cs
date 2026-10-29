@@ -109,74 +109,53 @@ namespace PowerOfFire.DrawToPlay.Editor
             SerializedProperty liveId = IdOf(live, attribute);
             StateTreeAsset tree = TreeFrom(live, attribute?.treeField);
 
-            var menu = new GenericMenu();
-            if (tree == null)
+            void Write(string chosen, string chosenId)
             {
-                // WHICH TREE is the first thing missing, and saying so beats an empty list:
-                // an author who has not picked the beats yet has nothing to choose from, and
-                // that is a different problem from a tree that declares nothing.
-                menu.AddDisabledItem(new GUIContent("Pick the tree first — its keys are what "
-                    + "this offers."));
-                menu.DropDown(anchor.worldBound);
-                return;
+                owner.Update();
+                SerializedProperty target = owner.FindProperty(path);
+                if (target == null)
+                    return;
+                target.stringValue = chosen;
+                // BOTH HALVES, or the link is a coincidence: the name is what the runtime
+                // reads, the id is what survives the declaration being renamed.
+                SerializedProperty targetId = IdOf(target, attribute);
+                if (targetId != null)
+                    targetId.stringValue = chosenId;
+                owner.ApplyModifiedProperties();
+                Build(container, owner, path, label);
             }
 
-            var declarations = new List<StateTreeKeyDeclaration>();
-            StateTreeKeyResolver.CollectVisible(tree, declarations);
-            int offered = 0;
-            for (int i = 0; i < declarations.Count; i++)
+            // WHICH TREE is the first thing missing, and saying so beats an empty list.
+            var menu = new StateTreePickMenu
             {
-                StateTreeKeyDeclaration declaration = declarations[i];
-                if (declaration == null || string.IsNullOrEmpty(declaration.name))
-                    continue;
-                if (attribute != null && !attribute.any && declaration.kind != attribute.kind)
-                    continue;
-
-                offered++;
-                string entry = string.IsNullOrEmpty(declaration.description)
-                    ? declaration.name
-                    : declaration.name + "  —  " + declaration.description;
-                string chosen = declaration.name;
-                string chosenId = declaration.id;
-                menu.AddItem(new GUIContent(entry), false, () =>
+                title = tree != null ? "Keys of " + tree.name : "Keys",
+                none = null,
+                empty = tree == null
+                    ? "Pick the tree first — its keys are what this offers."
+                    : "'" + tree.name + "' declares no keys of this kind."
+            };
+            if (tree != null)
+            {
+                var declarations = new List<StateTreeKeyDeclaration>();
+                StateTreeKeyResolver.CollectVisible(tree, declarations);
+                foreach (StateTreeKeyDeclaration declaration in declarations)
                 {
-                    owner.Update();
-                    SerializedProperty target = owner.FindProperty(path);
-                    if (target == null)
-                        return;
-                    target.stringValue = chosen;
-                    // BOTH HALVES, or the link is a coincidence: the name is what the runtime
-                    // reads, the id is what survives the declaration being renamed.
-                    SerializedProperty targetId = IdOf(target, attribute);
-                    if (targetId != null)
-                        targetId.stringValue = chosenId;
-                    owner.ApplyModifiedProperties();
-                    Build(container, owner, path, label);
-                });
+                    if (declaration == null || string.IsNullOrEmpty(declaration.name))
+                        continue;
+                    if (attribute != null && !attribute.any && declaration.kind != attribute.kind)
+                        continue;
+                    menu.items.Add(new StateTreePickItem(declaration.name, declaration.name, declaration.description,
+                        StateTreePickMenu.PrefixGroup(declaration.name)) { payload = declaration.id });
+                }
+                menu.InTree(StateTreePickMenu.UsedIn(tree));
             }
-
-            if (offered == 0)
-                menu.AddDisabledItem(new GUIContent("'" + tree.name
-                    + "' declares no keys of this kind."));
 
             // THE WAY BACK OUT. A link you cannot leave is a cage, and a script may need to
             // speak of a part before any tree declares it.
             if (liveId != null && !string.IsNullOrEmpty(liveId.stringValue))
-            {
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("Unbind — type this name freely"), false, () =>
-                {
-                    owner.Update();
-                    SerializedProperty target = owner.FindProperty(path);
-                    SerializedProperty targetId = IdOf(target, attribute);
-                    if (targetId == null)
-                        return;
-                    targetId.stringValue = "";
-                    owner.ApplyModifiedProperties();
-                    Build(container, owner, path, label);
-                });
-            }
-            menu.DropDown(anchor.worldBound);
+                menu.Command("Unbind — type this name freely", () => Write(live.stringValue, ""));
+            menu.Show(anchor.worldBound, live != null ? live.stringValue : "",
+                picked => Write(picked.value, picked.payload as string ?? ""));
         }
 
         /// <summary>The sibling property holding the picked declaration's id, or null when the

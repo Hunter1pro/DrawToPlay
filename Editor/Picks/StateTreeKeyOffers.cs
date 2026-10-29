@@ -10,13 +10,18 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// (a code constant has none), where it is declared and what it means.</summary>
     public readonly struct StateTreeKeyOffer
     {
-        public StateTreeKeyOffer(string name, string id, string source, string description)
+        public StateTreeKeyOffer(string name, string id, string source, string description,
+            StateTreeKeyKind? kind = null)
         {
             this.name = name;
             this.id = id ?? "";
             this.source = source ?? "";
             this.description = description ?? "";
+            this.kind = kind;
         }
+
+        /// <summary>The declared kind, or null for a constant nothing declares.</summary>
+        public StateTreeKeyKind? kind { get; }
 
         public string name { get; }
 
@@ -53,11 +58,65 @@ namespace PowerOfFire.DrawToPlay.Editor
                         continue;
                     var name = field.GetRawConstantValue() as string;
                     if (!string.IsNullOrEmpty(name))
-                        s_Code.Add(new StateTreeKeyOffer(name, "", type.Name + "." + field.Name, ""));
+                        s_Code.Add(new StateTreeKeyOffer(name, "", type.Name + "." + field.Name,
+                            Summary(type, field.Name)));
                 }
             }
             s_Code.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
             return s_Code;
+        }
+
+        private static readonly Dictionary<Type, Dictionary<string, string>> s_Summaries =
+            new Dictionary<Type, Dictionary<string, string>>();
+
+        /// <summary>A constant's meaning: the first line of its &lt;summary&gt; in the catalog's source —
+        /// read once per domain, with the catalog's keys.</summary>
+        internal static string Summary(Type catalog, string member)
+        {
+            if (!s_Summaries.TryGetValue(catalog, out Dictionary<string, string> summaries))
+            {
+                summaries = new Dictionary<string, string>(StringComparer.Ordinal);
+                s_Summaries[catalog] = summaries;
+                foreach (string guid in AssetDatabase.FindAssets(catalog.Name + " t:MonoScript"))
+                {
+                    var script = AssetDatabase.LoadAssetAtPath<MonoScript>(AssetDatabase.GUIDToAssetPath(guid));
+                    if (script == null || script.GetClass() != catalog)
+                        continue;
+                    foreach (KeyValuePair<string, string> each in ParseSummaries(script.text))
+                        summaries[each.Key] = each.Value;
+                }
+            }
+            return summaries.TryGetValue(member, out string found) ? found : "";
+        }
+
+        /// <summary>Each string constant of a source text, with the first sentence of the &lt;summary&gt;
+        /// above it.</summary>
+        internal static Dictionary<string, string> ParseSummaries(string source)
+        {
+            var summaries = new Dictionary<string, string>(StringComparer.Ordinal);
+            var comment = new System.Text.StringBuilder();
+            foreach (string raw in (source ?? "").Split('\n'))
+            {
+                string line = raw.Trim();
+                if (line.StartsWith("///", StringComparison.Ordinal))
+                {
+                    comment.Append(' ').Append(line.Substring(3).Trim());
+                    continue;
+                }
+                int at = line.IndexOf("const string ", StringComparison.Ordinal);
+                if (at >= 0)
+                {
+                    string rest = line.Substring(at + 13);
+                    int end = rest.IndexOfAny(new[] { ' ', '=' });
+                    string constant = end > 0 ? rest.Substring(0, end) : rest;
+                    string text = System.Text.RegularExpressions.Regex.Replace(comment.ToString(), "<[^>]+>", "").Trim();
+                    int stop = text.IndexOf(". ", StringComparison.Ordinal);
+                    summaries[constant] = StateTreePickItems.OneLine(stop > 0 ? text.Substring(0, stop + 1) : text);
+                }
+                if (!line.StartsWith("[", StringComparison.Ordinal))
+                    comment.Clear();
+            }
+            return summaries;
         }
 
         /// <summary>The keys an asset can see. <paramref name="tree"/> may be null (a registry row).</summary>
@@ -75,7 +134,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 if (declaration != null && !string.IsNullOrEmpty(declaration.name) && names.Add(declaration.name))
                     offers.Add(new StateTreeKeyOffer(declaration.name, declaration.id, "declared",
-                        declaration.description));
+                        declaration.description, declaration.kind));
             }
             foreach (StateTreeKeyOffer code in CodeKeys())
             {
@@ -121,21 +180,6 @@ namespace PowerOfFire.DrawToPlay.Editor
             tree.keys.Add(declaration);
             EditorUtility.SetDirty(tree);
             return declaration;
-        }
-
-        /// <summary>A menu of the offers: declared first, then each code catalog's under its class.</summary>
-        public static void AddTo(GenericMenu menu, List<StateTreeKeyOffer> offers, string current,
-            Action<StateTreeKeyOffer> picked)
-        {
-            if (offers.Count == 0)
-                menu.AddDisabledItem(new GUIContent("No key declared here yet"));
-            foreach (StateTreeKeyOffer offer in offers)
-            {
-                StateTreeKeyOffer chosen = offer;
-                string group = offer.source == "declared" ? "" : offer.source.Split('.')[0] + "/";
-                menu.AddItem(new GUIContent(group + offer.name.Replace('/', '∕')),
-                    string.Equals(offer.name, current, StringComparison.Ordinal), () => picked(chosen));
-            }
         }
     }
 }
