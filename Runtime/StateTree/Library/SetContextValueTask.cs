@@ -27,7 +27,7 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>Disambiguates sibling scopes ("p2") when the owner is not parented under the
         /// one it means. Empty = nearest/unique of the kind.</summary>
-        public string scopeId = "";
+        [ScopeId] public string scopeId = "";
 
         [StateTreeKey(StateTreeKeyKind.Float, any: true)]
         public StateTreeKeyField key = new StateTreeKeyField();
@@ -36,7 +36,7 @@ namespace PowerOfFire.DrawToPlay
 
         public float floatValue;
 
-        public string stringValue = "";
+        [LiteralValue] public string stringValue = "";
 
         /// <summary>Seed a default without stomping what the scope already holds — the same
         /// contract as the local task's flag.</summary>

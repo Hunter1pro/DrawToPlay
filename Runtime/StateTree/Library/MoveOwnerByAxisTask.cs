@@ -20,7 +20,7 @@ namespace PowerOfFire.DrawToPlay
     {
         public StateTreeContextKind scope = StateTreeContextKind.Player;
 
-        public string scopeId = "";
+        [ScopeId] public string scopeId = "";
 
         [StateTreeKey(StateTreeKeyKind.Float)]
         public StateTreeKeyField xKey = new StateTreeKeyField("input:x");

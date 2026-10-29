@@ -74,10 +74,10 @@ namespace PowerOfFire.DrawToPlay
         public StateTreeAsset subTree;
 
         /// <summary>Sub-tree state ids that end this task with Success.</summary>
-        public List<string> successStates = new List<string> { "success", "exit" };
+        [SubTreeState] public List<string> successStates = new List<string> { "success", "exit" };
 
         /// <summary>Sub-tree state ids that end this task with Failure.</summary>
-        public List<string> failureStates = new List<string> { "fail", "failure" };
+        [SubTreeState] public List<string> failureStates = new List<string> { "fail", "failure" };
 
         /// <summary>This state's values for the sub-tree's declared parameters, one row per
         /// overridden parameter, each bound to a declaration by

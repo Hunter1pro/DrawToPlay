@@ -40,18 +40,47 @@ namespace PowerOfFire.DrawToPlay.Editor
         public bool isPlacement => field != null && field.FieldType == typeof(string)
             && field.IsDefined(typeof(PlacementIdAttribute), true);
 
+        /// <summary>The row type the parameter names: a typed entry reference's, or a [RowName] string's.</summary>
         public Type entryType
         {
             get
             {
-                if (field == null || !field.FieldType.IsGenericType
+                if (field == null)
+                    return null;
+                if (field.FieldType == typeof(string)
+                    && field.GetCustomAttribute<RowNameAttribute>(true) is RowNameAttribute rowName)
+                    return rowName.entryType;
+                if (!field.FieldType.IsGenericType
                     || field.FieldType.GetGenericTypeDefinition() != typeof(StateTreeEntryRef<>))
                     return null;
                 return field.FieldType.GetGenericArguments()[0];
             }
         }
 
-        public bool isKey => field != null && field.FieldType == typeof(StateTreeKeyField);
+        /// <summary>A key: a key field, or a [KeyName] string.</summary>
+        public bool isKey => field != null && (field.FieldType == typeof(StateTreeKeyField)
+            || field.FieldType == typeof(string) && field.IsDefined(typeof(KeyNameAttribute), true));
+
+        public bool isTag => field != null && field.FieldType == typeof(string)
+            && field.IsDefined(typeof(WorldTagAttribute), true);
+
+        /// <summary>The step does not pick it: it follows from something the step holds.</summary>
+        public bool isDerived => declaration != null && declaration.IsDerived;
+
+        /// <summary>What the bound field is, by the "never a string" rule — a String parameter bound
+        /// into a <see cref="StateTreeStringKind.Free"/> field (or into nothing) has no picker.</summary>
+        public StateTreeStringKind stringKind
+        {
+            get
+            {
+                if (field == null)
+                    return StateTreeStringKind.Free;
+                if (isKey || entryType != null || isPlacement)
+                    return StateTreeStringKind.Picked;
+                StateTreeStringKind kind = StateTreeStringRule.Classify(field);
+                return kind == StateTreeStringKind.NotString ? StateTreeStringKind.Free : kind;
+            }
+        }
     }
 
     /// <summary>
@@ -259,7 +288,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 // A placement or a row is what a step is ABOUT; a text or a key may be empty on
                 // purpose (an unsaved film names no seen fact).
-                if ((parameter.isPlacement || parameter.entryType != null)
+                if (!parameter.isDerived && (parameter.isPlacement || parameter.entryType != null)
                     && string.IsNullOrEmpty(parameter.stringValue))
                     problems.Add(new StateTreeSchemaProblem(node,
                         $"'{Pretty(parameter.declaration.name)}' is not set."));
@@ -335,7 +364,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>Give a step's parameter a value — the override row the sub-tree task carries.</summary>
         public static void SetParameter(RunSubTreeTask run, GraphTaskParameter declaration, string text,
-            float number, string entryId, string undoName)
+            float number, string entryId, string undoName, string keyId = "")
         {
             if (run == null || declaration == null)
                 return;
@@ -357,6 +386,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             row.stringValue = text ?? "";
             row.floatValue = number;
             row.entryId = entryId ?? "";
+            row.keyId = keyId ?? "";
             EditorUtility.SetDirty(run);
         }
 
@@ -434,7 +464,153 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreeRegistryAsset context = ContextRegistry(tree, schema, node, entryType);
             if (context != null && !sources.Contains(context))
                 sources.Insert(0, context);
+            if (sources.Count == 0)
+                sources.AddRange(StateTreeRowOffers.For(template != null ? template : (UnityEngine.Object)tree, entryType, out _));
             return sources;
+        }
+
+        // --- derived parameters --------------------------------------------------------------
+
+        /// <summary>What a derived parameter's value is for this step, and where it came from (a
+        /// sentence for the inspector). Null value: it cannot be derived (its source is missing).</summary>
+        public static string DerivedValue(StateTreeAsset tree, StateTreeSchema schema, StateTreeNodeAsset node,
+            StateTreeSchemaKind kind, StateTreeStepParameter parameter, out string why, out StateTreeRegistryEntry row)
+        {
+            why = "";
+            row = null;
+            GraphTaskParameterDerivation derived = parameter.declaration.derived;
+            if (derived == null)
+                return null;
+            switch (derived.source)
+            {
+                case GraphTaskParameterDerivation.Source.Template:
+                    why = "the template's own — no step changes it";
+                    return parameter.declaration.stringValue ?? "";
+                case GraphTaskParameterDerivation.Source.Context:
+                    for (StateTreeNodeAsset at = StateTreeEditorOps.FindParent(tree, node); at != null;
+                         at = StateTreeEditorOps.FindParent(tree, at))
+                    {
+                        StateTreeSchemaKind atKind = KindOf(schema, at);
+                        StateTreeTaskAsset context = ContextTask(atKind, at);
+                        FieldInfo field = context != null
+                            ? context.GetType().GetField(derived.member, BindingFlags.Public | BindingFlags.Instance)
+                            : null;
+                        if (field == null)
+                            continue;
+                        why = "from the " + atKind.Label + " '" + (string.IsNullOrEmpty(at.displayName) ? at.nodeId : at.displayName)
+                            + "' (its " + ObjectNames.NicifyVariableName(derived.member).ToLowerInvariant() + ")";
+                        return ValueOf(field.GetValue(context));
+                    }
+                    why = "from the enclosing group's " + derived.member + " — no enclosing group carries one";
+                    return null;
+                case GraphTaskParameterDerivation.Source.Row:
+                    StateTreeStepParameter source = null;
+                    foreach (StateTreeStepParameter candidate in Parameters(kind, node))
+                    {
+                        if (candidate.declaration.id == derived.parameterId)
+                            source = candidate;
+                    }
+                    if (source == null || source.entryType == null)
+                    {
+                        why = "from a row parameter the template no longer has";
+                        return null;
+                    }
+                    string label = Pretty(source.declaration.name);
+                    if (string.IsNullOrEmpty(source.stringValue))
+                    {
+                        why = "from the " + label + " row — none is picked yet";
+                        return "";
+                    }
+                    foreach (StateTreeRegistryAsset registry in RowSources(tree, schema, node, kind.template, source.entryType))
+                    {
+                        row = registry.FindByName(source.stringValue);
+                        if (row != null)
+                            break;
+                    }
+                    FieldInfo member = row != null
+                        ? row.GetType().GetField(derived.member, BindingFlags.Public | BindingFlags.Instance)
+                        : null;
+                    if (member == null)
+                    {
+                        why = row == null
+                            ? "from the " + label + " row '" + source.stringValue + "', which is no row"
+                            : "from the " + label + " row's " + derived.member + " — the row has no such field";
+                        return null;
+                    }
+                    why = "from the " + label + " '" + row.name + "' (its "
+                        + ObjectNames.NicifyVariableName(derived.member).ToLowerInvariant() + ")";
+                    return ValueOf(member.GetValue(row));
+                default:
+                    return null;
+            }
+        }
+
+        private static string ValueOf(object value)
+        {
+            switch (value)
+            {
+                case null:
+                    return "";
+                case string text:
+                    return text;
+                case StateTreeKeyField key:
+                    return key.text ?? "";
+                case IStateTreeEntryRef entry:
+                    return entry.EntryName ?? "";
+                default:
+                    return value.ToString();
+            }
+        }
+
+        /// <summary>Write every derived parameter of every step of a tree into its override, so the
+        /// runtime — which only reads overrides — runs what the step derives. Idempotent; returns how
+        /// many overrides changed. A build calls this after it authors rows; the inspector after an edit.</summary>
+        public static int ApplyDerived(StateTreeAsset tree, StateTreeSchema schema)
+        {
+            int changed = 0;
+            if (tree == null || schema == null)
+                return 0;
+            foreach (StateTreeNodeAsset node in StateTreeEditorOps.CollectNodes(tree))
+                changed += ApplyDerived(tree, schema, node);
+            return changed;
+        }
+
+        public static int ApplyDerived(StateTreeAsset tree, StateTreeSchema schema, StateTreeNodeAsset node)
+        {
+            StateTreeSchemaKind kind = KindOf(schema, node);
+            RunSubTreeTask run = kind != null && kind.isTemplate ? TemplateTask(kind, node) : null;
+            if (run == null)
+                return 0;
+            int changed = 0;
+            foreach (StateTreeStepParameter parameter in Parameters(kind, node))
+            {
+                if (!parameter.isDerived)
+                    continue;
+                if (parameter.declaration.derived.source == GraphTaskParameterDerivation.Source.Template)
+                {
+                    if (parameter.overrideRow != null)
+                    {
+                        ResetParameter(run, parameter.declaration, "Derive Parameter");
+                        changed++;
+                    }
+                    continue;
+                }
+                string value = DerivedValue(tree, schema, node, kind, parameter, out _, out _);
+                if (value == null)
+                    continue;
+                if (parameter.overridden && parameter.overrideRow.stringValue == value
+                    && string.IsNullOrEmpty(parameter.overrideRow.keyId) && string.IsNullOrEmpty(parameter.overrideRow.entryId)
+                    && string.IsNullOrEmpty(parameter.overrideRow.sourceParameterId))
+                    continue;
+                if (!parameter.overridden && string.IsNullOrEmpty(value) && string.IsNullOrEmpty(parameter.declaration.stringValue)
+                    && parameter.overrideRow == null)
+                    continue;
+                SetParameter(run, parameter.declaration, value, 0f, "", "Derive Parameter");
+                if (parameter.overrideRow != null)
+                    parameter.overrideRow.sourceParameterId = "";
+                changed++;
+            }
+            return changed;
         }
 
         /// <summary>A placement row of the node's level, by the id a [PlacementId] field stores.</summary>
@@ -457,7 +633,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             var parts = new List<string>();
             foreach (StateTreeStepParameter parameter in Parameters(kind, node))
             {
-                if (parameter.declaration.kind != GraphTaskParameterKind.String || parameter.isKey)
+                if (parameter.declaration.kind != GraphTaskParameterKind.String || parameter.isKey || parameter.isDerived)
                     continue;
                 string value = parameter.stringValue;
                 if (string.IsNullOrEmpty(value))

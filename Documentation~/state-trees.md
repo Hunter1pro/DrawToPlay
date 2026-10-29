@@ -133,3 +133,20 @@ the schema's mode, on the same asset. The toolbar's **Dev** toggle is today's wi
   bindings are applied before keys and entry refs resolve.
 - **Builders** — a script that re-authors a tree calls `StateTreeDomainKeep.Detach(tree)`, skips
   what it `Keeps` while clearing sub-assets, and `Reattach`es the domain nodes to the new root.
+
+## A parameter is a reference — never a string
+
+A string field of a task or condition names something, so it is picked: `[PlacementId]`,
+`[WorldTag]`, `[RowName(typeof(T))]` (a row of a catalog of `T`, stored by name), `[KeyName]` (a
+key, stored by name), `[ScopeId]`, `[SubTreeState]`, a `StateTreeKeyField` or a
+`StateTreeEntryRef<T>`. Free text is for words a person reads (`[HumanText]`, `[TextArea]`) and for
+literal values (`[LiteralValue]`). Every picker is a `StateTreePickField` — a dropdown showing the
+pick, ◎ to what it names (a row's asset; ▶ opens it), a value that names nothing shown as an error.
+A key is picked from the declarations a tree sees and the constants of `[KeyCatalog]` classes, or
+declared from the menu. `StateTreeStringRule` decides what a string is; `StateTreePickTests` fails on
+a new free-text reference.
+
+In a schema mode a template parameter takes the picker of the field it binds to. A parameter marked
+`derived` (`GraphTaskParameterDerivation`: the template's own value, a field of the enclosing group's
+context, or a field of the row another parameter picked) is shown read-only; the editor writes it into
+the step's override (`StateTreeSchemaRules.ApplyDerived`), so the runtime is unchanged.

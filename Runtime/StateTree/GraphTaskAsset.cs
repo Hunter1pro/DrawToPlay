@@ -213,6 +213,12 @@ namespace PowerOfFire.DrawToPlay
         /// </summary>
         public StateTreeValueType type;
 
+        /// <summary>Where a template's caller gets this value from instead of picking it. Null or
+        /// <see cref="GraphTaskParameterDerivation.Source.None"/>: the caller picks it.</summary>
+        public GraphTaskParameterDerivation derived;
+
+        public bool IsDerived => derived != null && derived.source != GraphTaskParameterDerivation.Source.None;
+
         /// <summary>This parameter's type — the declared one, or the plain primitive every
         /// parameter authored before M30.1 means.</summary>
         public StateTreeValueType TypeOf()
@@ -229,6 +235,38 @@ namespace PowerOfFire.DrawToPlay
                     return StateTreeValueType.Of(StateTreeKeyKind.Float);
             }
         }
+    }
+
+    /// <summary>
+    /// A template parameter the step does not pick: its value follows from something the step already
+    /// holds. The editor writes it into the step's override (so the runtime is unchanged) and the
+    /// high-level inspector shows it read-only.
+    /// </summary>
+    [Serializable]
+    public sealed class GraphTaskParameterDerivation
+    {
+        public enum Source
+        {
+            None,
+
+            /// <summary>The template's own default — an implementation detail no step overrides.</summary>
+            Template,
+
+            /// <summary>A field of the nearest enclosing group's context task (a Level's level row).</summary>
+            Context,
+
+            /// <summary>A field of the row another parameter of the same step picked (a choice's answer key).</summary>
+            Row
+        }
+
+        public Source source;
+
+        /// <summary><see cref="Source.Row"/>: the id of the parameter whose row carries the value.</summary>
+        public string parameterId = "";
+
+        /// <summary><see cref="Source.Context"/> / <see cref="Source.Row"/>: the field read — a string,
+        /// a key field (its name) or an entry reference (its row's name).</summary>
+        public string member = "";
     }
 
     /// <summary>

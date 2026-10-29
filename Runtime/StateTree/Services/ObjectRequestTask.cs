@@ -30,7 +30,7 @@ namespace PowerOfFire.DrawToPlay
         public string request = "";
 
         [Tooltip("The value: a number for a derived request, a row name for a typed one.")]
-        public string value = "1";
+        [LiteralValue] public string value = "1";
 
         [Tooltip("Optional: a blackboard key holding the value — wins over the field.")]
         [StateTreeKey(StateTreeKeyKind.String)]

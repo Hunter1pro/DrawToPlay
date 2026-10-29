@@ -9,7 +9,8 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// <summary>
     /// A PLACEMENT, PICKED — the drawer for <see cref="PlacementIdAttribute"/>, the shape of
     /// <see cref="WorldTagDrawer"/> over manifest rows. The field holds the row's ID, which is
-    /// the stable reference already; picked, it shows the row's name and locks.
+    /// the stable reference already, and shows the row's name; an id no manifest holds is an error.
+    /// Never typed.
     /// </summary>
     [CustomPropertyDrawer(typeof(PlacementIdAttribute))]
     internal sealed class PlacementIdDrawer : PropertyDrawer
@@ -37,33 +38,17 @@ namespace PowerOfFire.DrawToPlay.Editor
             bool declared = Offers(owner.targetObject, offers);
             LevelObjectDef row = Row(offers, property.stringValue);
 
-            var line = new VisualElement();
-            line.style.flexDirection = FlexDirection.Row;
-            line.style.alignItems = Align.Center;
-            container.Add(line);
-
-            var text = new TextField(label);
-            text.AddToClassList(TextField.alignedFieldUssClassName);
-            text.style.flexGrow = 1f;
-            text.BindProperty(property);
-            text.SetEnabled(row == null);
-            text.tooltip = row == null
-                ? "No manifest here holds this id, so it is still free text. ⛭ offers what "
-                    + (declared ? "this asset declares." : "the project holds.")
-                : "Picked: '" + row.name + "' — the id is the row's. ⛭ to change it.";
-            line.Add(text);
-
-            var pick = new Button { text = "⛭" };
-            pick.style.width = 26f;
-            pick.style.flexShrink = 0f;
-            pick.tooltip = offers.Count == 0
-                ? "This asset declares no manifest yet."
-                : "Pick a placement from what this asset declares.";
-            pick.clicked += () => ShowMenu(pick, container, owner, path, label);
-            line.Add(pick);
+            string current = property.stringValue;
+            var field = new StateTreePickField(label, row != null ? row.name : current,
+                row == null && !string.IsNullOrEmpty(current),
+                row != null
+                    ? "Picked: '" + row.name + "' (" + row.id + ")"
+                    : "A placement of " + (declared ? "this asset's manifest." : "the project's manifests."),
+                at => ShowMenu(at, container, owner, path, label));
+            container.Add(field);
         }
 
-        private static void ShowMenu(VisualElement anchor, VisualElement container,
+        private static void ShowMenu(Rect anchor, VisualElement container,
             SerializedObject owner, string path, string label)
         {
             var offers = new List<LevelObjectDef>();
@@ -87,9 +72,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             menu.AddSeparator("");
-            menu.AddItem(new GUIContent("Unpick — type it freely"), false,
-                () => Set(owner, path, container, label, current));
-            menu.DropDown(anchor.worldBound);
+            menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(current),
+                () => Set(owner, path, container, label, ""));
+            menu.DropDown(anchor);
         }
 
         private static void Set(SerializedObject owner, string path, VisualElement container,

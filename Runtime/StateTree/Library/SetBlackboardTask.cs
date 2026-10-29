@@ -46,7 +46,7 @@ namespace PowerOfFire.DrawToPlay
 
         public float floatValue;
 
-        public string stringValue = "";
+        [LiteralValue] public string stringValue = "";
 
         /// <summary>Only write when the key is absent — "seed a default without stomping
         /// whatever the running tree has already put there".</summary>

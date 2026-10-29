@@ -17,7 +17,7 @@ namespace PowerOfFire.DrawToPlay
     {
         public StateTreeContextKind scope = StateTreeContextKind.Root;
 
-        public string scopeId = "";
+        [ScopeId] public string scopeId = "";
 
         /// <summary>Key on the SCOPE's blackboard.</summary>
         [StateTreeKey(StateTreeKeyKind.String)]
@@ -25,7 +25,7 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>The string to compare against — bindable, so a routed value (the clicked
         /// item) can be the comparand.</summary>
-        public string value = "";
+        [LiteralValue] public string value = "";
 
         public bool invert;
 

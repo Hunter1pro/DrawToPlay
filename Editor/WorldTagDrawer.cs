@@ -15,9 +15,8 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// project matches tags by exact ordinal text, so one wrong capital is a quest that never
     /// completes and a raider nobody can find.
     ///
-    /// PICKED IS LOCKED, and picked means "a declared row has this name". A tag no vocabulary
-    /// holds stays typeable — a name being invented is not yet a contract — and the field says
-    /// which state it is in rather than looking the same either way.
+    /// NEVER TYPED: a tag no vocabulary holds is shown as an error — the fix is a row in a
+    /// vocabulary, then the pick.
     ///
     /// THE ID MAKES A RENAME TRAVEL: a picked tag stores the row's id beside the name and
     /// re-reads the name through it, so renaming a vocabulary row renames every placement that
@@ -60,33 +59,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                 owner.ApplyModifiedPropertiesWithoutUndo();
             }
 
-            var line = new VisualElement();
-            line.style.flexDirection = FlexDirection.Row;
-            line.style.alignItems = Align.Center;
-            container.Add(line);
-
-            var text = new TextField(label);
-            text.AddToClassList(TextField.alignedFieldUssClassName);
-            text.style.flexGrow = 1f;
-            text.BindProperty(property);
-            text.SetEnabled(row == null);
-            text.tooltip = row == null
-                ? "No vocabulary here holds this tag, so it is still free text. ⛭ offers what "
-                    + (declared ? "this asset declares." : "the project speaks.")
-                : "Picked from '" + row.group + "' — the name follows the row. ⛭ to change it.";
-            line.Add(text);
-
-            var pick = new Button { text = "⛭" };
-            pick.style.width = 26f;
-            pick.style.flexShrink = 0f;
-            pick.tooltip = offers.Count == 0
-                ? "This asset declares no tag vocabulary yet."
-                : "Pick a tag from what this asset declares.";
-            pick.clicked += () => ShowMenu(pick, container, owner, path, label);
-            line.Add(pick);
+            string current = property.stringValue;
+            var field = new StateTreePickField(label, current, row == null && !string.IsNullOrEmpty(current),
+                row != null
+                    ? "Picked from '" + row.group + "' — the name follows the row."
+                    : "A tag of " + (declared ? "this asset's vocabularies." : "the project's vocabularies.")
+                        + " A name no vocabulary holds is an error: add it to a vocabulary, then pick it.",
+                at => ShowMenu(at, container, owner, path, label));
+            container.Add(field);
         }
 
-        private void ShowMenu(VisualElement anchor, VisualElement container, SerializedObject owner,
+        private void ShowMenu(Rect anchor, VisualElement container, SerializedObject owner,
             string path, string label)
         {
             WorldTagAttribute marked = Marked();
@@ -121,12 +104,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                     () => Set(owner, path, container, label, row.name, row.id));
             }
 
-            // THE WAY BACK OUT, because a tag can legitimately be spoken before its row exists —
-            // a level being sketched, a name waiting for a vocabulary.
             menu.AddSeparator("");
-            menu.AddItem(new GUIContent("Unpick — type it freely"), false,
-                () => Set(owner, path, container, label, current, ""));
-            menu.DropDown(anchor.worldBound);
+            menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(current),
+                () => Set(owner, path, container, label, "", ""));
+            menu.DropDown(anchor);
         }
 
         private void Set(SerializedObject owner, string path, VisualElement container, string label,
