@@ -182,7 +182,7 @@ namespace PowerOfFire.DrawToPlay
     /// nowhere (one error is logged; the task's own guard decides what failing means).
     /// </summary>
     [Serializable]
-    public sealed class StateTreeEntryRef<TEntry> : IStateTreeEntryRef
+    public sealed class StateTreeEntryRef<TEntry> : IStateTreeEntryRef, IStateTreeNamedEntryRef
         where TEntry : StateTreeRegistryEntry
     {
         public string entryId = "";
@@ -207,6 +207,21 @@ namespace PowerOfFire.DrawToPlay
         {
             m_Entry = entry as TEntry;
         }
+
+        void IStateTreeNamedEntryRef.PointAt(string name)
+        {
+            entryId = "";
+            entryName = name ?? "";
+            m_Entry = null;
+        }
+    }
+
+    /// <summary>An entry reference a String parameter can point at a row BY NAME — what a
+    /// parameter binding writes into a template's typed field. The id is cleared, so the
+    /// executor resolves the name against the running tree's registries.</summary>
+    public interface IStateTreeNamedEntryRef
+    {
+        void PointAt(string entryName);
     }
 
     /// <summary>The executor's view of a whole-registry field — resolution is purely by

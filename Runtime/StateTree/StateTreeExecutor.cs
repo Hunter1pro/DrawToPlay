@@ -214,13 +214,16 @@ namespace PowerOfFire.DrawToPlay
             // observes changing under it.
             BuildParameterScope();
             PushParameterScope();
-            // Declared keys resolve BEFORE bindings: a binding's blackboardKey may itself be
-            // a linked field, and it must hold the declaration's CURRENT name by the time the
-            // binding machinery reads it. This rewrite is what makes renaming a declared key
-            // free — every wired string on the DEEP COPY is refreshed from the id here.
+            // Parameter bindings land FIRST: a String parameter may write a key field or an entry
+            // reference (a template's row, a template's key), and those are what the next two
+            // passes resolve. A blackboard-sourced binding is applied on entry, long after both.
+            ApplyBindings(m_ActiveData.root, 0);
+            // Declared keys resolve BEFORE entry: a binding's blackboardKey may itself be a linked
+            // field, and it must hold the declaration's CURRENT name by the time the binding
+            // machinery reads it. This rewrite is what makes renaming a declared key free — every
+            // wired string on the DEEP COPY is refreshed from the id here.
             ResolveKeyFields(m_ActiveData.root, 0);
             ResolveEntryRefs(m_ActiveData.root, 0);
-            ApplyBindings(m_ActiveData.root, 0);
 
             treeStarted?.Invoke();
             var entry = ResolveEntryNode(m_ActiveData.root);
@@ -1580,10 +1583,7 @@ namespace PowerOfFire.DrawToPlay
             switch (parameter.kind)
             {
                 case GraphTaskParameterKind.String:
-                    if (type != typeof(string))
-                        return false;
-                    field.SetValue(target, parameter.stringValue ?? string.Empty);
-                    return true;
+                    return TryWriteName(field, target, parameter.stringValue ?? string.Empty);
                 case GraphTaskParameterKind.Bool:
                     if (type != typeof(bool))
                         return false;
@@ -1602,6 +1602,51 @@ namespace PowerOfFire.DrawToPlay
                     }
                     return false;
             }
+        }
+
+        /// <summary>
+        /// A String parameter into the three things a name can be: a plain <c>string</c>, a
+        /// <see cref="StateTreeKeyField"/> (the key's text, unwired — the parameter IS the name), or
+        /// a typed entry reference (pointed at the row of that name, id cleared, so
+        /// <see cref="ResolveEntryRefs"/> finds it in this tree's registries). The last two are
+        /// what let a reusable tree be a TEMPLATE: the caller's state hands it a film row, a beat
+        /// row, a key, and the template's own tasks run with them.
+        /// </summary>
+        private static bool TryWriteName(FieldInfo field, object target, string name)
+        {
+            Type type = field.FieldType;
+            if (type == typeof(string))
+            {
+                field.SetValue(target, name);
+                return true;
+            }
+            if (type == typeof(StateTreeKeyField))
+            {
+                var key = field.GetValue(target) as StateTreeKeyField;
+                if (key == null)
+                {
+                    key = new StateTreeKeyField();
+                    field.SetValue(target, key);
+                }
+                key.text = name;
+                key.keyId = string.Empty;
+                key.BindResolved(null);
+                return true;
+            }
+            if (typeof(IStateTreeNamedEntryRef).IsAssignableFrom(type))
+            {
+                var reference = field.GetValue(target) as IStateTreeNamedEntryRef;
+                if (reference == null)
+                {
+                    reference = Activator.CreateInstance(type) as IStateTreeNamedEntryRef;
+                    if (reference == null)
+                        return false;
+                    field.SetValue(target, reference);
+                }
+                reference.PointAt(name);
+                return true;
+            }
+            return false;
         }
 
         /// <summary>Public instance fields of a type by name, cached. <c>GetFields</c> with these
