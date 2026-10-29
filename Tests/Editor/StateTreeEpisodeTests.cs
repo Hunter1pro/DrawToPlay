@@ -190,6 +190,85 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual(0, Entered("l1"));
         }
 
+        /// <summary>hall → zone (ask → yes (y1) · no) · next (n1): a question whose branches end their parent.</summary>
+        private StateTreeAsset Question(out StateTreeNodeAsset ask)
+        {
+            var tree = Junk(ScriptableObject.CreateInstance<StateTreeAsset>());
+            tree.root = Node("root");
+            StateTreeNodeAsset hall = Level("hall", "Hall", tree.root);
+            StateTreeNodeAsset zone = Node("zone", hall);
+            ask = Step("ask", zone);
+            StateTreeNodeAsset yes = Node("yes", ask);
+            yes.completionFlow = StateTreeCompletionFlow.EndsParent;
+            Step("y1", yes);
+            Node("no", ask).completionFlow = StateTreeCompletionFlow.EndsParent;
+            var chose = Junk(ScriptableObject.CreateInstance<BlackboardCompareCondition>());
+            chose.key = new StateTreeKeyField("answer");
+            chose.op = BlackboardCompareCondition.Operator.Equal;
+            chose.value = 0f;
+            ask.transitions.Add(new StateTreeTransition { targetNodeId = "yes", condition = chose });
+            ask.transitions.Add(new StateTreeTransition { targetNodeId = "no" });
+            Step("n1", Node("next", hall));
+            return tree;
+        }
+
+        [Test]
+        public void ABranchThatEndsItsParent_GoesOnAfterTheQuestion_NotIntoTheNextBranch()
+        {
+            StateTreeAsset tree = Question(out _);
+            var executor = new StateTreeExecutor { data = tree, context = new StateTreeContext(), boundaryNodeId = "hall" };
+            executor.context.blackboard["answer"] = 0f;
+            executor.StartTree("ask", false);
+            executor.context.blackboard["done.ask"] = 1f;
+            executor.TickTree(0.1f);
+            Assert.AreEqual("y1", executor.activeNodeId, "the answer's branch");
+            executor.context.blackboard["done.y1"] = 1f;
+            for (int i = 0; i < 4 && executor.activeNodeId != "n1"; i++)
+                executor.TickTree(0.1f);
+            Assert.AreEqual("n1", executor.activeNodeId, "after the branch: the step after the question's zone");
+            Assert.AreEqual(1, Entered("y1"), "the question's ways out are not asked again");
+            executor.StopTree();
+        }
+
+        [Test]
+        public void AnEmptyBranchThatEndsItsParent_GoesOnAtOnce()
+        {
+            StateTreeAsset tree = Question(out _);
+            var executor = new StateTreeExecutor { data = tree, context = new StateTreeContext(), boundaryNodeId = "hall" };
+            executor.context.blackboard["answer"] = 1f;
+            executor.StartTree("ask", false);
+            executor.context.blackboard["done.ask"] = 1f;
+            for (int i = 0; i < 6 && executor.activeNodeId != "n1"; i++)
+                executor.TickTree(0.1f);
+            Assert.AreEqual("n1", executor.activeNodeId, "nothing on this answer: the story goes on");
+            Assert.AreEqual(0, Entered("y1"));
+            executor.StopTree();
+        }
+
+        [Test]
+        public void ABranchThatEndsItsParent_StopsUnderAParentThatRests()
+        {
+            StateTreeAsset tree = Question(out StateTreeNodeAsset ask);
+            ask.completionFlow = StateTreeCompletionFlow.Hold;
+            var executor = new StateTreeExecutor { data = tree, context = new StateTreeContext(), boundaryNodeId = "hall" };
+            executor.context.blackboard["answer"] = 1f;
+            executor.StartTree("ask", false);
+            executor.context.blackboard["done.ask"] = 1f;
+            for (int i = 0; i < 6; i++)
+                executor.TickTree(0.1f);
+            Assert.AreEqual("no", executor.activeNodeId, "the question rests: so does its branch");
+            executor.StopTree();
+        }
+
+        [Test]
+        public void ASchemaKind_SaysWhereItsNodeGoesWhenItsRunEnds()
+        {
+            Assert.AreEqual(StateTreeCompletionFlow.NextSibling, PowerOfFire.DrawToPlay.Editor.StateTreeSchemaRules.FlowOf(new PowerOfFire.DrawToPlay.Editor.StateTreeSchemaKind()));
+            Assert.AreEqual(StateTreeCompletionFlow.Hold, PowerOfFire.DrawToPlay.Editor.StateTreeSchemaRules.FlowOf(new PowerOfFire.DrawToPlay.Editor.StateTreeSchemaKind { rests = true, endsParent = true }),
+                "resting wins");
+            Assert.AreEqual(StateTreeCompletionFlow.EndsParent, PowerOfFire.DrawToPlay.Editor.StateTreeSchemaRules.FlowOf(new PowerOfFire.DrawToPlay.Editor.StateTreeSchemaKind { endsParent = true }));
+        }
+
         // ---- the episode scope ------------------------------------------------------------------
 
         [Test]

@@ -85,7 +85,13 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>Complete but stay: the state keeps its declared on-completion transitions
         /// live (a condition may pass later) and goes nowhere by default. For states whose
         /// work is done but whose exit is someone else's decision.</summary>
-        Hold = 1
+        Hold = 1,
+
+        /// <summary>One of its parent's alternatives, not a step of a sequence: completed, it skips
+        /// its siblings and completes its parent instead — whose own ways out are passed over (they
+        /// are what chose this child) — and the parent goes on as it flows. A branch of a question:
+        /// the story continues after the question, never into the next branch.</summary>
+        EndsParent = 2
     }
 
     /// <summary>Authored as a sub-asset with serialized params; subclasses override the
