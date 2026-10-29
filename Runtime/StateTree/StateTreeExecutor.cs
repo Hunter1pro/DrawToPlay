@@ -183,7 +183,26 @@ namespace PowerOfFire.DrawToPlay
 
         public bool isRunning => m_CurrentNode != null;
 
+        /// <summary>The state the run is in has finished its tasks and none of its ways out has
+        /// fired yet — where it rests. A resumed run is entered this way rather than run again.</summary>
+        public bool activeNodeComplete => m_CurrentNode != null && IsComplete(m_CurrentNode);
+
+        /// <summary>
+        /// The node a run may not leave (an episode's level): a move to a state outside it is not
+        /// taken — the run stops instead and <see cref="leftFor"/> names where it was going, for
+        /// whoever runs that part next. Empty: the whole tree.
+        /// </summary>
+        public string boundaryNodeId = "";
+
+        /// <summary>The state outside <see cref="boundaryNodeId"/> the last run tried to move to,
+        /// or empty.</summary>
+        public string leftFor { get; private set; } = "";
+
         public string activeNodeId => m_CurrentNode != null ? m_CurrentNode.nodeId : "";
+
+        /// <summary>The live copy's current state, or null. Diagnostics and the episode's step
+        /// read it; never write to it.</summary>
+        public StateTreeNodeAsset activeNode => m_CurrentNode;
 
         /// <summary>The live deep copy, or null while stopped. Diagnostics only — the copy's
         /// nodes are NOT the authored ones, so anything matching against an authored asset must
@@ -192,11 +211,23 @@ namespace PowerOfFire.DrawToPlay
 
         public void StartTree()
         {
+            StartTree("", false);
+        }
+
+        /// <summary>
+        /// Start the run at <paramref name="entryNodeId"/> instead of the root's entry — a resume.
+        /// <paramref name="complete"/>: the state had finished when it was left, so it is entered
+        /// without running its tasks again, and its ways out are taken from the next tick.
+        /// An unknown id starts at the entry of the root.
+        /// </summary>
+        public void StartTree(string entryNodeId, bool complete)
+        {
             if (data == null || data.root == null)
             {
                 Debug.LogError(logLabel + ": data or root is null", logContext);
                 return;
             }
+            leftFor = "";
             m_ActiveData = data.DeepCopy();
             m_NodeIndex.Clear();
             m_ParentIndex.Clear();
@@ -226,9 +257,53 @@ namespace PowerOfFire.DrawToPlay
             ResolveEntryRefs(m_ActiveData.root, 0);
 
             treeStarted?.Invoke();
-            var entry = ResolveEntryNode(m_ActiveData.root);
+            StateTreeNodeAsset entry = null;
+            if (!string.IsNullOrEmpty(entryNodeId))
+                m_NodeIndex.TryGetValue(entryNodeId, out entry);
+            if (entry != null && complete)
+            {
+                EnterComplete(entry);
+                activeNodeChanged?.Invoke("", entry.nodeId);
+                return;
+            }
+            entry = ResolveEntryNode(entry != null ? entry : m_ActiveData.root);
             EnterNode(entry);
             activeNodeChanged?.Invoke("", entry.nodeId);
+        }
+
+        /// <summary>The state as it was left finished: current, nothing running, its outputs gone.</summary>
+        private void EnterComplete(StateTreeNodeAsset node)
+        {
+            m_CurrentNode = node;
+            m_RunningTasks.Clear();
+            m_RunningTaskIndices.Clear();
+            m_TaskOutputs.Clear();
+            m_AnyTaskFinished = true;
+            nodeEntered?.Invoke(node.nodeId);
+        }
+
+        /// <summary>Whether <paramref name="node"/> lies inside <see cref="boundaryNodeId"/>.</summary>
+        private bool Inside(StateTreeNodeAsset node)
+        {
+            if (string.IsNullOrEmpty(boundaryNodeId))
+                return true;
+            for (StateTreeNodeAsset at = node; at != null; at = ParentOf(at))
+            {
+                if (at.nodeId == boundaryNodeId)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>A move past the boundary is not taken: the run stops, and says where it was going.</summary>
+        private bool Refused(StateTreeNodeAsset target)
+        {
+            if (Inside(target))
+                return false;
+            string to = target != null ? target.nodeId : "";
+            StopTree();
+            leftFor = to;
+            return true;
         }
 
         public void StopTree()
@@ -448,6 +523,8 @@ namespace PowerOfFire.DrawToPlay
         {
             string previousId = m_CurrentNode != null ? m_CurrentNode.nodeId : "";
             target = ResolveEntryNode(target);
+            if (Refused(target))
+                return;
             nodeLeft?.Invoke(previousId);
             ExitRunningTasks(StateTreeStatus.Cancelled);
             EnterNode(target);
@@ -485,7 +562,7 @@ namespace PowerOfFire.DrawToPlay
             for (int i = 0; i < node.tasks.Count; i++)
             {
                 var task = node.tasks[i];
-                if (task == null)
+                if (task == null || task is IStateTreeNodeContext)
                     continue;
                 task.OnEnter(context);
                 m_RunningTasks.Add(task);
@@ -510,6 +587,8 @@ namespace PowerOfFire.DrawToPlay
                 return false;
             string previousId = m_CurrentNode != null ? m_CurrentNode.nodeId : "";
             target = ResolveEntryNode(target);
+            if (Refused(target))
+                return false;
             nodeLeft?.Invoke(previousId);
             ExitRunningTasks(StateTreeStatus.Cancelled);
             EnterNode(target);
@@ -527,6 +606,8 @@ namespace PowerOfFire.DrawToPlay
             }
             string previousId = m_CurrentNode != null ? m_CurrentNode.nodeId : "";
             target = ResolveEntryNode(target);
+            if (Refused(target))
+                return;
             // Routed BEFORE anything observes the state change: a nodeLeft listener, the tasks being
             // cancelled and the next state's first OnEnter all read a blackboard that already carries
             // the returns, which is the whole point of routing them here rather than after.
@@ -590,10 +671,22 @@ namespace PowerOfFire.DrawToPlay
         {
             var current = node;
             int guard = 0;
-            while (current != null && current.tasks.Count == 0 && current.children.Count > 0
+            while (current != null && !RunsTasks(current) && current.children.Count > 0
                 && !HasCompletionTransition(current) && guard++ < 256)
                 current = current.children[0];
             return current;
+        }
+
+        /// <summary>Whether a state has a task to run — a group's data (<see cref="IStateTreeNodeContext"/>)
+        /// is not one.</summary>
+        public static bool RunsTasks(StateTreeNodeAsset node)
+        {
+            for (int i = 0; node != null && i < node.tasks.Count; i++)
+            {
+                if (node.tasks[i] != null && !(node.tasks[i] is IStateTreeNodeContext))
+                    return true;
+            }
+            return false;
         }
 
         private static bool HasCompletionTransition(StateTreeNodeAsset node)

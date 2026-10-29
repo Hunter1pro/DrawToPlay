@@ -445,6 +445,47 @@ namespace PowerOfFire.DrawToPlay.Editor
             return null;
         }
 
+        /// <summary>
+        /// The catalog of <paramref name="entryType"/> that the groups enclosing <paramref name="node"/>
+        /// name — a Level's manifest field, or a row a Zone's context points at that carries one (a zone row's
+        /// objective rows). What a picker narrows to; null when no enclosing group says.
+        /// </summary>
+        public static StateTreeRegistryAsset EnclosingRegistry(StateTreeAsset tree, StateTreeSchema schema,
+            StateTreeNodeAsset node, Type entryType)
+        {
+            if (entryType == null)
+                return null;
+            for (StateTreeNodeAsset at = node; at != null; at = StateTreeEditorOps.FindParent(tree, at))
+            {
+                StateTreeTaskAsset context = ContextTask(KindOf(schema, at), at);
+                if (context == null)
+                    continue;
+                foreach (FieldInfo field in context.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    object value = field.GetValue(context);
+                    if (value is StateTreeRegistryAsset registry && registry != null
+                        && entryType.IsAssignableFrom(registry.entryType))
+                        return registry;
+                    if (value is IStateTreeEntryRef reference && !string.IsNullOrEmpty(reference.EntryName)
+                        && field.FieldType.IsGenericType)
+                    {
+                        Type rowType = field.FieldType.GetGenericArguments()[0];
+                        StateTreeRegistryEntry row = StateTreeRowOffers.Find(
+                            StateTreeRowOffers.For(context, rowType, out _), reference.EntryName);
+                        if (row == null)
+                            continue;
+                        foreach (FieldInfo rowField in row.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
+                        {
+                            if (rowField.GetValue(row) is StateTreeRegistryAsset carried && carried != null
+                                && entryType.IsAssignableFrom(carried.entryType))
+                                return carried;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
         /// <summary>The registries a step's row parameter offers: the context's first, then the
         /// template's own Data (which is what the template resolves against at runtime).</summary>
         public static List<StateTreeRegistryAsset> RowSources(StateTreeAsset tree, StateTreeSchema schema,
@@ -578,9 +619,87 @@ namespace PowerOfFire.DrawToPlay.Editor
         public static int ApplyDerived(StateTreeAsset tree, StateTreeSchema schema, StateTreeNodeAsset node)
         {
             StateTreeSchemaKind kind = KindOf(schema, node);
+            int changed = ApplyRest(kind, node);
             RunSubTreeTask run = kind != null && kind.isTemplate ? TemplateTask(kind, node) : null;
             if (run == null)
+                return changed;
+            changed += ApplyParameters(tree, schema, node, kind, run);
+            return changed + ApplyRoutes(tree, schema, node, kind);
+        }
+
+        /// <summary>A kind that rests holds where its run ends instead of going on to its next sibling.</summary>
+        private static int ApplyRest(StateTreeSchemaKind kind, StateTreeNodeAsset node)
+        {
+            if (kind == null || node == null)
                 return 0;
+            StateTreeCompletionFlow flow = kind.rests ? StateTreeCompletionFlow.Hold : StateTreeCompletionFlow.NextSibling;
+            if (node.completionFlow == flow)
+                return 0;
+            Undo.RecordObject(node, "Derive Flow");
+            node.completionFlow = flow;
+            EditorUtility.SetDirty(node);
+            return 1;
+        }
+
+        /// <summary>The key a routed node's answer lands on — its <see cref="StateTreeSchemaKind.routeBy"/>
+        /// parameter's value — or empty.</summary>
+        public static string RouteKey(StateTreeSchemaKind kind, StateTreeNodeAsset node)
+        {
+            if (kind == null || string.IsNullOrEmpty(kind.routeBy))
+                return "";
+            foreach (StateTreeStepParameter parameter in Parameters(kind, node))
+            {
+                if (parameter.declaration.name == kind.routeBy)
+                    return parameter.stringValue;
+            }
+            return "";
+        }
+
+        /// <summary>
+        /// A routed node's ways out, one per child: the i-th child when the answer key holds i. They
+        /// follow from the children and the answer, so they are written, never authored — and a
+        /// branch added or removed rewrites them. Returns 1 when they changed.
+        /// </summary>
+        private static int ApplyRoutes(StateTreeAsset tree, StateTreeSchema schema, StateTreeNodeAsset node,
+            StateTreeSchemaKind kind)
+        {
+            if (kind == null || string.IsNullOrEmpty(kind.routeBy))
+                return 0;
+            string key = RouteKey(kind, node);
+            List<StateTreeNodeAsset> branches = DomainChildren(schema, node);
+            if (string.IsNullOrEmpty(key))
+                branches.Clear();
+            bool same = node.transitions.Count == branches.Count;
+            for (int i = 0; same && i < branches.Count; i++)
+            {
+                StateTreeTransition transition = node.transitions[i];
+                same = transition != null && !transition.checkWhileRunning
+                    && transition.targetNodeId == branches[i].nodeId
+                    && transition.condition is BlackboardCompareCondition compare
+                    && compare.key != null && compare.key.text == key
+                    && compare.op == BlackboardCompareCondition.Operator.Equal
+                    && Mathf.Approximately(compare.value, i);
+            }
+            if (same)
+                return 0;
+            const string undo = "Route Answers";
+            for (int i = node.transitions.Count - 1; i >= 0; i--)
+                StateTreeEditorOps.RemoveTransition(tree, node, i, undo);
+            for (int i = 0; i < branches.Count; i++)
+            {
+                StateTreeEditorOps.AddTransition(tree, node, branches[i].nodeId, undo);
+                var answer = ScriptableObject.CreateInstance<BlackboardCompareCondition>();
+                answer.key = new StateTreeKeyField(key);
+                answer.op = BlackboardCompareCondition.Operator.Equal;
+                answer.value = i;
+                StateTreeEditorOps.SetTransitionCondition(tree, node, node.transitions[i], answer, undo);
+            }
+            return 1;
+        }
+
+        private static int ApplyParameters(StateTreeAsset tree, StateTreeSchema schema, StateTreeNodeAsset node,
+            StateTreeSchemaKind kind, RunSubTreeTask run)
+        {
             int changed = 0;
             foreach (StateTreeStepParameter parameter in Parameters(kind, node))
             {
@@ -678,7 +797,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (context != null)
                     context.blocking = false;
             }
+            if (kind.rests)
+                node.completionFlow = StateTreeCompletionFlow.Hold;
             EditorUtility.SetDirty(node);
+            // A new branch is a new way out of the node above it.
+            ApplyDerived(tree, schema, parent);
             return node;
         }
     }

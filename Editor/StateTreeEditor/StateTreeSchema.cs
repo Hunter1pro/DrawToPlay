@@ -117,6 +117,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         [Tooltip("How many children it may hold at most; 0 = any.")]
         public int childLimit;
 
+        [Tooltip("A run that reaches the end of this node rests in it rather than going on to the "
+            + "next node: a level's part of the story, a branch of a question.")]
+        public bool rests;
+
+        [Tooltip("A template parameter naming the key the node's answer lands on: the node goes on to "
+            + "its first child when that key holds 0, its second at 1… Empty: its children run in order.")]
+        public string routeBy = "";
+
         [Tooltip("The new state's id starts with this.")]
         public string idPrefix = "";
 

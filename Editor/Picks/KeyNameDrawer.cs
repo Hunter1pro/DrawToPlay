@@ -68,28 +68,24 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         public static void Menu(Rect at, List<StateTreeKeyOffer> offers, StateTreeAsset declareOn,
-            StateTreeKeyKind kind, string current, bool allowNone, System.Action<StateTreeKeyOffer> picked)
+            StateTreeKeyKind kind, string current, bool allowNone, System.Action<StateTreeKeyOffer> picked,
+            StateTreeKeyKind? fits = null, bool presence = false, StateTreeAsset usedIn = null)
         {
-            var menu = new GenericMenu();
-            if (allowNone)
-            {
-                menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(current),
-                    () => picked(new StateTreeKeyOffer("", "", "", "")));
-                menu.AddSeparator("");
-            }
-            StateTreeKeyOffers.AddTo(menu, offers, current, picked);
+            StateTreePickMenu menu = StateTreePickItems.Keys(offers, usedIn != null ? usedIn : declareOn, fits, presence);
+            if (!allowNone)
+                menu.none = null;
             if (declareOn != null)
             {
-                menu.AddSeparator("");
                 bool known = StateTreeKeyOffers.TryFind(offers, current, out _);
                 if (!string.IsNullOrEmpty(current) && !known)
-                    menu.AddItem(new GUIContent("Declare '" + current.Replace('/', '∕') + "' on " + declareOn.name), false,
-                        () => Declared(declareOn, current, kind, picked));
-                menu.AddItem(new GUIContent("Declare a new key on " + declareOn.name + "…"), false,
+                    menu.Command("Declare '" + current + "' on " + declareOn.name, () => Declared(declareOn, current, kind, picked));
+                menu.Command("Declare a new key on " + declareOn.name + "…",
                     () => StateTreeNamePrompt.Show(at, "A new key on " + declareOn.name, "",
                         name => Declared(declareOn, name, kind, picked)));
             }
-            menu.DropDown(at);
+            menu.Show(at, current, item => picked(item.payload is StateTreeKeyOffer offer
+                ? offer
+                : new StateTreeKeyOffer("", "", "", "")));
         }
 
         private static void Declared(StateTreeAsset tree, string name, StateTreeKeyKind kind,

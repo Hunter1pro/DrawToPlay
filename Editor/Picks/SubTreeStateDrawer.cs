@@ -43,24 +43,24 @@ namespace PowerOfFire.DrawToPlay.Editor
             container.Add(new StateTreePickField(label, current, !string.IsNullOrEmpty(current) && !states.Contains(current),
                 "A state of the sub-tree this task runs.", at =>
                 {
-                    var menu = new GenericMenu();
-                    if (states.Count == 0)
-                        menu.AddDisabledItem(new GUIContent("No sub-tree picked"));
-                    foreach (string id in states)
+                    var menu = new StateTreePickMenu { title = "Sub-tree state", none = null, empty = "No sub-tree picked" };
+                    var run = owner.targetObject as RunSubTreeTask;
+                    foreach (StateTreeNodeAsset node in run != null && run.subTree != null
+                                 ? StateTreeEditorOps.CollectNodes(run.subTree) : new List<StateTreeNodeAsset>())
                     {
-                        string chosen = id;
-                        menu.AddItem(new GUIContent(id.Replace('/', '∕')), id == current, () =>
-                        {
-                            owner.Update();
-                            SerializedProperty live = owner.FindProperty(path);
-                            if (live == null)
-                                return;
-                            live.stringValue = chosen;
-                            owner.ApplyModifiedProperties();
-                            Build(container, owner, path, label);
-                        });
+                        if (node != null && !string.IsNullOrEmpty(node.nodeId))
+                            menu.items.Add(new StateTreePickItem(node.nodeId, node.nodeId, node.displayName));
                     }
-                    menu.DropDown(at);
+                    menu.Show(at, current, picked =>
+                    {
+                        owner.Update();
+                        SerializedProperty live = owner.FindProperty(path);
+                        if (live == null)
+                            return;
+                        live.stringValue = picked.value;
+                        owner.ApplyModifiedProperties();
+                        Build(container, owner, path, label);
+                    });
                 }));
         }
     }

@@ -51,17 +51,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             container.Add(new StateTreePickField(label, string.IsNullOrEmpty(current) ? "(nearest of its kind)" : current,
                 missing, "Which scope: the nearest of its kind, or one by its id.", at =>
                 {
-                    var menu = new GenericMenu();
-                    menu.AddItem(new GUIContent("(nearest of its kind)"), string.IsNullOrEmpty(current),
-                        () => Set(container, owner, path, label, ""));
-                    menu.AddSeparator("");
+                    var menu = new StateTreePickMenu { title = "Scope", none = "(nearest of its kind)" };
                     foreach (string id in Offers(owner.targetObject))
-                    {
-                        string chosen = id;
-                        menu.AddItem(new GUIContent(id.Replace('/', '∕')), id == current,
-                            () => Set(container, owner, path, label, chosen));
-                    }
-                    menu.DropDown(at);
+                        menu.items.Add(new StateTreePickItem(id, id, "a level, or a scope's id"));
+                    menu.InTree(StateTreePickMenu.UsedIn(StateTreePickItems.Owning(owner.targetObject, out _)))
+                        .Show(at, current, picked => Set(container, owner, path, label, picked.value));
                 }));
         }
 

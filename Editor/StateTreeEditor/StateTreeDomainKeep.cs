@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Reflection;
+using UnityEditor;
 using UnityEngine;
 
 namespace PowerOfFire.DrawToPlay.Editor
@@ -58,6 +59,36 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (m_Roots[i] != null && !root.children.Contains(m_Roots[i]))
                     root.children.Add(m_Roots[i]);
             }
+        }
+
+        /// <summary>
+        /// Carry the kept nodes into ANOTHER tree, under <paramref name="parent"/>: every node, task
+        /// and condition they own leaves <paramref name="from"/>'s file for <paramref name="to"/>'s, as
+        /// the same objects — what a designer set on them comes along. How a part of a level's tree
+        /// moves up into an episode's. Undo is not recorded: a build moves them.
+        /// </summary>
+        public void MoveTo(StateTreeAsset from, StateTreeAsset to, StateTreeNodeAsset parent)
+        {
+            if (to == null || parent == null)
+                return;
+            if (from != null && from.root != null)
+            {
+                for (int i = 0; i < m_Roots.Count; i++)
+                    from.root.children.Remove(m_Roots[i]);
+            }
+            foreach (Object kept in m_Kept)
+            {
+                if (kept == null)
+                    continue;
+                if (from != null && AssetDatabase.GetAssetPath(kept) == AssetDatabase.GetAssetPath(from))
+                    AssetDatabase.RemoveObjectFromAsset(kept);
+                AssetDatabase.AddObjectToAsset(kept, to);
+                EditorUtility.SetDirty(kept);
+            }
+            Reattach(parent);
+            if (from != null)
+                EditorUtility.SetDirty(from);
+            EditorUtility.SetDirty(to);
         }
 
         private void Own(StateTreeNodeAsset node, int depth)

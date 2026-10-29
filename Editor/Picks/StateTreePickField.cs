@@ -42,9 +42,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             button.tooltip = tooltip;
             if (missing)
                 button.style.color = k_Missing;
-            button.clicked += () => open?.Invoke(button.worldBound);
+            m_Open = open;
+            button.clicked += Open;
             Add(button);
         }
+
+        private readonly Action<Rect> m_Open;
+
+        /// <summary>Open the picker, as a click on the dropdown does.</summary>
+        public void Open() => m_Open?.Invoke(button.worldBound);
 
         public Button button { get; }
 

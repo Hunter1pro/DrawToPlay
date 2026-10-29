@@ -100,188 +100,110 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreeKeyKind? preferred = attribute != null && !attribute.any
                 ? attribute.kind
                 : (StateTreeKeyKind?)null;
+            // An "any" field asks whether a key is there at all: it is offered flags first.
+            bool presence = attribute != null && attribute.any;
 
-            var menu = new GenericMenu();
-            if (declarations.Count == 0)
+            // Declared keys wire by id; code constants, parameters and tag rows by text.
+            var offers = new List<StateTreeKeyOffer>();
+            var names = new HashSet<string>(System.StringComparer.Ordinal);
+            foreach (StateTreeKeyDeclaration declaration in declarations)
             {
-                menu.AddDisabledItem(new GUIContent(tree == null
-                    ? "No key source reachable — no tree in the parents or at the scene's "
-                        + "Root, and no registry keys behind this row."
-                    : "The reachable sources declare no keys yet."));
+                if (declaration != null && !string.IsNullOrEmpty(declaration.name) && names.Add(declaration.name))
+                    offers.Add(new StateTreeKeyOffer(declaration.name, declaration.id, "declared",
+                        declaration.description, declaration.kind));
             }
-
-            var currentId = idProperty.stringValue;
-            void AddEntries(bool matching)
+            foreach (StateTreeKeyOffer code in StateTreeKeyOffers.CodeKeys())
             {
-                foreach (StateTreeKeyDeclaration declaration in declarations)
-                {
-                    if (declaration == null || string.IsNullOrEmpty(declaration.name))
-                        continue;
-                    var isMatch = preferred == null || declaration.kind == preferred.Value;
-                    if (isMatch != matching)
-                        continue;
-                    var keyName = declaration.name;
-                    var keyId = declaration.id;
-                    var label = (keyName + "  (" + declaration.kind + ")").Replace('/', '∕');
-                    menu.AddItem(new GUIContent(label),
-                        string.Equals(keyId, currentId, System.StringComparison.Ordinal),
-                        () =>
-                        {
-                            textProperty.stringValue = keyName;
-                            idProperty.stringValue = keyId;
-                            property.serializedObject.ApplyModifiedProperties();
-                            Build(container, property);
-                        });
-                }
+                if (names.Add(code.name))
+                    offers.Add(code);
             }
-
-            AddEntries(true);
+            StateTreePickMenu menu = StateTreePickItems.Keys(offers, tree, preferred, presence);
+            if (declarations.Count == 0 && tree == null)
+                menu.empty = "No key source reachable — no tree in the parents or at the scene's Root, "
+                    + "and no registry keys behind this row.";
 
             // The tree's declared PARAMETERS wire the same way — the caller's arguments,
             // seeded onto the blackboard under their names.
-            if (tree != null && tree.parameters != null && tree.parameters.Count > 0)
+            if (tree != null && tree.parameters != null)
             {
-                if (declarations.Count > 0)
-                    menu.AddSeparator(string.Empty);
                 foreach (GraphTaskParameter parameter in tree.parameters)
                 {
-                    if (parameter == null || string.IsNullOrEmpty(parameter.id)
-                        || string.IsNullOrEmpty(parameter.name))
+                    if (parameter == null || string.IsNullOrEmpty(parameter.id) || string.IsNullOrEmpty(parameter.name))
                         continue;
-                    var wireId = parameter.id;
-                    var wireName = parameter.name;
-                    menu.AddItem(new GUIContent(
-                        (wireName + "  · parameter (" + parameter.kind + ")")
-                            .Replace('/', '∕')),
-                        string.Equals(wireId, currentId, System.StringComparison.Ordinal),
-                        () =>
-                        {
-                            textProperty.stringValue = wireName;
-                            idProperty.stringValue = wireId;
-                            property.serializedObject.ApplyModifiedProperties();
-                            Build(container, property);
-                        });
+                    menu.items.Add(new StateTreePickItem(parameter.name, parameter.name,
+                        "parameter (" + parameter.kind + ")", "Parameters")
+                    {
+                        payload = new StateTreeKeyOffer(parameter.name, parameter.id, "parameter", "")
+                    });
                 }
             }
 
-            // A TAG field's vocabulary is also the world's tag registries: the GLOBAL ones
-            // the tree carries, plus every LEVEL's own (a level can mint unique tags —
-            // LevelDef.tags — and the root still SEES them, grouped by level). A row pick
-            // writes the TEXT (tags match by exact text at runtime); it is a known-list
-            // choice, not an id wire — declarations keep the wire semantics.
+            // A TAG field's vocabulary is also the world's tag registries: the GLOBAL ones the tree
+            // carries, plus every LEVEL's own, grouped by level. A row pick writes the TEXT (tags match
+            // by exact text at runtime) — a known-list choice, not an id wire.
             if (preferred == StateTreeKeyKind.Tag && tree != null)
             {
-                var currentText = textProperty.stringValue;
-                var anyRows = false;
-                void AddTagRows(WorldTagRegistry tagRows, string prefix)
+                void AddTagRows(WorldTagRegistry tagRows, string group)
                 {
                     if (tagRows == null)
                         return;
-                    for (int j = 0; j < tagRows.entries.Count; j++)
+                    foreach (WorldTagDef row in tagRows.entries)
                     {
-                        WorldTagDef row = tagRows.entries[j];
-                        if (row == null || string.IsNullOrEmpty(row.name))
-                            continue;
-                        if (!anyRows)
-                        {
-                            anyRows = true;
-                            if (declarations.Count > 0)
-                                menu.AddSeparator(string.Empty);
-                        }
-                        var tagName = row.name;
-                        menu.AddItem(new GUIContent((prefix + tagName).Replace('\\', '∕')),
-                            string.IsNullOrEmpty(currentId)
-                                && string.Equals(tagName, currentText,
-                                    System.StringComparison.Ordinal),
-                            () =>
+                        if (row != null && !string.IsNullOrEmpty(row.name))
+                            menu.items.Add(new StateTreePickItem(row.name, row.name, StateTreePickItems.Meaning(row), group)
                             {
-                                textProperty.stringValue = tagName;
-                                idProperty.stringValue = string.Empty;
-                                property.serializedObject.ApplyModifiedProperties();
-                                Build(container, property);
+                                payload = new StateTreeKeyOffer(row.name, "", "tag", "")
                             });
                     }
                 }
-
-                for (int i = 0; i < tree.registries.Count; i++)
+                foreach (StateTreeRegistryAsset registry in tree.registries)
                 {
-                    if (tree.registries[i] is WorldTagRegistry global)
-                        AddTagRows(global, "Tags/");
-                    else if (tree.registries[i] is LevelRegistry levels)
+                    if (registry is WorldTagRegistry global)
+                        AddTagRows(global, "Tags");
+                    else if (registry is LevelRegistry levels)
                     {
-                        for (int j = 0; j < levels.entries.Count; j++)
+                        foreach (LevelDef level in levels.entries)
                         {
-                            LevelDef level = levels.entries[j];
                             if (level == null)
                                 continue;
-                            // A level's vocabularies are the ones its manifest lists — the
-                            // same single source the placement tag picker reads.
                             IReadOnlyList<WorldTagRegistry> levelTags = level.tags;
                             for (int k = 0; k < levelTags.Count; k++)
-                                AddTagRows(levelTags[k], "Tags/" + level.name + "/");
+                                AddTagRows(levelTags[k], "Tags/" + level.name);
                         }
                     }
                 }
             }
+            menu.InTree(StateTreePickMenu.UsedIn(tree));
 
-            if (preferred != null)
+            void Write(string name, string id)
             {
-                var hasOthers = false;
-                foreach (StateTreeKeyDeclaration declaration in declarations)
-                    hasOthers |= declaration != null && declaration.kind != preferred.Value;
-                if (hasOthers)
-                    menu.AddSeparator(string.Empty);
-                AddEntries(false);
-            }
-
-            // CODE-DECLARED keys: the constants of the game's [KeyCatalog] classes.
-            var code = StateTreeKeyOffers.CodeKeys();
-            if (code.Count > 0)
-                menu.AddSeparator(string.Empty);
-            foreach (StateTreeKeyOffer offer in code)
-            {
-                var keyName = offer.name;
-                menu.AddItem(new GUIContent(offer.source.Split('.')[0] + "/" + keyName.Replace('/', '∕')),
-                    string.IsNullOrEmpty(currentId) && keyName == textProperty.stringValue,
-                    () =>
-                    {
-                        textProperty.stringValue = keyName;
-                        idProperty.stringValue = string.Empty;
-                        property.serializedObject.ApplyModifiedProperties();
-                        Build(container, property);
-                    });
-            }
-
-            menu.AddSeparator(string.Empty);
-            menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(textProperty.stringValue), () =>
-            {
-                textProperty.stringValue = string.Empty;
-                idProperty.stringValue = string.Empty;
+                textProperty.stringValue = name ?? string.Empty;
+                idProperty.stringValue = id ?? string.Empty;
                 property.serializedObject.ApplyModifiedProperties();
                 Build(container, property);
-            });
+            }
+
             if (tree != null)
             {
                 System.Action<string> declare = name =>
                 {
                     var declared = StateTreeKeyOffers.Declare(tree, name, preferred ?? StateTreeKeyKind.String, "Declare Key");
-                    if (declared == null)
-                        return;
-                    textProperty.stringValue = declared.name;
-                    idProperty.stringValue = declared.id;
-                    property.serializedObject.ApplyModifiedProperties();
-                    Build(container, property);
+                    if (declared != null)
+                        Write(declared.name, declared.id);
                 };
                 var text = textProperty.stringValue;
-                if (!string.IsNullOrEmpty(text) && string.IsNullOrEmpty(currentId)
+                if (!string.IsNullOrEmpty(text) && string.IsNullOrEmpty(idProperty.stringValue)
                     && !StateTreeKeyOffers.TryFind(StateTreeKeyOffers.For(owner, tree), text, out _))
-                    menu.AddItem(new GUIContent("Declare '" + text.Replace('/', '∕') + "' on " + tree.name), false,
-                        () => declare(text));
-                menu.AddItem(new GUIContent("Declare a new key on " + tree.name + "…"), false,
+                    menu.Command("Declare '" + text + "' on " + tree.name, () => declare(text));
+                menu.Command("Declare a new key on " + tree.name + "…",
                     () => StateTreeNamePrompt.Show(anchor, "A new key on " + tree.name, "", declare));
             }
 
-            menu.DropDown(anchor);
+            menu.Show(anchor, textProperty.stringValue, picked =>
+            {
+                var offer = picked.payload is StateTreeKeyOffer chosen ? chosen : default;
+                Write(picked.value, offer.id);
+            });
         }
 
         /// <summary>The tree whose declarations this field can see: for a scene component,

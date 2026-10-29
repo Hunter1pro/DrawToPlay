@@ -77,29 +77,6 @@ namespace PowerOfFire.DrawToPlay.Editor
             return null;
         }
 
-        /// <summary>The rows as a menu, grouped by catalog when there is more than one.</summary>
-        public static void AddTo(GenericMenu menu, List<StateTreeRegistryAsset> catalogs, string current,
-            Action<StateTreeRegistryEntry> picked)
-        {
-            int rows = 0;
-            foreach (StateTreeRegistryAsset catalog in catalogs)
-            {
-                for (int i = 0; catalog != null && i < catalog.Count; i++)
-                {
-                    StateTreeRegistryEntry entry = catalog.EntryAt(i);
-                    if (entry == null || string.IsNullOrEmpty(entry.name))
-                        continue;
-                    rows++;
-                    string label = (catalogs.Count > 1 ? catalog.name + "/" : "")
-                        + (string.IsNullOrEmpty(entry.group) ? "" : entry.group + "/") + entry.name.Replace('/', '∕');
-                    StateTreeRegistryEntry chosen = entry;
-                    menu.AddItem(new GUIContent(label), entry.name == current, () => picked(chosen));
-                }
-            }
-            if (rows == 0)
-                menu.AddDisabledItem(new GUIContent("No rows to pick — add one to the catalog"));
-        }
-
         private static void Reachable(UnityEngine.Object owner, Type entryType, List<StateTreeRegistryAsset> into)
         {
             var reachable = new List<StateTreeRegistryAsset>();

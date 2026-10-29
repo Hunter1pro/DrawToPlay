@@ -20,7 +20,7 @@ namespace PowerOfFire.DrawToPlay
     public sealed class StateTreeContext
     {
         public GameObject owner;
-        public readonly Dictionary<string, object> blackboard = new Dictionary<string, object>();
+        public readonly Dictionary<string, object> blackboard;
         public readonly Dictionary<string, object> domainContext = new Dictionary<string, object>();
 
         public event Action<GameObject, GameObject, float> damageDealt;
@@ -30,6 +30,16 @@ namespace PowerOfFire.DrawToPlay
         public StateTreeContext(GameObject owner = null)
         {
             this.owner = owner;
+            blackboard = new Dictionary<string, object>();
+        }
+
+        /// <summary>A context that reads and writes ANOTHER scope's board with a run of its own: its
+        /// own parameter scope and domain state, so two trees can run on one board without either
+        /// burying the other's (an episode's tree, on the level that is up).</summary>
+        public StateTreeContext(GameObject owner, Dictionary<string, object> board)
+        {
+            this.owner = owner;
+            blackboard = board ?? new Dictionary<string, object>();
         }
 
         public void EmitDamageDealt(GameObject source, GameObject target, float amount)

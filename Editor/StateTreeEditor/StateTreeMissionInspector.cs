@@ -348,18 +348,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreeOffers.TagsFor(m_Tree, tags);
             string current = parameter.stringValue;
             bool known = tags.Exists(t => t.name == current);
-            return new StateTreePickField(label, current, !known && !string.IsNullOrEmpty(current), "A world tag.", at =>
-            {
-                var menu = new GenericMenu();
-                menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(current), () => Write(run, parameter.declaration, "", 0f, ""));
-                foreach (WorldTagDef tag in tags)
-                {
-                    string chosen = tag.name;
-                    menu.AddItem(new GUIContent((string.IsNullOrEmpty(tag.group) ? "" : tag.group + "/") + chosen),
-                        chosen == current, () => Write(run, parameter.declaration, chosen, 0f, tag.id));
-                }
-                menu.DropDown(at);
-            });
+            return new StateTreePickField(label, current, !known && !string.IsNullOrEmpty(current), "A world tag.",
+                at => StateTreePickItems.Tags(tags, m_Tree).Show(at, current, picked =>
+                    Write(run, parameter.declaration, picked.value, 0f, (picked.payload as WorldTagDef)?.id ?? "")));
         }
 
         /// <summary>A row picker: the level's placements, or the rows of the bound field's registry —
@@ -379,7 +370,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     missing = !string.IsNullOrEmpty(shown);
                 field = new StateTreePickField(label, shown, missing,
                     placement != null ? "A placement of " + manifest.name + " (" + placement.id + ")" : "A placement of the level's manifest.",
-                    _ => ShowPick(kind, run, parameter));
+                    at => ShowPick(at, kind, run, parameter));
                 field.WithPing(manifest, manifest != null ? "the manifest " + manifest.name : null);
             }
             else
@@ -390,7 +381,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     kind.template, parameter.entryType);
                 field = new StateTreePickField(label, shown, missing,
                     entry != null ? entry.Describe() : "A " + parameter.entryType.Name.Replace("Def", "") + " row.",
-                    _ => ShowPick(kind, run, parameter));
+                    at => ShowPick(at, kind, run, parameter));
                 field.WithRowButtons(entry, entry != null ? StateTreeRowOffers.CatalogOf(sources, entry)
                     : sources.Count > 0 ? sources[0] : null);
             }
@@ -409,53 +400,36 @@ namespace PowerOfFire.DrawToPlay.Editor
             return null;
         }
 
-        private void ShowPick(StateTreeSchemaKind kind, RunSubTreeTask run, StateTreeStepParameter parameter)
+        /// <summary>The step's picker: a placement of its Level's manifest, or a row — this level's
+        /// catalog first when an enclosing group names one.</summary>
+        private void ShowPick(Rect at, StateTreeSchemaKind kind, RunSubTreeTask run, StateTreeStepParameter parameter)
         {
-            var menu = new GenericMenu();
+            StateTreePickMenu menu;
             if (parameter.isPlacement)
             {
                 StateTreeSchemaRules.Placement(m_Tree, m_Schema, m_Node, "", out LevelObjectRegistry manifest);
-                if (manifest == null)
-                    menu.AddDisabledItem(new GUIContent("No level manifest — give the Level its manifest"));
-                else
+                var rows = new List<LevelObjectDef>();
+                for (int i = 0; manifest != null && i < manifest.Count; i++)
                 {
-                    var rows = new List<StateTreeRegistryEntry>();
-                    for (int i = 0; i < manifest.Count; i++)
-                    {
-                        if (manifest.EntryAt(i) != null)
-                            rows.Add(manifest.EntryAt(i));
-                    }
-                    rows.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
-                    foreach (StateTreeRegistryEntry row in rows)
-                    {
-                        string id = row.id;
-                        menu.AddItem(new GUIContent(Escape(row.name)), id == parameter.stringValue,
-                            () => Write(run, parameter.declaration, id, 0f, id));
-                    }
+                    if (manifest.EntryAt(i) is LevelObjectDef row)
+                        rows.Add(row);
                 }
+                menu = StateTreePickItems.Placements(rows, m_Tree, manifest);
+                if (manifest == null)
+                    menu.empty = "No level manifest — give the Level its manifest";
             }
             else
             {
                 List<StateTreeRegistryAsset> sources = StateTreeSchemaRules.RowSources(m_Tree, m_Schema, m_Node,
                     kind.template, parameter.entryType);
+                menu = StateTreePickItems.Rows(sources, m_Tree, parameter.entryType,
+                    StateTreeSchemaRules.EnclosingRegistry(m_Tree, m_Schema, m_Node, parameter.entryType));
                 if (sources.Count == 0)
-                    menu.AddDisabledItem(new GUIContent($"No {parameter.entryType.Name} registry in the template's Data"));
-                foreach (StateTreeRegistryAsset registry in sources)
-                {
-                    for (int i = 0; i < registry.Count; i++)
-                    {
-                        StateTreeRegistryEntry entry = registry.EntryAt(i);
-                        if (entry == null || string.IsNullOrEmpty(entry.name))
-                            continue;
-                        string entryName = entry.name;
-                        string entryId = entry.id;
-                        string path = sources.Count > 1 ? registry.name + "/" + Escape(entryName) : Escape(entryName);
-                        menu.AddItem(new GUIContent(path), entryName == parameter.stringValue,
-                            () => Write(run, parameter.declaration, entryName, 0f, entryId));
-                    }
-                }
+                    menu.empty = $"No {parameter.entryType.Name} registry in the template's Data";
             }
-            menu.ShowAsContext();
+            menu.Show(at, parameter.stringValue, picked =>
+                Write(run, parameter.declaration, picked.value, 0f,
+                    parameter.isPlacement ? picked.value : (picked.payload as StateTreeRegistryEntry)?.id ?? ""));
         }
 
         private void BuildContext(StateTreeSchemaKind kind)
@@ -571,6 +545,5 @@ namespace PowerOfFire.DrawToPlay.Editor
             return string.Join(", ", names);
         }
 
-        private static string Escape(string text) => (text ?? "").Replace('/', '∕');
     }
 }
