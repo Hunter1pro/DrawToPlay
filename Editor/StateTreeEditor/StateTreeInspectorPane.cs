@@ -1682,7 +1682,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 if (StateTreeEditorOps.TryGetEntryRefField(target, fieldName,
                         out var entryReference))
-                    return BuildEntryRefField(target, fieldName, entryReference);
+                    return WithParameterLink(BuildEntryRefField(target, fieldName, entryReference),
+                        fieldName, kind, targetIndex);
                 if (StateTreeEditorOps.TryGetRegistryRefField(target, fieldName,
                         out var registryReference))
                     return BuildRegistryRefField(fieldName, registryReference);
@@ -1691,7 +1692,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                     return BuildServiceRefField(fieldName, serviceReference);
                 if (StateTreeEditorOps.TryGetKeyField(target, fieldName, out var keyKind,
                         out var anyKind))
-                    return BuildKeyContractField(target, fieldName, keyKind, anyKind);
+                    return WithParameterLink(BuildKeyContractField(target, fieldName, keyKind,
+                        anyKind), fieldName, kind, targetIndex);
 
                 // A plain string with DECLARED offers — a subsystem request, a dialog
                 // result, whatever a game registers. The last thing in the inspector that
@@ -1702,6 +1704,64 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             return BuildBindableField(field, target, fieldName, kind, targetIndex);
+        }
+
+        /// <summary>
+        /// A row reference or a key, offered to a String PARAMETER as well — how a reusable tree
+        /// becomes a template whose caller hands it a film row, a beat row or a key. The field keeps
+        /// its own picker (that value runs whenever nothing is bound); underneath, ⚑ binds it to a
+        /// parameter, and a bound field says which and offers ✕.
+        /// </summary>
+        private VisualElement WithParameterLink(VisualElement field, string fieldName,
+            StateTreeFieldBinding.TargetKind kind, int targetIndex)
+        {
+            var binding = StateTreeEditorOps.FindFieldBinding(m_Node, kind, targetIndex, fieldName);
+            if (binding != null && binding.sourceKind != StateTreeFieldBinding.SourceKind.Parameter)
+                binding = null;
+            var compatible = CompatibleParameters(GraphTaskParameterKind.String);
+            if (binding == null && compatible.Count == 0)
+                return field;
+
+            var container = new VisualElement();
+            container.Add(field);
+
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.justifyContent = Justify.FlexEnd;
+            container.Add(row);
+
+            var source = binding != null
+                ? StateTreeEditorOps.FindParameterById(m_Tree.parameters, binding.parameterId)
+                : null;
+            if (binding != null)
+            {
+                var note = new Label(source != null
+                    ? $"Written from parameter '{source.name}' when the tree starts."
+                    : "Bound to a parameter this tree no longer declares — the value above runs.");
+                note.style.opacity = 0.75f;
+                note.style.flexGrow = 1f;
+                row.Add(note);
+            }
+
+            var pick = new Button { text = source != null ? k_BoundPrefix + source.name : k_LinkLabel };
+            pick.style.flexShrink = 0f;
+            pick.tooltip = $"Write '{fieldName}' from one of this tree's String parameters when the "
+                + "tree starts — a template's row or key, handed over by the state that runs it.";
+            pick.clicked += () => ShowFieldSourceMenu(pick, compatible, fieldName,
+                GraphTaskParameterKind.String, binding, kind, targetIndex);
+            row.Add(pick);
+
+            if (binding != null)
+            {
+                var unlink = new Button { text = "✕" };
+                unlink.style.width = 26f;
+                unlink.tooltip = $"Stop writing '{fieldName}' from a parameter.";
+                unlink.clicked += () => ClearFieldLink(kind, targetIndex, fieldName);
+                row.Add(unlink);
+            }
+
+            return container;
         }
 
         // --- data registries: the ⛃ reference -----------------------------------------------

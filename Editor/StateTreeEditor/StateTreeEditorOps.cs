@@ -589,7 +589,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return true;
             }
 
-            if (fieldType == typeof(string))
+            // A name in three shapes: a plain string, a key field, a typed entry reference — the
+            // executor writes a String parameter into each (a template's row, a template's key).
+            if (fieldType == typeof(string) || fieldType == typeof(StateTreeKeyField)
+                || typeof(IStateTreeNamedEntryRef).IsAssignableFrom(fieldType))
             {
                 kind = GraphTaskParameterKind.String;
                 return true;

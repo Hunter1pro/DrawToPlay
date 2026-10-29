@@ -107,3 +107,29 @@ not a diagram of it.
 - Conditions may have side effects, so boolean composition does **not** short-circuit.
 - A graph task that falls off the end of its chain returns `Running`, not `Success`.
 - Latent nodes resume where they parked, matching Unreal's semantics.
+
+## Schema modes (mission mode)
+
+Same runtime engine, different authoring experiences. A `StateTreeSchema` asset (Create → Draw To
+Play → State Tree Schema) claims a `treeKind`; a tree of that kind opens the State Tree window in
+the schema's mode, on the same asset. The toolbar's **Dev** toggle is today's window.
+
+- **Kinds** — a domain node is a state whose `roleKind` names a schema kind. A kind is either a
+  **template** (a reusable tree: the node holds ONE `RunSubTreeTask` of it and sets its
+  parameters) or a **group** (no tasks; optionally one inert *context task* holding its data — a
+  level's manifest, a zone's place). `step: true` kinds are what a `step` child entry admits.
+- **Rules** — `topKinds` and each kind's `children` (and `childLimit`) decide Add's filtered
+  palette, drag-and-drop, and the problems `StateTreeSchemaRules.Validate` reports.
+- **Hidden** — the mode lists only domain nodes; their tasks, conditions, transitions and keys,
+  and every other state, are Dev mode's.
+- **Inspector** — a template node shows its template's parameters, each drawn after the template
+  field it is bound to (a `[PlacementId]` field → the enclosing context's manifest; an entry ref →
+  its registry's rows; a key field → a name), and read-only facts (resume, saves, where it leads).
+- **Connection layer** — a context implementing `IStateTreeArea` is a circle in the Scene view; a
+  step's placement parameter is a line from it to the row. Selection lights both ways; Play
+  highlights the active domain node.
+- **Templates' parameters** — a String parameter binds into a `string`, a `StateTreeKeyField` or a
+  `StateTreeEntryRef<>` (resolved by name against the template's own registries). Parameter
+  bindings are applied before keys and entry refs resolve.
+- **Builders** — a script that re-authors a tree calls `StateTreeDomainKeep.Detach(tree)`, skips
+  what it `Keeps` while clearing sub-assets, and `Reattach`es the domain nodes to the new root.

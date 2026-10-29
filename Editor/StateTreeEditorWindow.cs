@@ -83,6 +83,43 @@ namespace PowerOfFire.DrawToPlay.Editor
         private bool m_SaveScheduled;
         private double m_LastEditTime;
 
+        // --- schema mode (mission mode): same asset, same window, a domain's view of it ----
+
+        /// <summary>Off by default: a tree a schema claims opens in that schema's mode, and this
+        /// flips the same window back to the raw states.</summary>
+        [SerializeField] private bool m_DevMode;
+        private StateTreeSchema m_Schema;
+        private ToolbarToggle m_ModeToggle;
+        private ToolbarButton m_AddStateButton;
+        private ToolbarButton m_AddChildButton;
+        private ToolbarButton m_PaletteButton;
+        private Label m_ModeLabel;
+        private Label m_HiddenNote;
+        private StateTreeMissionInspector m_MissionInspector;
+        private List<StateTreeSchemaProblem> m_Problems = new List<StateTreeSchemaProblem>();
+        private readonly HashSet<StateTreeNodeAsset> m_ProblemNodes = new HashSet<StateTreeNodeAsset>();
+        private StateTreeNodeAsset m_ActiveOwner;
+
+        /// <summary>The schema claiming the loaded tree's kind, or null.</summary>
+        internal StateTreeSchema schema => m_Schema;
+
+        /// <summary>True while the window shows the tree through its schema.</summary>
+        internal bool missionMode => m_Schema != null && !m_DevMode;
+
+        /// <summary>The domain node the running state belongs to, in Play — what mission mode lights.</summary>
+        internal string activeDomainNodeId => m_ActiveOwner != null ? m_ActiveOwner.nodeId : string.Empty;
+
+        internal IReadOnlyList<StateTreeSchemaProblem> problems => m_Problems;
+
+        /// <summary>Flip between the schema's mode and the raw states, on the same asset.</summary>
+        internal void SetDevMode(bool dev)
+        {
+            m_DevMode = dev;
+            m_ModeToggle?.SetValueWithoutNotify(dev);
+            UpdateModeChrome();
+            RebuildAll();
+        }
+
         /// <summary>Selecting a tree asset in the Project window brings this window up, the way
         /// the HeavenlyTreasures AIDraftAutoOpen hook does. Kept behind a preference because a
         /// window that steals focus on every click is a window people close.</summary>
@@ -172,9 +209,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_SelectedNode = null;
                 m_SelectedNodeId = string.Empty;
                 m_Probe.SetTree(tree);
+                m_ActiveOwner = null;
             }
 
+            m_Schema = StateTreeSchemas.For(tree);
             m_TreeField?.SetValueWithoutNotify(tree);
+            UpdateModeChrome();
             RebuildAll();
         }
 
@@ -188,6 +228,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (nodes[i].nodeId != nodeId)
                     continue;
 
+                if (missionMode && !StateTreeSchemaRules.IsDomain(m_Schema, nodes[i]))
+                    SetDevMode(true);
                 SetSelectedNode(nodes[i]);
                 if (m_TreeView != null && m_RowIds.TryGetValue(nodes[i], out var rowId))
                     m_TreeView.SetSelectionByIdWithoutNotify(new List<int> { rowId });
@@ -222,6 +264,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             m_Probe.changed -= OnRunnerStateChanged;
             m_Probe.Clear();
+            StateTreeSchemaGizmos.Hide(this);
             FlushSave();
         }
 
@@ -289,6 +332,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             root.Add(BuildStatusBar());
 
+            UpdateModeChrome();
             RebuildAll();
         }
 
@@ -314,11 +358,18 @@ namespace PowerOfFire.DrawToPlay.Editor
             var addState = new ToolbarButton(AddState) { text = "Add State" };
             addState.tooltip = "Add a state under the root.";
             toolbar.Add(addState);
+            m_AddStateButton = addState;
 
             var addChild = new ToolbarButton(AddChildState) { text = "Add Child" };
             addChild.tooltip = "Add a state under the selected one. A parent with no tasks and no "
                 + "transitions is organisational: the runner enters its first child instead.";
             toolbar.Add(addChild);
+            m_AddChildButton = addChild;
+
+            m_PaletteButton = new ToolbarButton(() => ShowPalette(m_SelectedNode)) { text = "Add ▾" };
+            m_PaletteButton.tooltip = "Add a node under the selected one — only the kinds the rules "
+                + "allow there are offered.";
+            toolbar.Add(m_PaletteButton);
 
             var remove = new ToolbarButton(RemoveSelectedState) { text = "Remove" };
             remove.tooltip = "Delete the selected state, its children, and their task/condition "
@@ -337,6 +388,18 @@ namespace PowerOfFire.DrawToPlay.Editor
             var spacer = new ToolbarSpacer();
             spacer.style.flexGrow = 1f;
             toolbar.Add(spacer);
+
+            m_ModeLabel = new Label();
+            m_ModeLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            m_ModeLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
+            m_ModeLabel.style.marginRight = 4f;
+            toolbar.Add(m_ModeLabel);
+
+            m_ModeToggle = new ToolbarToggle { text = "Dev", value = m_DevMode };
+            m_ModeToggle.tooltip = "Show this tree's raw states, tasks and transitions — the same "
+                + "asset, unchanged. Off: the schema's mode.";
+            m_ModeToggle.RegisterValueChangedCallback(evt => SetDevMode(evt.newValue));
+            toolbar.Add(m_ModeToggle);
 
             var newTree = new ToolbarButton(CreateTreeAsset) { text = "New Tree…" };
             newTree.tooltip = "Create a State Tree asset with an empty root.";
@@ -406,6 +469,13 @@ namespace PowerOfFire.DrawToPlay.Editor
             };
 
             pane.Add(m_TreeView);
+
+            m_HiddenNote = new Label();
+            m_HiddenNote.style.opacity = 0.6f;
+            m_HiddenNote.style.whiteSpace = WhiteSpace.Normal;
+            m_HiddenNote.style.paddingTop = 4f;
+            m_HiddenNote.style.paddingBottom = 4f;
+            pane.Add(m_HiddenNote);
             return pane;
         }
 
@@ -420,6 +490,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_InspectorScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
 
             m_Inspector = new StateTreeInspectorPane(m_InspectorScroll, OnStructuralChanged, OnEdited);
+            m_MissionInspector = new StateTreeMissionInspector(m_InspectorScroll, OnEdited,
+                OnMissionChanged, ShowInDevMode, ShowPalette);
             return m_InspectorScroll;
         }
 
@@ -495,23 +567,49 @@ namespace PowerOfFire.DrawToPlay.Editor
             var nodes = StateTreeEditorOps.CollectNodes(m_Tree);
             m_ViewNodes = nodes;
             RebuildRowIds(nodes);
+            Revalidate();
 
             m_RowOrder.Clear();
-            for (var i = 0; i < nodes.Count; ++i)
-                m_RowOrder.Add(nodes[i].nodeId);
-
             var items = new List<TreeViewItemData<StateTreeNodeAsset>>();
-            if (m_Tree != null && m_Tree.root != null)
+            if (missionMode)
             {
-                var visited = new HashSet<StateTreeNodeAsset> { m_Tree.root };
-                items.Add(BuildItem(m_Tree.root, 0, visited));
+                var visited = new HashSet<StateTreeNodeAsset>();
+                foreach (var top in StateTreeSchemaRules.DomainRoots(m_Tree, m_Schema))
+                {
+                    if (visited.Add(top))
+                        items.Add(BuildItem(top, 0, visited));
+                }
+                var shown = 0;
+                for (var i = 0; i < nodes.Count; ++i)
+                {
+                    if (StateTreeSchemaRules.IsDomain(m_Schema, nodes[i]))
+                    {
+                        m_RowOrder.Add(nodes[i].nodeId);
+                        ++shown;
+                    }
+                }
+                m_HiddenNote.text = $"{nodes.Count - shown} dev state(s) hidden — Dev "
+                    + "shows them." + (m_Problems.Count > 0 ? $"  ⚠ {m_Problems.Count} problem(s)." : "");
+                m_HiddenNote.style.display = DisplayStyle.Flex;
+            }
+            else
+            {
+                for (var i = 0; i < nodes.Count; ++i)
+                    m_RowOrder.Add(nodes[i].nodeId);
+                if (m_Tree != null && m_Tree.root != null)
+                {
+                    var visited = new HashSet<StateTreeNodeAsset> { m_Tree.root };
+                    items.Add(BuildItem(m_Tree.root, 0, visited));
+                }
+                if (m_HiddenNote != null)
+                    m_HiddenNote.style.display = DisplayStyle.None;
             }
 
             m_TreeView.SetRootItems(items);
             m_TreeView.Rebuild();
             m_TreeView.ExpandAll();
 
-            var hasRows = items.Count > 0;
+            var hasRows = items.Count > 0 || (missionMode && m_Tree != null && m_Tree.root != null);
             m_TreeView.style.display = hasRows ? DisplayStyle.Flex : DisplayStyle.None;
             m_EmptyHint.style.display = hasRows ? DisplayStyle.None : DisplayStyle.Flex;
             m_CreateRootButton.style.display = m_Tree != null && m_Tree.root == null
@@ -542,6 +640,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 for (var i = 0; i < node.children.Count; ++i)
                 {
                     var child = node.children[i];
+                    if (missionMode && !StateTreeSchemaRules.IsDomain(m_Schema, child))
+                        continue;
                     if (child == null || !visited.Add(child))
                         continue;
 
@@ -596,6 +696,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             }
 
+            if (missionMode)
+            {
+                BindMissionRow(element, node);
+                return;
+            }
+
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Center;
@@ -633,6 +739,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             if (!m_Probe.isTracking)
                 return k_RowClear;
+            if (missionMode)
+                return node == m_ActiveOwner ? k_RowActive : k_RowClear;
             if (!string.IsNullOrEmpty(m_Probe.activeNodeId) && node.nodeId == m_Probe.activeNodeId)
                 return k_RowActive;
             if (!string.IsNullOrEmpty(m_Probe.previousNodeId) && node.nodeId == m_Probe.previousNodeId)
@@ -701,6 +809,14 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void RebuildInspector()
         {
+            if (missionMode)
+            {
+                var node = StateTreeSchemaRules.IsDomain(m_Schema, m_SelectedNode) ? m_SelectedNode : null;
+                m_MissionInspector?.Rebuild(m_Tree, m_Schema, node, m_Problems);
+                StateTreeSchemaGizmos.Show(this, m_Tree, m_Schema, node, m_ActiveOwner);
+                return;
+            }
+            StateTreeSchemaGizmos.Hide(this);
             m_Inspector?.Rebuild(m_Tree, m_SelectedNode);
         }
 
@@ -722,6 +838,184 @@ namespace PowerOfFire.DrawToPlay.Editor
             menu.AddSeparator(string.Empty);
             menu.AddItem(new GUIContent("Remove State"), false, () => RemoveState(node));
             menu.ShowAsContext();
+        }
+
+        // --- schema mode --------------------------------------------------------------------
+
+        private void UpdateModeChrome()
+        {
+            if (m_ModeToggle == null)
+                return;
+            var hasSchema = m_Schema != null;
+            m_ModeToggle.style.display = hasSchema ? DisplayStyle.Flex : DisplayStyle.None;
+            m_ModeToggle.SetValueWithoutNotify(m_DevMode);
+            m_ModeLabel.text = hasSchema && !m_DevMode ? m_Schema.modeName + " mode" : string.Empty;
+            m_ModeLabel.style.display = hasSchema && !m_DevMode ? DisplayStyle.Flex : DisplayStyle.None;
+            var mission = missionMode;
+            m_AddStateButton.style.display = mission ? DisplayStyle.None : DisplayStyle.Flex;
+            m_AddChildButton.style.display = mission ? DisplayStyle.None : DisplayStyle.Flex;
+            m_PaletteButton.style.display = mission ? DisplayStyle.Flex : DisplayStyle.None;
+            if (!mission)
+                StateTreeSchemaGizmos.Hide(this);
+        }
+
+        private void Revalidate()
+        {
+            m_ProblemNodes.Clear();
+            m_Problems = m_Schema != null
+                ? StateTreeSchemaRules.Validate(m_Tree, m_Schema)
+                : new List<StateTreeSchemaProblem>();
+            for (var i = 0; i < m_Problems.Count; ++i)
+            {
+                if (m_Problems[i].node != null)
+                    m_ProblemNodes.Add(m_Problems[i].node);
+            }
+        }
+
+        /// <summary>A mission row: the kind's icon, the node's name, what a step targets, and a
+        /// mark when the rules find something wrong with it.</summary>
+        private void BindMissionRow(VisualElement element, StateTreeNodeAsset node)
+        {
+            var kind = StateTreeSchemaRules.KindOf(m_Schema, node);
+
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.paddingLeft = 4f;
+            row.style.paddingRight = 2f;
+            row.style.borderTopLeftRadius = 4f;
+            row.style.borderTopRightRadius = 4f;
+            row.style.borderBottomLeftRadius = 4f;
+            row.style.borderBottomRightRadius = 4f;
+            row.style.backgroundColor = RowTint(node);
+
+            var icon = new Label(kind != null && !string.IsNullOrEmpty(kind.icon) ? kind.icon : "●");
+            icon.style.color = kind != null ? kind.color : Color.white;
+            icon.style.width = 18f;
+            icon.style.unityTextAlign = TextAnchor.MiddleCenter;
+            row.Add(icon);
+
+            var title = new Label(string.IsNullOrEmpty(node.displayName) ? node.nodeId : node.displayName);
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            title.style.marginRight = 6f;
+            row.Add(title);
+
+            var kindLabel = new Label(kind != null ? kind.Label : node.roleKind);
+            kindLabel.style.opacity = 0.55f;
+            kindLabel.style.marginRight = 6f;
+            row.Add(kindLabel);
+
+            var summary = new Label(StateTreeSchemaRules.Summary(m_Tree, m_Schema, node));
+            summary.style.opacity = 0.75f;
+            summary.style.flexGrow = 1f;
+            summary.style.overflow = Overflow.Hidden;
+            summary.style.textOverflow = TextOverflow.Ellipsis;
+            row.Add(summary);
+
+            if (m_ProblemNodes.Contains(node))
+            {
+                var problem = new Label("⚠");
+                problem.style.color = new Color(1f, 0.45f, 0.35f);
+                problem.tooltip = ProblemsOf(node);
+                row.Add(problem);
+            }
+
+            if (kind != null && m_Schema.AllowedUnder(kind.kind).Count > 0)
+            {
+                var add = new Button(() => ShowPalette(node)) { text = "+" };
+                add.tooltip = "Add a node here — only what the rules allow.";
+                add.style.width = 22f;
+                row.Add(add);
+            }
+
+            var menu = new Button(() => ShowMissionRowMenu(node)) { text = "⋮" };
+            menu.style.width = 22f;
+            row.Add(menu);
+
+            element.Add(row);
+        }
+
+        private string ProblemsOf(StateTreeNodeAsset node)
+        {
+            var lines = new List<string>();
+            for (var i = 0; i < m_Problems.Count; ++i)
+            {
+                if (m_Problems[i].node == node)
+                    lines.Add(m_Problems[i].message);
+            }
+            return string.Join("\n", lines);
+        }
+
+        private void ShowMissionRowMenu(StateTreeNodeAsset node)
+        {
+            var menu = new GenericMenu();
+            AddPaletteItems(menu, node, "Add/");
+            menu.AddItem(new GUIContent("Move Up"), false, () => MoveState(node, -1));
+            menu.AddItem(new GUIContent("Move Down"), false, () => MoveState(node, 1));
+            menu.AddSeparator(string.Empty);
+            menu.AddItem(new GUIContent("Show in Dev mode"), false, () => ShowInDevMode(node));
+            menu.AddSeparator(string.Empty);
+            menu.AddItem(new GUIContent("Remove"), false, () => RemoveState(node));
+            menu.ShowAsContext();
+        }
+
+        /// <summary>The FILTERED PALETTE: the kinds the rules allow under <paramref name="parent"/>
+        /// (the tree's top when nothing domain is selected), and nothing else.</summary>
+        private void ShowPalette(StateTreeNodeAsset parent)
+        {
+            if (m_Tree == null || m_Schema == null || m_Tree.root == null)
+                return;
+            var menu = new GenericMenu();
+            AddPaletteItems(menu, StateTreeSchemaRules.IsDomain(m_Schema, parent) ? parent : m_Tree.root, "");
+            if (menu.GetItemCount() == 0)
+                menu.AddDisabledItem(new GUIContent("Nothing may sit here"));
+            menu.ShowAsContext();
+        }
+
+        private void AddPaletteItems(GenericMenu menu, StateTreeNodeAsset parent, string prefix)
+        {
+            var allowed = m_Schema.AllowedUnder(StateTreeSchemaRules.ParentKind(m_Schema, parent));
+            for (var i = 0; i < allowed.Count; ++i)
+            {
+                var kind = allowed[i];
+                var label = prefix + (kind.step ? "Steps/" : "") + (string.IsNullOrEmpty(kind.icon) ? "" : kind.icon + " ")
+                    + kind.Label;
+                if (StateTreeSchemaRules.CanHold(m_Schema, parent, kind.kind))
+                    menu.AddItem(new GUIContent(label), false, () => AddDomainNode(parent, kind.kind));
+                else
+                    menu.AddDisabledItem(new GUIContent(label + $"  (at most {StateTreeSchemaRules.KindOf(m_Schema, parent)?.childLimit})"));
+            }
+        }
+
+        internal StateTreeNodeAsset AddDomainNode(StateTreeNodeAsset parent, string kind)
+        {
+            var group = StateTreeEditorOps.BeginUndoGroup("Add " + kind);
+            var node = StateTreeSchemaRules.AddNode(m_Tree, m_Schema, parent, kind);
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            OnStructuralChanged();
+            if (node != null)
+                SelectNode(node.nodeId);
+            return node;
+        }
+
+        private void ShowInDevMode(StateTreeNodeAsset node)
+        {
+            SetDevMode(true);
+            if (node != null)
+                SelectNode(node.nodeId);
+        }
+
+        /// <summary>A mission edit that changes what the rules see: re-validate, redraw the rows and
+        /// the inspector, move the gizmos.</summary>
+        private void OnMissionChanged()
+        {
+            if (m_Tree != null)
+                EditorUtility.SetDirty(m_Tree);
+            ScheduleSave();
+            Revalidate();
+            RefreshRows();
+            rootVisualElement.schedule.Execute(RebuildInspector).ExecuteLater(0);
         }
 
         // --- structural commands ----------------------------------------------------------
@@ -752,6 +1046,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             if (m_Tree == null || parent == null)
                 return;
+
+            if (missionMode)
+            {
+                ShowPalette(parent);
+                return;
+            }
 
             // THE RULES TYPE THE GESTURE (M23, the HT ability editor's law on state trees):
             // in a tree a service claims, Add Child under the root creates the first kind the
@@ -867,7 +1167,21 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return DragVisualMode.Rejected;
 
             if (!m_RowNodes.TryGetValue(parentId, out var parent) || parent == null)
-                return DragVisualMode.Rejected;
+            {
+                if (!missionMode || m_Tree.root == null)
+                    return DragVisualMode.Rejected;
+                parent = m_Tree.root;
+            }
+
+            if (missionMode)
+            {
+                for (var i = 0; i < ids.Count; ++i)
+                {
+                    if (!m_RowNodes.TryGetValue(ids[i], out var dragged) || dragged == null
+                        || !m_Schema.Allows(StateTreeSchemaRules.ParentKind(m_Schema, parent), dragged.roleKind))
+                        return DragVisualMode.Rejected;
+                }
+            }
 
             var group = StateTreeEditorOps.BeginUndoGroup("Move State");
             var moved = false;
@@ -940,6 +1254,9 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             ScheduleSave();
             RefreshRows();
+            if (missionMode)
+                StateTreeSchemaGizmos.Show(this, m_Tree, m_Schema,
+                    StateTreeSchemaRules.IsDomain(m_Schema, m_SelectedNode) ? m_SelectedNode : null, m_ActiveOwner);
         }
 
         private void ScheduleSave()
@@ -961,6 +1278,18 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void OnRunnerStateChanged()
         {
+            if (m_Schema != null)
+            {
+                var owner = StateTreeSchemaRules.OwnerOf(m_Tree, m_Schema, m_Probe.activeNodeId);
+                if (owner != m_ActiveOwner)
+                {
+                    m_ActiveOwner = owner;
+                    if (missionMode)
+                        StateTreeSchemaGizmos.Show(this, m_Tree, m_Schema,
+                            StateTreeSchemaRules.IsDomain(m_Schema, m_SelectedNode) ? m_SelectedNode : null,
+                            m_ActiveOwner);
+                }
+            }
             RefreshRows();
         }
 
