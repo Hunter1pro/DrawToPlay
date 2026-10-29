@@ -9,7 +9,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// in the tree's schema mode, with every task and condition they own. A builder that clears its
     /// tree asks <see cref="Detach"/> first, skips what <see cref="Keeps"/> names while it destroys
     /// sub-assets, and calls <see cref="Reattach"/> on the new root — so Verify rebuilds the
-    /// programmer's states and the mission stays the designer's.
+    /// build's states and the mission stays the designer's.
     ///
     /// A kept node is a direct child of the root carrying a <see cref="StateTreeNodeAsset.roleKind"/>
     /// (the schema's kinds; a builder that types its own states' roles keeps them by not asking).

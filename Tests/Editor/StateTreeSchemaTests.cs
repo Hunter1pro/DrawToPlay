@@ -251,10 +251,10 @@ namespace PowerOfFire.DrawToPlay.Tests
             CollectionAssert.AreEquivalent(new[] { level.nodeId, walk.nodeId }, window.visibleNodeIds,
                 "the root and the builder's chapter are hidden");
 
-            window.SetProgrammerMode(true);
+            window.SetDevMode(true);
             Assert.IsFalse(window.missionMode);
-            CollectionAssert.Contains(window.visibleNodeIds, "chapter", "programmer mode is today's window");
-            window.SetProgrammerMode(false);
+            CollectionAssert.Contains(window.visibleNodeIds, "chapter", "Dev mode is today's window");
+            window.SetDevMode(false);
         }
 
         [Test]

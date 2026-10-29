@@ -112,7 +112,7 @@ not a diagram of it.
 
 Same runtime engine, different authoring experiences. A `StateTreeSchema` asset (Create → Draw To
 Play → State Tree Schema) claims a `treeKind`; a tree of that kind opens the State Tree window in
-the schema's mode, on the same asset. The toolbar's **Programmer** toggle is today's window.
+the schema's mode, on the same asset. The toolbar's **Dev** toggle is today's window.
 
 - **Kinds** — a domain node is a state whose `roleKind` names a schema kind. A kind is either a
   **template** (a reusable tree: the node holds ONE `RunSubTreeTask` of it and sets its
@@ -121,7 +121,7 @@ the schema's mode, on the same asset. The toolbar's **Programmer** toggle is tod
 - **Rules** — `topKinds` and each kind's `children` (and `childLimit`) decide Add's filtered
   palette, drag-and-drop, and the problems `StateTreeSchemaRules.Validate` reports.
 - **Hidden** — the mode lists only domain nodes; their tasks, conditions, transitions and keys,
-  and every other state, are Programmer mode's.
+  and every other state, are Dev mode's.
 - **Inspector** — a template node shows its template's parameters, each drawn after the template
   field it is bound to (a `[PlacementId]` field → the enclosing context's manifest; an entry ref →
   its registry's rows; a key field → a name), and read-only facts (resume, saves, where it leads).

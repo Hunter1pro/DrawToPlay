@@ -199,7 +199,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     $"'{node.roleKind}' is not a kind of the {schema.modeName} schema."));
             if (kind == null && parentKind != null)
                 problems.Add(new StateTreeSchemaProblem(parent,
-                    $"Holds a programmer state '{node.nodeId}', which {schema.modeName} mode hides."));
+                    $"Holds a dev state '{node.nodeId}', which {schema.modeName} mode hides."));
 
             if (kind != null)
             {

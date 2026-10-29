@@ -79,8 +79,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             title.style.marginBottom = 6f;
             m_Root.Add(title);
             m_Root.Add(Note("Select a node to edit it. Add offers only the kinds the selected node may "
-                + "hold; the programmer's states and every node's tasks, conditions and transitions "
-                + "are in Programmer mode."));
+                + "hold; the dev states and every node's tasks, conditions and transitions "
+                + "are in Dev mode."));
 
             var rules = new Label("Rules");
             rules.style.unityFontStyleAndWeight = FontStyle.Bold;
@@ -131,8 +131,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             kindLabel.style.flexGrow = 1f;
             header.Add(kindLabel);
 
-            var raw = new Button(() => m_ShowRaw?.Invoke(m_Node)) { text = "Programmer view" };
-            raw.tooltip = "Show this node's states, tasks and transitions in Programmer mode.";
+            var raw = new Button(() => m_ShowRaw?.Invoke(m_Node)) { text = "Dev view" };
+            raw.tooltip = "Show this node's states, tasks and transitions in Dev mode.";
             header.Add(raw);
             m_Root.Add(header);
 
@@ -147,7 +147,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Root.Add(name);
 
             var id = new TextField("State") { value = m_Node.nodeId, isReadOnly = true };
-            id.tooltip = "The state id transitions name — renamed in Programmer mode, where every "
+            id.tooltip = "The state id transitions name — renamed in Dev mode, where every "
                 + "transition that targets it is rewired with it.";
             id.SetEnabled(false);
             m_Root.Add(id);

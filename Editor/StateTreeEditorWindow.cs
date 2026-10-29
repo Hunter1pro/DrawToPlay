@@ -87,7 +87,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>Off by default: a tree a schema claims opens in that schema's mode, and this
         /// flips the same window back to the raw states.</summary>
-        [SerializeField] private bool m_ProgrammerMode;
+        [SerializeField] private bool m_DevMode;
         private StateTreeSchema m_Schema;
         private ToolbarToggle m_ModeToggle;
         private ToolbarButton m_AddStateButton;
@@ -104,7 +104,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         internal StateTreeSchema schema => m_Schema;
 
         /// <summary>True while the window shows the tree through its schema.</summary>
-        internal bool missionMode => m_Schema != null && !m_ProgrammerMode;
+        internal bool missionMode => m_Schema != null && !m_DevMode;
 
         /// <summary>The domain node the running state belongs to, in Play — what mission mode lights.</summary>
         internal string activeDomainNodeId => m_ActiveOwner != null ? m_ActiveOwner.nodeId : string.Empty;
@@ -112,10 +112,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         internal IReadOnlyList<StateTreeSchemaProblem> problems => m_Problems;
 
         /// <summary>Flip between the schema's mode and the raw states, on the same asset.</summary>
-        internal void SetProgrammerMode(bool programmer)
+        internal void SetDevMode(bool dev)
         {
-            m_ProgrammerMode = programmer;
-            m_ModeToggle?.SetValueWithoutNotify(programmer);
+            m_DevMode = dev;
+            m_ModeToggle?.SetValueWithoutNotify(dev);
             UpdateModeChrome();
             RebuildAll();
         }
@@ -229,7 +229,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     continue;
 
                 if (missionMode && !StateTreeSchemaRules.IsDomain(m_Schema, nodes[i]))
-                    SetProgrammerMode(true);
+                    SetDevMode(true);
                 SetSelectedNode(nodes[i]);
                 if (m_TreeView != null && m_RowIds.TryGetValue(nodes[i], out var rowId))
                     m_TreeView.SetSelectionByIdWithoutNotify(new List<int> { rowId });
@@ -395,10 +395,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_ModeLabel.style.marginRight = 4f;
             toolbar.Add(m_ModeLabel);
 
-            m_ModeToggle = new ToolbarToggle { text = "Programmer", value = m_ProgrammerMode };
+            m_ModeToggle = new ToolbarToggle { text = "Dev", value = m_DevMode };
             m_ModeToggle.tooltip = "Show this tree's raw states, tasks and transitions — the same "
                 + "asset, unchanged. Off: the schema's mode.";
-            m_ModeToggle.RegisterValueChangedCallback(evt => SetProgrammerMode(evt.newValue));
+            m_ModeToggle.RegisterValueChangedCallback(evt => SetDevMode(evt.newValue));
             toolbar.Add(m_ModeToggle);
 
             var newTree = new ToolbarButton(CreateTreeAsset) { text = "New Tree…" };
@@ -491,7 +491,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             m_Inspector = new StateTreeInspectorPane(m_InspectorScroll, OnStructuralChanged, OnEdited);
             m_MissionInspector = new StateTreeMissionInspector(m_InspectorScroll, OnEdited,
-                OnMissionChanged, ShowInProgrammerMode, ShowPalette);
+                OnMissionChanged, ShowInDevMode, ShowPalette);
             return m_InspectorScroll;
         }
 
@@ -588,7 +588,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                         ++shown;
                     }
                 }
-                m_HiddenNote.text = $"{nodes.Count - shown} programmer state(s) hidden — Programmer "
+                m_HiddenNote.text = $"{nodes.Count - shown} dev state(s) hidden — Dev "
                     + "shows them." + (m_Problems.Count > 0 ? $"  ⚠ {m_Problems.Count} problem(s)." : "");
                 m_HiddenNote.style.display = DisplayStyle.Flex;
             }
@@ -848,9 +848,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             var hasSchema = m_Schema != null;
             m_ModeToggle.style.display = hasSchema ? DisplayStyle.Flex : DisplayStyle.None;
-            m_ModeToggle.SetValueWithoutNotify(m_ProgrammerMode);
-            m_ModeLabel.text = hasSchema && !m_ProgrammerMode ? m_Schema.modeName + " mode" : string.Empty;
-            m_ModeLabel.style.display = hasSchema && !m_ProgrammerMode ? DisplayStyle.Flex : DisplayStyle.None;
+            m_ModeToggle.SetValueWithoutNotify(m_DevMode);
+            m_ModeLabel.text = hasSchema && !m_DevMode ? m_Schema.modeName + " mode" : string.Empty;
+            m_ModeLabel.style.display = hasSchema && !m_DevMode ? DisplayStyle.Flex : DisplayStyle.None;
             var mission = missionMode;
             m_AddStateButton.style.display = mission ? DisplayStyle.None : DisplayStyle.Flex;
             m_AddChildButton.style.display = mission ? DisplayStyle.None : DisplayStyle.Flex;
@@ -953,7 +953,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             menu.AddItem(new GUIContent("Move Up"), false, () => MoveState(node, -1));
             menu.AddItem(new GUIContent("Move Down"), false, () => MoveState(node, 1));
             menu.AddSeparator(string.Empty);
-            menu.AddItem(new GUIContent("Show in Programmer mode"), false, () => ShowInProgrammerMode(node));
+            menu.AddItem(new GUIContent("Show in Dev mode"), false, () => ShowInDevMode(node));
             menu.AddSeparator(string.Empty);
             menu.AddItem(new GUIContent("Remove"), false, () => RemoveState(node));
             menu.ShowAsContext();
@@ -999,9 +999,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             return node;
         }
 
-        private void ShowInProgrammerMode(StateTreeNodeAsset node)
+        private void ShowInDevMode(StateTreeNodeAsset node)
         {
-            SetProgrammerMode(true);
+            SetDevMode(true);
             if (node != null)
                 SelectNode(node.nodeId);
         }
