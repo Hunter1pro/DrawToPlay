@@ -627,18 +627,27 @@ namespace PowerOfFire.DrawToPlay.Editor
             return changed + ApplyRoutes(tree, schema, node, kind);
         }
 
-        /// <summary>A kind that rests holds where its run ends instead of going on to its next sibling.</summary>
+        /// <summary>A kind that rests holds where its run ends instead of going on to its next sibling; one
+        /// that ends its parent goes on after the parent.</summary>
         private static int ApplyRest(StateTreeSchemaKind kind, StateTreeNodeAsset node)
         {
             if (kind == null || node == null)
                 return 0;
-            StateTreeCompletionFlow flow = kind.rests ? StateTreeCompletionFlow.Hold : StateTreeCompletionFlow.NextSibling;
+            StateTreeCompletionFlow flow = FlowOf(kind);
             if (node.completionFlow == flow)
                 return 0;
             Undo.RecordObject(node, "Derive Flow");
             node.completionFlow = flow;
             EditorUtility.SetDirty(node);
             return 1;
+        }
+
+        /// <summary>Where a node of <paramref name="kind"/> goes when its run ends.</summary>
+        public static StateTreeCompletionFlow FlowOf(StateTreeSchemaKind kind)
+        {
+            if (kind != null && kind.rests)
+                return StateTreeCompletionFlow.Hold;
+            return kind != null && kind.endsParent ? StateTreeCompletionFlow.EndsParent : StateTreeCompletionFlow.NextSibling;
         }
 
         /// <summary>The key a routed node's answer lands on — its <see cref="StateTreeSchemaKind.routeBy"/>
@@ -797,8 +806,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (context != null)
                     context.blocking = false;
             }
-            if (kind.rests)
-                node.completionFlow = StateTreeCompletionFlow.Hold;
+            node.completionFlow = FlowOf(kind);
             EditorUtility.SetDirty(node);
             // A new branch is a new way out of the node above it.
             ApplyDerived(tree, schema, parent);

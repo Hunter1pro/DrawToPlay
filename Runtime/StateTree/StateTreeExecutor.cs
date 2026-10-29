@@ -422,7 +422,7 @@ namespace PowerOfFire.DrawToPlay
                     }
                 }
 
-                if (m_CurrentNode.completionFlow == StateTreeCompletionFlow.NextSibling)
+                if (m_CurrentNode.completionFlow != StateTreeCompletionFlow.Hold)
                     ImplicitAdvance();
             }
         }
@@ -480,6 +480,16 @@ namespace PowerOfFire.DrawToPlay
                     // a stop — see treeFinished.
                     FinishTree();
                     return;
+                }
+
+                // One of the parent's alternatives: the parent is the completed thing, and the ways
+                // out that chose this child are not asked again.
+                if (node.completionFlow == StateTreeCompletionFlow.EndsParent)
+                {
+                    if (parent.completionFlow == StateTreeCompletionFlow.Hold)
+                        return;
+                    node = parent;
+                    continue;
                 }
 
                 int slot = parent.children.IndexOf(node);

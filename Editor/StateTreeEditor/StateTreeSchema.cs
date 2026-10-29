@@ -121,6 +121,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             + "next node: a level's part of the story, a branch of a question.")]
         public bool rests;
 
+        [Tooltip("One of its parent's alternatives (a branch of a question): when its run ends, the story "
+            + "goes on after its parent, never into the next sibling. Ignored when it rests.")]
+        public bool endsParent;
+
         [Tooltip("A template parameter naming the key the node's answer lands on: the node goes on to "
             + "its first child when that key holds 0, its second at 1… Empty: its children run in order.")]
         public string routeBy = "";
