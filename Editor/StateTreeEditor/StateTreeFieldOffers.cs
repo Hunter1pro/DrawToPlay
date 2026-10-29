@@ -24,6 +24,22 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// source has nothing to say about it. First non-empty answer wins.</summary>
         public static event Func<FieldInfo, List<string>> sources;
 
+        /// <summary>The attribute types a registered source claims — a field carrying one is a pick
+        /// even while the project declares nothing for it yet.</summary>
+        public static readonly HashSet<Type> vocabularies = new HashSet<Type>();
+
+        public static bool Claims(FieldInfo field)
+        {
+            if (field == null)
+                return false;
+            foreach (object attribute in field.GetCustomAttributes(true))
+            {
+                if (vocabularies.Contains(attribute.GetType()))
+                    return true;
+            }
+            return false;
+        }
+
         /// <summary>The offers for a field, or null when nobody claims it.</summary>
         public static List<string> For(FieldInfo field)
         {

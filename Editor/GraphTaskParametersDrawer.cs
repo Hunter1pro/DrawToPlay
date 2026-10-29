@@ -198,16 +198,43 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var pick = new Button { text = string.IsNullOrEmpty(current) ? "(none)" : current };
             pick.style.unityTextAlign = TextAnchor.MiddleLeft;
+            pick.style.flexGrow = 1f;
+
+            // A NAME THAT IS NO ROW IS AN ERROR, SHOWN AS ONE: a row-typed value that matches
+            // nothing in its catalog (a row renamed or deleted under it, a value written by hand)
+            // used to look exactly like a good pick.
+            Action<string> mark = chosen =>
+            {
+                var offered = new List<StateTreeRegistryEntry>();
+                StateTreeOffers.RowsFor(type, setProperty.serializedObject.targetObject, offered);
+                bool found = string.IsNullOrEmpty(chosen);
+                for (int i = 0; i < offered.Count && !found; i++)
+                    found = offered[i].name == chosen;
+                pick.text = string.IsNullOrEmpty(chosen) ? "(none)" : found ? chosen : chosen + "   ✕ not a row";
+                pick.style.color = found ? new StyleColor(StyleKeyword.Null) : new StyleColor(new Color(1f, 0.42f, 0.35f));
+                pick.tooltip = found
+                    ? (type.rows != null ? "A row of " + type.rows.name + "." : "")
+                    : offered.Count == 0
+                        ? StateTreeOffers.WhyEmpty(type, setProperty.serializedObject.targetObject)
+                        : "'" + chosen + "' is not a row of " + (type.rows != null ? type.rows.name : "its catalog") + ".";
+            };
+            mark(current);
+
             pick.clicked += () =>
             {
                 var rows = new List<StateTreeRegistryEntry>();
                 StateTreeOffers.RowsFor(type, setProperty.serializedObject.targetObject, rows);
+                int at = indexOf();
+                string now = at >= 0
+                    ? Element(values, at).FindPropertyRelative("stringValue").stringValue
+                    : parameter.stringValue;
 
                 var menu = new GenericMenu();
                 menu.AddItem(new GUIContent("(none)"), false, () =>
                 {
                     Write(setProperty, values, parameter, indexOf, "stringValue", string.Empty);
-                    pick.text = "(none)";
+                    Write(setProperty, values, parameter, indexOf, "entryId", string.Empty);
+                    mark(string.Empty);
                 });
                 if (rows.Count == 0)
                 {
@@ -217,17 +244,37 @@ namespace PowerOfFire.DrawToPlay.Editor
                 for (int i = 0; i < rows.Count; i++)
                 {
                     string chosen = rows[i].name;
+                    string chosenId = rows[i].id;
                     string label = string.IsNullOrEmpty(rows[i].group)
                         ? chosen : rows[i].group + "/" + chosen;
-                    menu.AddItem(new GUIContent(label), chosen == current, () =>
+                    menu.AddItem(new GUIContent(label), chosen == now, () =>
                     {
+                        // BOTH HALVES of the reference: the name is what runs, the id is what
+                        // survives the row being renamed.
                         Write(setProperty, values, parameter, indexOf, "stringValue", chosen);
-                        pick.text = chosen;
+                        Write(setProperty, values, parameter, indexOf, "entryId", chosenId ?? string.Empty);
+                        mark(chosen);
                     });
                 }
                 menu.DropDown(pick.worldBound);
             };
-            return pick;
+
+            // AND THE WAY TO IT: the catalog the row lives in, one click away.
+            var go = new Button(() =>
+            {
+                if (type.rows == null)
+                    return;
+                Selection.activeObject = type.rows;
+                EditorGUIUtility.PingObject(type.rows);
+            }) { text = "◎", tooltip = type.rows != null ? "Show " + type.rows.name : "" };
+            go.style.width = 22f;
+
+            var line = new VisualElement();
+            line.style.flexDirection = FlexDirection.Row;
+            line.style.flexGrow = 1f;
+            line.Add(pick);
+            line.Add(go);
+            return line;
         }
 
         /// <summary>The editor for one kind, seeded from the stored row when there is one and from

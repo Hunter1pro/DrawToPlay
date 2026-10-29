@@ -22,7 +22,7 @@ namespace PowerOfFire.DrawToPlay
     {
         public StateTreeContextKind scope = StateTreeContextKind.Root;
 
-        public string scopeId = "";
+        [ScopeId] public string scopeId = "";
 
         /// <summary>Key on the SCOPE's blackboard.</summary>
         [StateTreeKey(StateTreeKeyKind.Float, any: true)]

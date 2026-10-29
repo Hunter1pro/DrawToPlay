@@ -8,11 +8,10 @@ namespace PowerOfFire.DrawToPlay.Editor
 {
     /// <summary>
     /// The <see cref="StateTreeKeyField"/> everywhere the REGULAR Inspector draws one — scene
-    /// components above all: the same contract the State Tree window gives task fields. The
-    /// text is the runtime name; ⚿ wires it to a DECLARED key of the nearest reachable tree
-    /// (the component's parent host chain, else the scene's Root host), which locks the text
-    /// to the declaration — renames follow, hand-edits can't silently diverge. Unbind from
-    /// the ⚿ menu to type freely again.
+    /// components above all: the same contract the State Tree window gives task fields. A key is
+    /// picked — a declaration of the nearest reachable tree (wired by id: renames follow), a
+    /// registry's key, a [KeyCatalog] constant — or declared from the menu; never typed. A name
+    /// nothing declares is shown as an error.
     /// </summary>
     [CustomPropertyDrawer(typeof(StateTreeKeyField))]
     internal sealed class StateTreeKeyFieldDrawer : PropertyDrawer
@@ -58,29 +57,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                 }
             }
 
-            var row = new VisualElement();
-            row.style.flexDirection = FlexDirection.Row;
-            row.style.alignItems = Align.Center;
+            var offers = StateTreeKeyOffers.For(owner, tree);
+            bool known = wired || StateTreeKeyOffers.TryFind(offers, textProperty.stringValue, out _);
+            var row = new StateTreePickField(property.displayName, textProperty.stringValue,
+                !known && !string.IsNullOrEmpty(textProperty.stringValue),
+                wired
+                    ? "Wired to a declared key — the name follows the declaration."
+                    : known
+                        ? "A declared key, by name."
+                        : "A blackboard key. Pick a declared key, or declare one (▾ → Declare).",
+                at => ShowMenu(at, container, property, textProperty, idProperty));
             container.Add(row);
-
-            var text = new TextField(property.displayName);
-            text.AddToClassList(TextField.alignedFieldUssClassName);
-            text.style.flexGrow = 1f;
-            text.BindProperty(textProperty);
-            text.SetEnabled(!wired);
-            text.tooltip = wired
-                ? "Wired to a declared key — the name follows the declaration. Unbind from "
-                    + "the ⚿ menu to type freely."
-                : "The key's name, free-typed. ⚿ wires it to a declared key instead.";
-            row.Add(text);
-
-            var pick = new Button { text = "⚿" };
-            pick.style.width = 26f;
-            pick.style.flexShrink = 0f;
-            pick.tooltip = "Bind to a key DECLARED on the reachable state tree — the single "
-                + "place the name lives.";
-            pick.clicked += () => ShowMenu(pick, container, property, textProperty, idProperty);
-            row.Add(pick);
 
             // The lock has to follow the WIRE, not the moment this row was built: an undo or
             // a revert changes keyId under the row, and an editable bound field is the lie
@@ -93,7 +80,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             });
         }
 
-        private void ShowMenu(VisualElement anchor, VisualElement container,
+        private void ShowMenu(Rect anchor, VisualElement container,
             SerializedProperty property, SerializedProperty textProperty,
             SerializedProperty idProperty)
         {
@@ -247,18 +234,54 @@ namespace PowerOfFire.DrawToPlay.Editor
                 AddEntries(false);
             }
 
-            if (!string.IsNullOrEmpty(currentId))
-            {
+            // CODE-DECLARED keys: the constants of the game's [KeyCatalog] classes.
+            var code = StateTreeKeyOffers.CodeKeys();
+            if (code.Count > 0)
                 menu.AddSeparator(string.Empty);
-                menu.AddItem(new GUIContent("Unbind (free text)"), false, () =>
-                {
-                    idProperty.stringValue = string.Empty;
-                    property.serializedObject.ApplyModifiedProperties();
-                    Build(container, property);
-                });
+            foreach (StateTreeKeyOffer offer in code)
+            {
+                var keyName = offer.name;
+                menu.AddItem(new GUIContent(offer.source.Split('.')[0] + "/" + keyName.Replace('/', '∕')),
+                    string.IsNullOrEmpty(currentId) && keyName == textProperty.stringValue,
+                    () =>
+                    {
+                        textProperty.stringValue = keyName;
+                        idProperty.stringValue = string.Empty;
+                        property.serializedObject.ApplyModifiedProperties();
+                        Build(container, property);
+                    });
             }
 
-            menu.DropDown(anchor.worldBound);
+            menu.AddSeparator(string.Empty);
+            menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(textProperty.stringValue), () =>
+            {
+                textProperty.stringValue = string.Empty;
+                idProperty.stringValue = string.Empty;
+                property.serializedObject.ApplyModifiedProperties();
+                Build(container, property);
+            });
+            if (tree != null)
+            {
+                System.Action<string> declare = name =>
+                {
+                    var declared = StateTreeKeyOffers.Declare(tree, name, preferred ?? StateTreeKeyKind.String, "Declare Key");
+                    if (declared == null)
+                        return;
+                    textProperty.stringValue = declared.name;
+                    idProperty.stringValue = declared.id;
+                    property.serializedObject.ApplyModifiedProperties();
+                    Build(container, property);
+                };
+                var text = textProperty.stringValue;
+                if (!string.IsNullOrEmpty(text) && string.IsNullOrEmpty(currentId)
+                    && !StateTreeKeyOffers.TryFind(StateTreeKeyOffers.For(owner, tree), text, out _))
+                    menu.AddItem(new GUIContent("Declare '" + text.Replace('/', '∕') + "' on " + tree.name), false,
+                        () => declare(text));
+                menu.AddItem(new GUIContent("Declare a new key on " + tree.name + "…"), false,
+                    () => StateTreeNamePrompt.Show(anchor, "A new key on " + tree.name, "", declare));
+            }
+
+            menu.DropDown(anchor);
         }
 
         /// <summary>The tree whose declarations this field can see: for a scene component,

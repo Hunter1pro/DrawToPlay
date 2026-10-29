@@ -22,7 +22,7 @@ namespace PowerOfFire.DrawToPlay
 
         [Tooltip("The request's value — an item name for a typed request, '1' for a "
             + "plain ask.")]
-        public string value = "1";
+        [LiteralValue] public string value = "1";
 
         [Tooltip("Optional: a blackboard key holding the value — wins over the field "
             + "when it resolves to a string.")]

@@ -2345,27 +2345,17 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
             else
             {
-                var text = new TextField(ObjectNames.NicifyVariableName(fieldName))
-                {
-                    value = key.text ?? string.Empty,
-                    isDelayed = true
-                };
-                text.AddToClassList(TextField.alignedFieldUssClassName);
-                text.style.flexGrow = 1f;
-                text.style.flexShrink = 1f;
-                text.style.minHeight = k_ControlMinHeight;
-                text.tooltip = $"'{fieldName}' names a "
-                    + (anyKind ? "key" : $"{KeyKindLabel(keyKind)} key")
-                    + " as free text. Wire it to a declared key (⚿) and renames follow by id.";
-                text.RegisterValueChangedCallback(evt =>
-                {
-                    var group = StateTreeEditorOps.BeginUndoGroup(k_EditFieldKeyUndo);
-                    StateTreeEditorOps.SetKeyFieldText(target, fieldName, evt.newValue,
-                        k_EditFieldKeyUndo);
-                    StateTreeEditorOps.EndUndoGroup(group);
-                    m_Edited?.Invoke();
-                });
-                row.Add(text);
+                // NEVER A TEXT BOX: an unwired key is still a pick — a [KeyCatalog] constant, a
+                // registry's key — or a name nothing declares, shown as the error it is.
+                var offers = StateTreeKeyOffers.For(target, m_Tree);
+                var text = key.text ?? string.Empty;
+                var known = StateTreeKeyOffers.TryFind(offers, text, out var offer);
+                var pickField = new StateTreePickField(ObjectNames.NicifyVariableName(fieldName), text,
+                    !known && !string.IsNullOrEmpty(text), StateTreeKeyPick.Tooltip(known, offer),
+                    _ => ShowKeyContractMenu(target, fieldName, keyKind, anyKind, key));
+                pickField.style.flexGrow = 1f;
+                pickField.style.flexShrink = 1f;
+                row.Add(pickField);
             }
 
             row.Add(BuildKeyPickButton(target, fieldName, keyKind, anyKind, key));
@@ -2520,15 +2510,35 @@ namespace PowerOfFire.DrawToPlay.Editor
                     });
             }
 
+            // CODE-DECLARED keys — the game's [KeyCatalog] constants, picked by name.
+            var code = StateTreeKeyOffers.CodeKeys();
+            if (code.Count > 0)
+                menu.AddSeparator(string.Empty);
+            foreach (var offer in code)
+            {
+                var keyName = offer.name;
+                menu.AddItem(new GUIContent(offer.source.Split('.')[0] + "/"
+                        + keyName.Replace('/', k_MenuSeparatorStandIn)),
+                    !key.isWired && string.Equals(keyName, key.text, StringComparison.Ordinal),
+                    () => PickKeyName(target, fieldName, keyName));
+            }
+
+            menu.AddSeparator(string.Empty);
+            menu.AddItem(new GUIContent("(none)"), string.IsNullOrEmpty(key.text) && !key.isWired,
+                () => PickKeyName(target, fieldName, string.Empty));
+
             var text = key.text;
             if (!string.IsNullOrEmpty(text) && !VisibleKeyNameExists(text)
                 && TreeParameterByName(text) == null)
             {
-                menu.AddSeparator(string.Empty);
                 menu.AddItem(new GUIContent(
                     $"Declare '{text.Replace('/', k_MenuSeparatorStandIn)}' on this tree"),
                     false, () => DeclareAndLinkKey(text, keyKind, target, fieldName));
             }
+            menu.AddItem(new GUIContent("Declare a new key on this tree…"), false,
+                () => StateTreeNamePrompt.Show(default,
+                    "A new key on " + StateTreeEditorOps.TreeDisplayName(m_Tree), string.Empty,
+                    name => DeclareAndLinkKey(name, keyKind, target, fieldName)));
 
             menu.ShowAsContext();
         }
@@ -2636,6 +2646,17 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>The promote: declaration and wire in one undo step. The name arrives already
         /// carried by the field, so none of the rename refusals can apply — except a duplicate on
         /// this tree, which the menu's visibility check already ruled out.</summary>
+        private void PickKeyName(UnityEngine.Object target, string fieldName, string keyName)
+        {
+            var group = StateTreeEditorOps.BeginUndoGroup(k_EditFieldKeyUndo);
+            if (StateTreeEditorOps.GetKeyField(target, fieldName) is { isWired: true })
+                StateTreeEditorOps.UnwireKeyField(target, fieldName, k_EditFieldKeyUndo);
+            StateTreeEditorOps.SetKeyFieldText(target, fieldName, keyName, k_EditFieldKeyUndo);
+            StateTreeEditorOps.EndUndoGroup(group);
+            m_Edited?.Invoke();
+            RebuildPane();
+        }
+
         private void DeclareAndLinkKey(string name, StateTreeKeyKind keyKind,
             UnityEngine.Object target, string fieldName)
         {
