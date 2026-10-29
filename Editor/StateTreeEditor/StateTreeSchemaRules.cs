@@ -257,7 +257,9 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             foreach (StateTreeStepParameter parameter in Parameters(kind, node))
             {
-                if (parameter.declaration.kind == GraphTaskParameterKind.String
+                // A placement or a row is what a step is ABOUT; a text or a key may be empty on
+                // purpose (an unsaved film names no seen fact).
+                if ((parameter.isPlacement || parameter.entryType != null)
                     && string.IsNullOrEmpty(parameter.stringValue))
                     problems.Add(new StateTreeSchemaProblem(node,
                         $"'{Pretty(parameter.declaration.name)}' is not set."));
