@@ -16,7 +16,12 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>A non-player actor's own scope — resolvable as itself, never mistaken
         /// for THE player.</summary>
-        Character
+        Character,
+
+        /// <summary>The story above the levels: a tree that outlives travel and runs, inside the
+        /// level that is up, the part of it that is that level's. See
+        /// <see cref="StateTreeContextHost.JoinEpisode"/>.</summary>
+        Episode
     }
 
     /// <summary>
@@ -47,7 +52,7 @@ namespace PowerOfFire.DrawToPlay
     /// <see cref="contextId"/> exists for callers that must name a sibling from outside its
     /// branch ("p2"). All resolution is by kind + optional id — never by type, never by name.
     /// </summary>
-    public sealed class StateTreeContextHost : MonoBehaviour
+    public sealed partial class StateTreeContextHost : MonoBehaviour
     {
         public StateTreeContextKind kind = StateTreeContextKind.Level;
 
@@ -143,6 +148,8 @@ namespace PowerOfFire.DrawToPlay
         private void OnDisable()
         {
             Unregister();
+            if (kind == StateTreeContextKind.Episode)
+                LeaveEpisode(m_EpisodeLevel);
             StopTree();
         }
 
@@ -155,7 +162,8 @@ namespace PowerOfFire.DrawToPlay
 
         public void StartTree()
         {
-            if (tree == null)
+            // An episode's tree runs inside the level that is up, never in its own board.
+            if (tree == null || kind == StateTreeContextKind.Episode)
                 return;
 
             // THE SEED IS ON THE BOARD BEFORE THE FIRST OnEnter — every start, not only the
@@ -239,6 +247,7 @@ namespace PowerOfFire.DrawToPlay
             TickTree(Time.deltaTime);
         }
 
+
         /// <summary>
         /// One frame of every subsystem this scope owns, BEFORE its own tree (M33).
         ///
@@ -261,6 +270,8 @@ namespace PowerOfFire.DrawToPlay
         {
             if (m_Executor != null)
                 m_Executor.TickTree(deltaTime);
+            if (kind == StateTreeContextKind.Episode)
+                AfterEpisodeTick();
         }
 
         /// <summary>Assert this context's current state over again — what a body needs after
@@ -327,6 +338,8 @@ namespace PowerOfFire.DrawToPlay
             if (!s_Registered.Remove(this))
                 return;
             TellBodyBinders(bind: false);
+            if (kind == StateTreeContextKind.Level)
+                TellEpisodesGone();
         }
 
         /// <summary>
