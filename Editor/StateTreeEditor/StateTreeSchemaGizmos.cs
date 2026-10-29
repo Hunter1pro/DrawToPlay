@@ -141,7 +141,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 out LevelObjectRegistry manifest);
             if (row == null)
                 return false;
-            position = manifest.ToWorld(row.position, row.overrideHeight ? row.height : 0f);
+            position = manifest.ToWorld(row.position);
             return true;
         }
 
