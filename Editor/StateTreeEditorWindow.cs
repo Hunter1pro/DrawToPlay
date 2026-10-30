@@ -416,6 +416,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             autoOpen.RegisterValueChangedCallback(evt => autoOpenOnSelection = evt.newValue);
             toolbar.Add(autoOpen);
 
+            toolbar.Add(EditorGuides.HelpButton(true));
+
             return toolbar;
         }
 

@@ -105,6 +105,20 @@ namespace PowerOfFire.DrawToPlay.Editor
             return null;
         }
 
+        /// <summary>Takes the level's node out of <paramref name="episode"/>, with its zones and steps, and saves the
+        /// tree — the first half of removing a level: nothing in the story points at its files after. False when it
+        /// has no node there.</summary>
+        public static bool RemoveLevelNode(StateTreeAsset episode, LevelContent level, string rowName)
+        {
+            StateTreeNodeAsset node = LevelNode(episode, level, rowName);
+            if (node == null || node == episode.root)
+                return false;
+            StateTreeEditorOps.RemoveNode(episode, node, "Remove " + (string.IsNullOrEmpty(rowName) ? node.nodeId : rowName));
+            if (EditorUtility.IsPersistent(episode))
+                AssetDatabase.SaveAssetIfDirty(episode);
+            return true;
+        }
+
         private static bool Carries(StateTreeTaskAsset context, LevelObjectRegistry manifest)
         {
             foreach (System.Reflection.FieldInfo field in context.GetType().GetFields(
