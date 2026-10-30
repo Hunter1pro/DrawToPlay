@@ -134,7 +134,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 
         private static IEnumerable<UnityEditor.IMGUI.Controls.AdvancedDropdownItem> Lines(UnityEditor.IMGUI.Controls.AdvancedDropdownItem at)
         {
-            foreach (UnityEditor.IMGUI.Controls.AdvancedDropdownItem child in at.children)
+            foreach (UnityEditor.IMGUI.Controls.AdvancedDropdownItem child in at.childList)
             {
                 yield return child;
                 foreach (UnityEditor.IMGUI.Controls.AdvancedDropdownItem below in Lines(child))

@@ -343,7 +343,7 @@ namespace PowerOfFire.DrawToPlay.Tests
 
         private static IEnumerable<StateTreePickDropdown.Leaf> Leaves(UnityEditor.IMGUI.Controls.AdvancedDropdownItem at)
         {
-            foreach (UnityEditor.IMGUI.Controls.AdvancedDropdownItem child in at.children)
+            foreach (UnityEditor.IMGUI.Controls.AdvancedDropdownItem child in at.childList)
             {
                 if (child is StateTreePickDropdown.Leaf leaf)
                     yield return leaf;
