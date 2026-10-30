@@ -10,24 +10,20 @@ namespace PowerOfFire.DrawToPlay.Editor
 {
     /// <summary>
     /// THE LEVEL EDITOR for a manifest-driven level: open an area's scene and this window
-    /// shows that level's object rows — add, remove, configure, and DRAG THEM IN THE SCENE.
+    /// shows that level's object rows — place, remove, configure, and DRAG THEM IN THE SCENE.
     ///
     /// The scene holds only the arena, so there is nothing to select in it; the placements
     /// live in the level's <see cref="LevelObjectRegistry"/>. This panel is where they are
     /// authored: the open scene picks the level (its <see cref="LevelContent.scenePath"/>
-    /// matches), a kind dropdown plus Add appends a row at the view's centre, each row is a
-    /// button that selects it, and the selected row draws through the normal property
-    /// drawers — so kind, tree and parameters are the same fields the dashboard shows, with
-    /// no duplicate UI to keep in step.
+    /// matches). On the side, a palette of the kinds the level's kind registry offers: drag a
+    /// kind into the Scene view to place one where it lands, onto the list (or click it) to place
+    /// one at the view's centre. The list groups the rows by kind, each group folding; the
+    /// selected row draws through the normal property drawers — so kind, tree and parameters are
+    /// the same fields the dashboard shows, with no duplicate UI to keep in step.
     ///
-    /// A dockable WINDOW, not a scene overlay. It started as an overlay for the scene
-    /// handles' sake, but the handles never needed that — any window can subscribe to
-    /// <see cref="SceneView.duringSceneGui"/> — and a selected row's full editor (tree,
-    /// parameters, tags) is taller than a scene view can host: the overlay covered the level
-    /// it was editing and cut its own bottom off. As a window it scrolls, the user docks it
-    /// where they like (first open lands beside the Inspector), and the scene stays visible
-    /// while the handles keep working exactly as before: drag to move a row, click to
-    /// select it.
+    /// A dockable WINDOW, not a scene overlay: a selected row's full editor (tree, parameters,
+    /// tags) is taller than a scene view can host, and any window can draw handles through
+    /// <see cref="SceneView.duringSceneGui"/> — drag to move a row, click to select it.
     /// </summary>
     internal sealed class LevelManifestWindow : EditorWindow
     {
@@ -51,15 +47,31 @@ namespace PowerOfFire.DrawToPlay.Editor
         private const float k_HandlePixels = 9f;
 
         private VisualElement m_Root;
+        private ScrollView m_Scroll;
+        private LevelKindPalette m_Palette;
         private LevelContent m_Level;
         private SerializedObject m_Objects;
+
+        /// <summary>Each group's fold and its rows' lines, for the search to hide rows without a rebuild.</summary>
+        private readonly List<(Foldout fold, string kind, List<(VisualElement line, int index)> rows)> m_Groups =
+            new List<(Foldout, string, List<(VisualElement, int)>)>();
+
+        /// <summary>The selected row's line in the list — renamed live while its name is typed.</summary>
+        private Button m_SelectedLine;
+
+        /// <summary>Set when a row was just placed: the next panel focuses its name.</summary>
+        private bool m_FocusName;
+
+        /// <summary>Where a kind dragged over the Scene view would land, while it is dragged.</summary>
+        private Vector3? m_DropPreview;
+        private string m_DropKind;
 
         // SERIALIZED, because an EditorWindow is serialize/deserialized when it is DOCKED and
         // on every domain reload — a plain field comes back as its C# default, which is how
         // the selection silently jumped from the row being edited to row zero the moment the
         // window was dragged into a layout.
         [SerializeField] private int m_Selected = -1;
-        [SerializeField] private string m_AddKind = "";
+        [SerializeField] private string m_RowFilter = "";
 
         /// <summary>Runs again after every domain reload, which is exactly what these
         /// subscriptions need — the overlay's OnCreated only ran once per overlay life.</summary>
@@ -88,26 +100,71 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             m_Level = null;
             m_Kinds = null;
+            m_KindsSearched = false;
+            m_LevelKey = null;
             m_Selected = -1;
             Rebuild();
         }
 
-        /// <summary>The window's whole body is one SCROLL VIEW — the overlay's fatal flaw was
-        /// a fixed panel that cut the selected row's editor off at the scene view's edge.</summary>
+        /// <summary>The kinds' palette on the left, a splitter, and the rows in one SCROLL VIEW on the
+        /// right — a fixed panel would cut the selected row's editor off.</summary>
         private void CreateGUI()
         {
-            var scroll = new ScrollView(ScrollViewMode.Vertical);
-            scroll.style.flexGrow = 1f;
-            rootVisualElement.Add(scroll);
+            var split = new TwoPaneSplitView(0, 132f, TwoPaneSplitViewOrientation.Horizontal)
+            {
+                viewDataKey = "PowerOfFire.DrawToPlay.LevelManifest.Split"
+            };
+            rootVisualElement.Add(split);
+
+            var paletteScroll = new ScrollView(ScrollViewMode.Vertical);
+            paletteScroll.style.minWidth = 72f;
+            m_Palette = new LevelKindPalette(kind => PlaceAtCentre(kind));
+            paletteScroll.Add(m_Palette);
+            split.Add(paletteScroll);
+
+            m_Scroll = new ScrollView(ScrollViewMode.Vertical);
+            m_Scroll.style.flexGrow = 1f;
+            m_Scroll.style.minWidth = 160f;
+            // A kind dropped anywhere on the list side is placed at the Scene view's centre.
+            m_Scroll.RegisterCallback<DragUpdatedEvent>(_ =>
+            {
+                if (LevelKindPalette.DraggedKind() != null && m_Level != null && m_Level.objects != null)
+                    DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+            });
+            m_Scroll.RegisterCallback<DragPerformEvent>(_ =>
+            {
+                string kind = LevelKindPalette.DraggedKind();
+                if (kind == null || m_Level == null || m_Level.objects == null)
+                    return;
+                DragAndDrop.AcceptDrag();
+                PlaceAtCentre(kind);
+            });
+            split.Add(m_Scroll);
 
             m_Root = new VisualElement();
             m_Root.style.paddingLeft = 6f;
             m_Root.style.paddingRight = 6f;
             m_Root.style.paddingTop = 6f;
             m_Root.style.paddingBottom = 6f;
-            scroll.Add(m_Root);
+            m_Scroll.Add(m_Root);
             Rebuild();
         }
+
+        /// <summary>For tests: edit <paramref name="level"/> with <paramref name="kinds"/>, without a scene.</summary>
+        internal void Edit(LevelContent level, LevelObjectKindRegistry kinds, string levelKey)
+        {
+            m_Level = level;
+            m_Kinds = kinds;
+            m_KindsSearched = true;
+            m_LevelKey = levelKey;
+            if (m_Root == null)
+                CreateGUI();
+            else
+                Rebuild();
+        }
+
+        internal int selected => m_Selected;
+        internal LevelKindPalette palette => m_Palette;
 
         // ---- panel -----------------------------------------------------------------------
 
@@ -116,8 +173,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (m_Root == null)
                 return;
             m_Root.Clear();
+            m_Groups.Clear();
+            m_SelectedLine = null;
 
             ResolveLevel();
+            m_Palette?.Show(m_Level != null && m_Level.objects != null ? Kinds() : null);
             if (m_Level == null)
             {
                 m_Root.Add(Hint("No level owns the open scene. Open an area scene — the level "
@@ -125,10 +185,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             }
 
-            m_Root.Add(new Label(m_Level.displayName.Length > 0
-                ? m_Level.displayName + "  (" + m_Level.name + ")"
-                : m_Level.name)
-            { style = { unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 4f } });
+            m_Root.Add(StateTreeInspectorLook.Header("▦", new Color(0.45f, 0.8f, 1f),
+                m_Level.displayName.Length > 0
+                    ? m_Level.displayName + "  (" + m_Level.name + ")"
+                    : m_Level.name, out _));
 
             if (m_Level.objects == null)
             {
@@ -139,7 +199,6 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             m_Objects = new SerializedObject(m_Level.objects);
             m_Root.Add(BuildStyleRow());
-            m_Root.Add(BuildAddRow());
             m_Root.Add(BuildList());
             m_Root.Add(BuildSelected());
             m_Root.Add(BuildSaveRow());
@@ -331,91 +390,191 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private const string k_StyleKey = "PowerOfFire.DrawToPlay.LevelManifest.GhostStyle";
 
-        private VisualElement BuildAddRow()
-        {
-            var row = new VisualElement { style = { flexDirection = FlexDirection.Row } };
-
-            var kinds = new List<string>();
-            CollectKindNames(kinds);
-            if (kinds.Count == 0)
-            {
-                row.Add(Hint("No LevelObjectKindRegistry in the project — nothing to add."));
-                return row;
-            }
-            if (string.IsNullOrEmpty(m_AddKind) || !kinds.Contains(m_AddKind))
-                m_AddKind = kinds[0];
-
-            var kindField = new DropdownField(kinds, kinds.IndexOf(m_AddKind));
-            kindField.style.flexGrow = 1f;
-            kindField.RegisterValueChangedCallback(changed => m_AddKind = changed.newValue);
-            row.Add(kindField);
-
-            var add = new Button(() => AddRow(m_AddKind)) { text = "Add" };
-            add.style.flexShrink = 0f;
-            add.tooltip = "Append a placement of this kind at the centre of the scene view, "
-                + "then drag its handle to position it.";
-            row.Add(add);
-            return row;
-        }
-
+        /// <summary>
+        /// The rows, grouped by kind: one fold per kind (its icon, name and count), the rows inside by
+        /// name. A fold remembers whether it was open; the selected row's group always opens. The
+        /// search hides rows in place, so typing in it never rebuilds the panel.
+        /// </summary>
         private VisualElement BuildList()
         {
             var list = new VisualElement { style = { marginTop = 6f, marginBottom = 6f } };
+            list.Add(StateTreeInspectorLook.Section("Placements"));
             List<LevelObjectDef> rows = m_Level.objects.entries;
             if (rows.Count == 0)
             {
-                list.Add(Hint("No placements yet."));
+                list.Add(Hint("No placements yet. Drag a kind from the left into the Scene view, "
+                    + "or click it to place one at the view's centre."));
                 return list;
             }
 
-            var lastGroup = "\0";
-            for (int i = 0; i < rows.Count; i++)
+            var search = new ToolbarSearchField { value = m_RowFilter ?? "" };
+            search.style.width = StyleKeyword.Auto;
+            search.style.marginLeft = 0f;
+            search.style.marginRight = 0f;
+            search.tooltip = "Show only the rows whose name, id, kind or entry contains this.";
+            search.RegisterValueChangedCallback(changed =>
             {
-                LevelObjectDef def = rows[i];
-                if (def == null)
-                    continue;
-                if (def.group != lastGroup)
+                m_RowFilter = changed.newValue;
+                ApplyFilter();
+            });
+            list.Add(search);
+
+            LevelObjectKindRegistry kinds = Kinds();
+            foreach (LevelManifestEdits.KindGroup group in LevelManifestEdits.GroupByKind(rows, kinds))
+            {
+                string kind = group.kind;
+                bool holdsSelected = group.rows.Contains(m_Selected);
+                if (holdsSelected)
+                    SetFolded(kind, false);
+
+                var fold = new Foldout { value = !IsFolded(kind) };
+                fold.AddToClassList(GroupClass);
+                fold.userData = kind;
+                fold.style.marginTop = 2f;
+                fold.RegisterValueChangedCallback(changed =>
                 {
-                    lastGroup = def.group;
-                    list.Add(new Label(string.IsNullOrEmpty(lastGroup) ? "(no group)" : lastGroup)
+                    if (changed.target == fold && string.IsNullOrWhiteSpace(m_RowFilter))
+                        SetFolded(kind, !changed.newValue);
+                });
+                DressGroupHeader(fold, kinds, kind, group.rows.Count);
+
+                var lines = new List<(VisualElement, int)>();
+                foreach (int index in group.rows)
+                {
+                    LevelObjectDef def = rows[index];
+                    var line = new VisualElement { style = { flexDirection = FlexDirection.Row } };
+                    var select = new Button(() => Select(index))
                     {
-                        style = { opacity = 0.6f, marginTop = 4f }
-                    });
+                        text = string.IsNullOrEmpty(def.name) ? "(unnamed)" : def.name,
+                        tooltip = def.id + (string.IsNullOrEmpty(def.entryName) ? "" : "\n" + def.entryName)
+                    };
+                    select.style.flexGrow = 1f;
+                    select.style.flexShrink = 1f;
+                    select.style.unityTextAlign = TextAnchor.MiddleLeft;
+                    if (index == m_Selected)
+                    {
+                        select.style.unityFontStyleAndWeight = FontStyle.Bold;
+                        m_SelectedLine = select;
+                    }
+                    line.Add(select);
+
+                    var remove = new Button(() => RemoveRow(index)) { text = "✕", tooltip = "Remove this placement." };
+                    remove.style.width = 22f;
+                    remove.style.flexShrink = 0f;
+                    line.Add(remove);
+                    fold.Add(line);
+                    lines.Add((line, index));
                 }
+                m_Groups.Add((fold, kind, lines));
+                list.Add(fold);
+            }
+            ApplyFilter();
 
-                int index = i;
-                var line = new VisualElement { style = { flexDirection = FlexDirection.Row } };
-                var select = new Button(() => Select(index))
+            if (m_SelectedLine != null)
+            {
+                Button shown = m_SelectedLine;
+                shown.schedule.Execute(() =>
                 {
-                    text = (string.IsNullOrEmpty(def.name) ? "(unnamed)" : def.name)
-                        + "  ·  " + def.kind.entryName
-                };
-                select.style.flexGrow = 1f;
-                select.style.unityTextAlign = TextAnchor.MiddleLeft;
-                if (index == m_Selected)
-                    select.style.unityFontStyleAndWeight = FontStyle.Bold;
-                line.Add(select);
-
-                var remove = new Button(() => RemoveRow(index)) { text = "✕" };
-                remove.style.width = 22f;
-                remove.style.flexShrink = 0f;
-                line.Add(remove);
-                list.Add(line);
+                    if (shown.panel != null && m_Scroll != null)
+                        m_Scroll.ScrollTo(shown);
+                });
             }
             return list;
         }
+
+        public const string GroupClass = "dtp-manifest-group";
+
+        /// <summary>The fold's own line: the kind's icon, its name, and how many rows it holds.</summary>
+        private static void DressGroupHeader(Foldout fold, LevelObjectKindRegistry kinds, string kind, int count)
+        {
+            fold.text = kind + "  (" + count + ")";
+            VisualElement input = fold.Q(className: Foldout.inputUssClassName);
+            if (input == null)
+                return;
+            LevelObjectKindDef def = kinds != null ? kinds.FindByName(kind) as LevelObjectKindDef : null;
+            VisualElement icon = LevelKindPalette.Icon(def, kind, LevelManifestEdits.KindColour(kinds, kind), 16f);
+            icon.style.marginRight = 4f;
+            input.Insert(Mathf.Min(1, input.childCount), icon);
+        }
+
+        /// <summary>Hides the rows the search leaves out, and the groups left empty; while searching,
+        /// every group with a match shows open (its remembered fold is left alone).</summary>
+        private void ApplyFilter()
+        {
+            if (m_Level == null || m_Level.objects == null)
+                return;
+            List<LevelObjectDef> rows = m_Level.objects.entries;
+            bool searching = !string.IsNullOrWhiteSpace(m_RowFilter);
+            foreach ((Foldout fold, string kind, List<(VisualElement line, int index)> lines) in m_Groups)
+            {
+                var shown = 0;
+                foreach ((VisualElement line, int index) in lines)
+                {
+                    bool match = index < rows.Count && rows[index] != null
+                        && LevelManifestEdits.Matches(rows[index], m_RowFilter);
+                    line.style.display = match ? DisplayStyle.Flex : DisplayStyle.None;
+                    if (match)
+                        shown++;
+                }
+                fold.style.display = shown > 0 ? DisplayStyle.Flex : DisplayStyle.None;
+                fold.SetValueWithoutNotify(searching ? shown > 0 : !IsFolded(kind));
+            }
+        }
+
+        /// <summary>Whether a kind's group is folded shut in this level — per user, in EditorPrefs,
+        /// read once and cached (a rebuild asks per group).</summary>
+        private bool IsFolded(string kind)
+        {
+            string key = FoldKey(kind);
+            if (!s_Folded.TryGetValue(key, out bool folded))
+                s_Folded[key] = folded = EditorPrefs.GetBool(key, false);
+            return folded;
+        }
+
+        private void SetFolded(string kind, bool folded)
+        {
+            string key = FoldKey(kind);
+            if (s_Folded.TryGetValue(key, out bool was) && was == folded)
+                return;
+            s_Folded[key] = folded;
+            if (folded)
+                EditorPrefs.SetBool(key, true);
+            else
+                EditorPrefs.DeleteKey(key);
+        }
+
+        private string FoldKey(string kind)
+        {
+            return FoldKey(m_Level != null ? m_Level.name : "", kind);
+        }
+
+        /// <summary>The EditorPrefs key a level's kind group keeps its fold under.</summary>
+        internal static string FoldKey(string level, string kind)
+        {
+            return k_FoldKey + level + "/" + kind;
+        }
+
+        private static readonly Dictionary<string, bool> s_Folded = new Dictionary<string, bool>();
+
+        private const string k_FoldKey = "PowerOfFire.DrawToPlay.LevelManifest.Folded.";
 
         /// <summary>The selected row, drawn through the normal drawers — the kind and entry
         /// dropdowns come free, so this panel never duplicates them.</summary>
         private VisualElement BuildSelected()
         {
-            var box = new VisualElement();
             List<LevelObjectDef> rows = m_Level.objects.entries;
-            if (m_Selected < 0 || m_Selected >= rows.Count)
+            if (m_Selected < 0 || m_Selected >= rows.Count || rows[m_Selected] == null)
             {
-                box.Add(Hint("Select a placement to configure it."));
-                return box;
+                var none = new VisualElement();
+                none.Add(Hint("Select a placement to configure it."));
+                return none;
             }
+
+            string kindName = rows[m_Selected].kind.entryName;
+            Color accent = LevelManifestEdits.KindColour(Kinds(), kindName);
+            VisualElement box = StateTreeInspectorLook.Card(StateTreeInspectorLook.CardBackground, accent);
+            box.Add(StateTreeInspectorLook.CardHeader("●", accent,
+                string.IsNullOrEmpty(kindName) ? "Placement" : kindName, out _));
 
             SerializedProperty element = m_Objects.FindProperty("entries")
                 .GetArrayElementAtIndex(m_Selected);
@@ -434,6 +593,23 @@ namespace PowerOfFire.DrawToPlay.Editor
                 var propertyField = new PropertyField(child);
                 propertyField.Bind(m_Objects);
                 box.Add(propertyField);
+                if (field == "name" && m_FocusName)
+                {
+                    m_FocusName = false;
+                    FocusNameWhenBound(propertyField);
+                }
+            }
+
+            SerializedProperty nameProperty = element.FindPropertyRelative("name");
+            if (nameProperty != null)
+            {
+                box.TrackPropertyValue(nameProperty, changed =>
+                {
+                    if (m_SelectedLine != null)
+                        m_SelectedLine.text = string.IsNullOrEmpty(changed.stringValue)
+                            ? "(unnamed)"
+                            : changed.stringValue;
+                });
             }
 
             // The scene mirrors only what it draws — the handle and the ghost. Tracking
@@ -449,30 +625,53 @@ namespace PowerOfFire.DrawToPlay.Editor
             return box;
         }
 
+        /// <summary>The name field's text, focused and selected once the binder has built it — a
+        /// placed row is named next.</summary>
+        private void FocusNameWhenBound(PropertyField field)
+        {
+            var tries = 0;
+            var done = false;
+            field.schedule.Execute(() =>
+            {
+                TextField text = field.Q<TextField>();
+                if (text == null && ++tries < 20)
+                    return;
+                done = true;
+                if (text == null)
+                    return;
+                Focus();
+                text.Focus();
+                text.SelectAll();
+            }).Every(30).Until(() => done);
+        }
+
         // ---- edits -----------------------------------------------------------------------
 
-        private void AddRow(string kindName)
+        /// <summary>A row of <paramref name="kindName"/> at the Scene view's centre — a palette click,
+        /// or a kind dropped on the list.</summary>
+        internal LevelObjectDef PlaceAtCentre(string kindName)
         {
-            LevelObjectKindDef kind = FindKind(kindName);
-            Vector2 at = ViewCentre();
+            if (m_Level == null || m_Level.objects == null)
+                return null;
+            Vector2 centre = StateTreeRowCreate.SceneCentre(m_Level.objects);
+            return Place(kindName, m_Level.objects.ToWorld(centre), false);
+        }
 
-            Undo.RecordObject(m_Level.objects, "Add Level Object");
-            var def = new LevelObjectDef
-            {
-                id = System.Guid.NewGuid().ToString("N"),
-                name = kindName + " " + (m_Level.objects.entries.Count + 1),
-                group = kindName + "s",
-                position = at
-            };
-            if (kind != null)
-            {
-                def.kind.entryId = kind.id;
-                def.kind.entryName = kind.name;
-            }
-            m_Level.objects.entries.Add(def);
-            EditorUtility.SetDirty(m_Level.objects);
+        /// <summary>A row of <paramref name="kindName"/> standing at <paramref name="world"/>: appended
+        /// in one undo step, selected, its group opened and its name ready to type.</summary>
+        internal LevelObjectDef Place(string kindName, Vector3 world, bool onSurface)
+        {
+            if (m_Level == null || m_Level.objects == null || string.IsNullOrEmpty(kindName))
+                return null;
+            LevelObjectDef row = LevelManifestEdits.CreateRow(m_Level.objects, Kinds(), kindName,
+                LevelKey(), world, onSurface);
+            if (row == null)
+                return null;
             m_Selected = m_Level.objects.entries.Count - 1;
+            SetFolded(kindName, false);
+            m_FocusName = true;
             Rebuild();
+            return row;
         }
 
         private void RemoveRow(int index)
@@ -480,8 +679,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             Undo.RecordObject(m_Level.objects, "Remove Level Object");
             m_Level.objects.entries.RemoveAt(index);
             EditorUtility.SetDirty(m_Level.objects);
-            if (m_Selected >= m_Level.objects.entries.Count)
-                m_Selected = m_Level.objects.entries.Count - 1;
+            if (index == m_Selected)
+                m_Selected = -1;
+            else if (index < m_Selected)
+                m_Selected--;
             Rebuild();
         }
 
@@ -601,54 +802,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
         }
 
-        /// <summary>
-        /// The colour a KIND is drawn in — derived, not authored, so a project that adds a kind
-        /// gets a distinct colour for free and the same kind looks the same in every level.
-        /// Authoring it would be one more field to fill in and one more thing left at white.
-        ///
-        /// FROM THE KIND'S POSITION IN THE REGISTRY, spaced by the golden ratio. Hashing the name
-        /// was the obvious idea and it does not work: hashes are uniform, not SEPARATED, and this
-        /// project's own two kinds landed 0.036 of the wheel apart — 'npc' and 'pickup' both drew
-        /// green, which is precisely the distinction the colour exists to make. The registry is an
-        /// ordered list, and stepping by 0.618 of the wheel per index is the standard way to keep
-        /// consecutive entries maximally far apart, so the first several kinds are unmistakable.
-        ///
-        /// A kind the registry does not list — a row left behind by a renamed kind — still has to
-        /// draw, and falls back to a hash. <c>string.GetHashCode</c> is deliberately not used: it
-        /// is randomised per process, so the level would change colour on every editor restart.
-        /// </summary>
-        /// <param name="kind">The kind row's name; empty is legal and gets the neutral tint.</param>
-        /// <returns>A saturated, bright colour — alpha is the caller's business.</returns>
+        /// <summary>The colour a kind is drawn in — see <see cref="LevelManifestEdits.KindColour"/>;
+        /// the palette tile and the group wear the same one.</summary>
         private Color ColourOfKind(string kind)
         {
-            if (string.IsNullOrEmpty(kind))
-                return k_NoKindTint;
-
-            LevelObjectKindRegistry registry = Kinds();
-            if (registry != null)
-            {
-                for (int i = 0; i < registry.entries.Count; i++)
-                {
-                    if (registry.entries[i] != null
-                        && string.Equals(registry.entries[i].name, kind, StringComparison.Ordinal))
-                        return Hue(i * 0.618034f % 1f);
-                }
-            }
-
-            uint hash = 2166136261u;
-            for (int i = 0; i < kind.Length; i++)
-                hash = (hash ^ kind[i]) * 16777619u;
-            return Hue(hash % 3600u / 3600f);
+            return LevelManifestEdits.KindColour(Kinds(), kind);
         }
-
-        private static Color Hue(float hue)
-        {
-            return Color.HSVToRGB(hue, 0.7f, 1f);
-        }
-
-        /// <summary>What a placement with no kind is drawn in — a neutral that is not on the wheel,
-        /// so "unset" never looks like one of the kinds.</summary>
-        private static readonly Color k_NoKindTint = new Color(0.7f, 0.7f, 0.72f);
 
         /// <summary>
         /// The shape a placement gets when there is no mesh to show: a person-sized CAPSULE.
@@ -717,6 +876,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
 
             LevelObjectRegistry manifest = m_Level.objects;
+            if (HandleKindDrop(view, manifest))
+                return;
             List<LevelObjectDef> rows = manifest.entries;
             Plane[] frustum = Event.current.type == EventType.Repaint && view.camera != null
                 ? GeometryUtility.CalculateFrustumPlanes(view.camera)
@@ -764,6 +925,82 @@ namespace PowerOfFire.DrawToPlay.Editor
                 }
             }
         }
+
+        /// <summary>
+        /// A palette kind dragged over the Scene view: a ring where it would land while it moves, and on
+        /// release a new row there — on the surface under the pointer (what the scene renders, else a
+        /// collider), or on the level's ground plane where there is none.
+        /// </summary>
+        /// <returns>True when the event was the drag's, and used.</returns>
+        private bool HandleKindDrop(SceneView view, LevelObjectRegistry manifest)
+        {
+            Event current = Event.current;
+            switch (current.type)
+            {
+                case EventType.DragUpdated:
+                case EventType.DragPerform:
+                    string kind = LevelKindPalette.DraggedKind();
+                    if (kind == null)
+                        return false;
+                    Ray ray = HandleUtility.GUIPointToWorldRay(current.mousePosition);
+                    Vector2 gui = current.mousePosition;
+                    bool lands = LevelManifestEdits.DropPoint(manifest, ray,
+                        (Ray _, out Vector3 point) => SurfaceUnder(gui, ray, out point),
+                        out Vector3 world, out bool onSurface);
+                    DragAndDrop.visualMode = lands ? DragAndDropVisualMode.Copy : DragAndDropVisualMode.Rejected;
+                    m_DropKind = kind;
+                    m_DropPreview = lands ? world : (Vector3?)null;
+                    if (current.type == EventType.DragPerform && lands)
+                    {
+                        DragAndDrop.AcceptDrag();
+                        m_DropPreview = null;
+                        Place(kind, world, onSurface);
+                    }
+                    current.Use();
+                    view.Repaint();
+                    return true;
+                case EventType.DragExited:
+                    if (m_DropPreview != null)
+                    {
+                        m_DropPreview = null;
+                        view.Repaint();
+                    }
+                    return false;
+                case EventType.Repaint:
+                    if (m_DropPreview is Vector3 at && LevelKindPalette.DraggedKind() != null)
+                    {
+                        Vector3 up = manifest.ToWorld(Vector2.zero, 1f) - manifest.ToWorld(Vector2.zero);
+                        float size = HandleUtility.GetHandleSize(at) * 0.3f;
+                        using (new Handles.DrawingScope(ColourOfKind(m_DropKind)))
+                        {
+                            Handles.DrawWireDisc(at, up, size, 2f);
+                            Handles.Label(at + up * size, m_DropKind);
+                        }
+                    }
+                    return false;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>The first thing the Scene view shows under <paramref name="gui"/>, else the first
+        /// collider along <paramref name="ray"/> (triggers ignored).</summary>
+        private static bool SurfaceUnder(Vector2 gui, Ray ray, out Vector3 point)
+        {
+            if (HandleUtility.PlaceObject(gui, out point, out _))
+                return true;
+            if (Physics.Raycast(ray, out RaycastHit hit, k_DropReach, Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Ignore))
+            {
+                point = hit.point;
+                return true;
+            }
+            point = default;
+            return false;
+        }
+
+        /// <summary>How far a drop looks for a collider.</summary>
+        private const float k_DropReach = 2000f;
 
         // ---- lookups ---------------------------------------------------------------------
 
@@ -814,6 +1051,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             m_Kinds = null;
             m_KindsSearched = false;
+            m_LevelKey = null;
+            m_Palette?.Forget();
             Rebuild();
         }
 
@@ -837,7 +1076,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 for (int j = 0; j < levels.entries.Count; j++)
                 {
                     if (levels.entries[j] != null && levels.entries[j].content == m_Level)
+                    {
+                        m_LevelKey = LevelManifestEdits.LevelKey(m_Level, levels.entries[j].name);
                         return m_Kinds = levels.kinds;
+                    }
                 }
             }
             return null;
@@ -847,43 +1089,22 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <see cref="m_Level"/>, and worth caching because the hologram asks on every repaint.</summary>
         private LevelObjectKindRegistry m_Kinds;
 
-        private void CollectKindNames(List<string> into)
-        {
-            LevelObjectKindRegistry registry = Kinds();
-            if (registry == null)
-                return;
-            for (int j = 0; j < registry.entries.Count; j++)
-            {
-                LevelObjectKindDef row = registry.entries[j];
-                if (row != null && !string.IsNullOrEmpty(row.name) && !into.Contains(row.name))
-                    into.Add(row.name);
-            }
-        }
+        /// <summary>The level's short name new rows are named after ("hall") — its catalog row's name,
+        /// found with <see cref="m_Kinds"/>.</summary>
+        private string m_LevelKey;
 
-        private LevelObjectKindDef FindKind(string name)
+        private string LevelKey()
         {
-            LevelObjectKindRegistry registry = Kinds();
-            return registry != null ? registry.FindByName(name) as LevelObjectKindDef : null;
-        }
-
-        private static Vector2 ViewCentre()
-        {
-            SceneView view = SceneView.lastActiveSceneView;
-            return view != null ? (Vector2)view.pivot : Vector2.zero;
+            Kinds();
+            return m_LevelKey ??= LevelManifestEdits.LevelKey(m_Level, null);
         }
 
         private static Label Hint(string text)
         {
-            return new Label(text)
-            {
-                style =
-                {
-                    whiteSpace = WhiteSpace.Normal,
-                    opacity = 0.7f,
-                    paddingTop = 4f,
-                    paddingBottom = 4f
-                }
-            };
+            Label note = StateTreeInspectorLook.Note(text);
+            note.style.paddingTop = 4f;
+            note.style.paddingBottom = 4f;
+            return note;
         }
     }
 }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.3 - 2026-10-30
+- Level Manifest: a palette of the level's kinds on the side (the prefab's preview or the kind's
+  initial on its colour, searchable past a handful). Drag a kind into the Scene view and a row of it
+  stands where it lands — on the surface under the pointer, else on the ground plane; drop it on the
+  list or click it and it stands at the view's centre. A new row is named and id'd `level.kind.N`,
+  filed in the group the level already uses for that kind, selected with its name ready to type, one
+  undo. The list groups rows by kind (icon, name, count), sorted by name, each group folding and
+  remembering it; a search hides rows in place. `LevelManifestEdits` holds the edits apart from the window.
+
 ## 0.6.2 - 2026-10-30
 - Dev mode's inspector in Mission mode's look (`StateTreeInspectorLook`, shared by both): a header,
   sections, a card per task and condition (readable name, its category line, quiet fields under

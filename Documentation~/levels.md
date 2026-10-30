@@ -76,6 +76,15 @@ A level is authored as rows and built in one action; `LevelManifestWindow` is wh
 is edited, and the generated ghost meshes (`LevelGhostMeshes`) show placements in the scene
 without those placements being real scene objects.
 
+The window's left column is a palette of the kinds the level's catalog offers (`LevelRegistry.kinds`).
+Drag a kind into the Scene view and a row of it stands where it lands: on whatever the scene shows
+under the pointer, else on a collider, else on the ground plane. Drop it on the list, or click it,
+and it stands at the view's centre. A new row is named and id'd `level.kind.N` (`hall.door.3`, the
+first free number), filed in the group the level already uses for that kind, selected with its name
+focused; one undo takes it back. The list groups the rows by kind — a fold per kind with its icon and
+count, rows by name — and each fold remembers whether it was open (per user). Selecting a row opens
+its group; the search hides rows without rebuilding the panel.
+
 The test that a level is well-formed is that you can delete the scene and rebuild it from the
 manifest with no difference. If that is not true, something was placed by hand.
 
