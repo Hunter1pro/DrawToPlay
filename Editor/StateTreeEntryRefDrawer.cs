@@ -76,8 +76,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                     if (sourced.registry != null && !catalogs.Contains(sourced.registry))
                         catalogs.Add(sourced.registry);
                 }
-                StateTreePickItems.Rows(catalogs, StateTreePickItems.Owning(target, out _), entryType,
-                        StateTreePickItems.Enclosing(target, entryType))
+                StateTreeRegistryAsset narrowTo = StateTreePickItems.Enclosing(target, entryType);
+                StateTreePickItems.Rows(catalogs, StateTreePickItems.Owning(target, out _), entryType, narrowTo)
+                    .OfferNew(NewTargets(entryType, owner, target, narrowTo))
                     .Show(button.worldBound, nameProperty.stringValue, item =>
                     {
                         // Re-fetched rather than captured: the picker outlives this callback's
@@ -240,6 +241,29 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (row != null)
                     into.Add(new SourcedRow { registry = registry, entry = row });
             }
+        }
+
+        /// <summary>Where "+ New" may make a row: the catalog the field narrows to, else the ones its owner
+        /// declares — never the project-wide fallback, whose rows the field could not resolve.</summary>
+        internal static List<StateTreeRegistryAsset> NewTargets(Type entryType, StateTreeRegistryAsset owner,
+            UnityEngine.Object target, StateTreeRegistryAsset narrowTo)
+        {
+            if (narrowTo != null)
+                return new List<StateTreeRegistryAsset> { narrowTo };
+            var declared = new List<StateTreeRegistryAsset>();
+            if (owner != null)
+            {
+                var reachable = new List<StateTreeRegistryAsset>();
+                owner.CollectWithDependencies(reachable);
+                foreach (StateTreeRegistryAsset registry in reachable)
+                {
+                    if (registry != null && registry != owner && registry.entryType == entryType)
+                        declared.Add(registry);
+                }
+                return declared;
+            }
+            List<StateTreeRegistryAsset> offered = StateTreeRowOffers.For(target, entryType, out bool isDeclared);
+            return isDeclared ? offered : declared;
         }
 
         /// <summary>A row and the registry it was found in — the pair the picker needs, because

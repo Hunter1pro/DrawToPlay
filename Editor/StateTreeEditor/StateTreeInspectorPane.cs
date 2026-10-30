@@ -88,8 +88,8 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// it appear in every other tree's task picker. Those fields exist nowhere else in the window and
     /// "mark this tree as a task" is the whole entry point to composition.
     ///
-    /// THE TREE'S OWN PARAMETER DECLARATION IS NOT ONE OF THEM — it is above everything, in both
-    /// views, from one builder (<see cref="BuildTreeParameters"/>) mounted twice. Declaring a
+    /// THE TREE'S OWN PARAMETER DECLARATION IS NOT ONE OF THEM — it is on every state's page too, under
+    /// "This tree" after the state's cards, from one builder (<see cref="BuildTreeParameters"/>) mounted twice. Declaring a
     /// parameter is not a tree-settings chore done once before the states exist; it is what an author
     /// reaches for WHILE wiring a state — "this number wants to be tunable" — and a list reachable
     /// only by deselecting everything is a list that gets skipped, with the raw ScriptableObject
@@ -191,7 +191,18 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// </summary>
     internal sealed class StateTreeInspectorPane
     {
-        private static readonly Color k_BoxBackground = new Color(0f, 0f, 0f, 0.16f);
+        private static readonly Color k_BoxBackground = StateTreeInspectorLook.CardBackground;
+
+        /// <summary>The cards' accent stripes — the tints below at full strength, so a glance down
+        /// the left edge separates a plain task, a sub-tree, a graph, a transition and an interrupt.</summary>
+        private static readonly Color k_StateAccent = new Color(0.55f, 0.75f, 1f, 1f);
+        private static readonly Color k_TaskAccent = new Color(0.62f, 0.66f, 0.72f, 1f);
+        private static readonly Color k_SubTreeAccent = new Color(0.62f, 0.48f, 0.98f, 1f);
+        private static readonly Color k_GraphAccent = new Color(0.25f, 0.78f, 0.66f, 1f);
+        private static readonly Color k_TransitionAccent = new Color(0.40f, 0.62f, 0.98f, 1f);
+        private static readonly Color k_InterruptAccent = new Color(0.98f, 0.62f, 0.28f, 1f);
+        private static readonly Color k_ConditionAccent = new Color(0.85f, 0.80f, 0.45f, 1f);
+        private static readonly Color k_ConditionBackground = new Color(0f, 0f, 0f, 0.12f);
         private static readonly Color k_TransitionBackground = new Color(0.30f, 0.55f, 0.92f, 0.12f);
         private static readonly Color k_InterruptBackground = new Color(0.95f, 0.58f, 0.25f, 0.12f);
         private static readonly Color k_SubTreeBackground = new Color(0.55f, 0.40f, 0.92f, 0.14f);
@@ -456,6 +467,46 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// anywhere in the tree does.</summary>
         private List<StateTreeEditorOps.RoutedKey> m_IncomingRoutedKeys;
 
+        /// <summary>The cards whose "More" fold the author opened, by sub-asset — kept across the
+        /// rebuilds every edit causes.</summary>
+        private readonly HashSet<UnityEngine.Object> m_OpenMore = new HashSet<UnityEngine.Object>();
+
+        /// <summary>One fresh instance per task/condition type, read to tell a field at its default
+        /// from one the author set. Made on first look, dropped before a domain reload.</summary>
+        private static readonly Dictionary<Type, SerializedObject> s_Defaults =
+            new Dictionary<Type, SerializedObject>();
+
+        internal static string FieldRowName(string propertyPath) => "dtp-field-" + propertyPath;
+
+        private static SerializedObject DefaultsOf(UnityEngine.Object target)
+        {
+            if (!(target is ScriptableObject) || target == null)
+                return null;
+            var type = target.GetType();
+            if (s_Defaults.TryGetValue(type, out var cached) && cached != null && cached.targetObject != null)
+                return cached;
+            if (s_Defaults.Count == 0)
+            {
+                AssemblyReloadEvents.beforeAssemblyReload -= DropDefaults;
+                AssemblyReloadEvents.beforeAssemblyReload += DropDefaults;
+            }
+            var fresh = ScriptableObject.CreateInstance(type);
+            fresh.hideFlags = HideFlags.HideAndDontSave;
+            var serialized = new SerializedObject(fresh);
+            s_Defaults[type] = serialized;
+            return serialized;
+        }
+
+        private static void DropDefaults()
+        {
+            foreach (var each in s_Defaults.Values)
+            {
+                if (each != null && each.targetObject != null)
+                    UnityEngine.Object.DestroyImmediate(each.targetObject);
+            }
+            s_Defaults.Clear();
+        }
+
         internal StateTreeInspectorPane(ScrollView root, Action structuralChanged, Action edited)
         {
             m_Root = root;
@@ -483,18 +534,20 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             }
 
-            // Above the state, not below it: the declaration belongs to the TREE, and a section that
-            // followed the state's own tasks would read as part of that state.
-            m_Root.Add(BuildTreeParameters());
-            m_Root.Add(BuildTreeKeys());
-            m_Root.Add(BuildTreeData());
-            m_Root.Add(BuildTreeUsedBy());
-
+            // The state first, in Mission mode's look: its header, its identity, its cards. The
+            // tree's own declarations follow under their own heading — still one scroll away while
+            // wiring, never mistaken for part of the state.
             BuildHeader();
             BuildIdentity();
             BuildValidation();
             BuildTasks();
             BuildTransitions();
+
+            m_Root.Add(SectionLabel("This tree"));
+            m_Root.Add(BuildTreeParameters());
+            m_Root.Add(BuildTreeKeys());
+            m_Root.Add(BuildTreeData());
+            m_Root.Add(BuildTreeUsedBy());
         }
 
         // --- tree settings ----------------------------------------------------------------
@@ -1812,7 +1865,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             EnlargeRowButton(pick, k_GlyphMinWidth);
             pick.tooltip = "Pick an entry from the registries this tree lists in its Data "
                 + "section.";
-            pick.clicked += () => ShowEntryPickMenu(target, fieldName, reference);
+            pick.clicked += () => ShowEntryPickMenu(pick.worldBound, target, fieldName, reference);
             row.Add(pick);
 
             if (!string.IsNullOrEmpty(reference.EntryId))
@@ -1987,58 +2040,40 @@ namespace PowerOfFire.DrawToPlay.Editor
             RebuildPane();
         }
 
-        /// <summary>The ⛃ menu: every entry of the right class from every registry the tree
-        /// lists, pathed registry/group/entry so the registry's own grouping IS the menu's.</summary>
-        private void ShowEntryPickMenu(UnityEngine.Object target, string fieldName,
+        /// <summary>The ⛃ picker: every entry of the right class from every registry the tree lists,
+        /// searchable, grouped by registry and the rows' own groups — and "+ New … in X" for each of
+        /// those registries, which makes the row there and picks it.</summary>
+        internal void ShowEntryPickMenu(Rect at, UnityEngine.Object target, string fieldName,
             IStateTreeEntryRef reference)
         {
-            var menu = new GenericMenu();
-            var offered = 0;
-            var registries = m_Tree.registries;
-
-            for (var r = 0; registries != null && r < registries.Count; ++r)
+            var registries = new List<StateTreeRegistryAsset>();
+            for (var r = 0; m_Tree.registries != null && r < m_Tree.registries.Count; ++r)
             {
-                var registry = registries[r];
-                if (registry == null
-                    || !reference.EntryType.IsAssignableFrom(registry.entryType))
-                    continue;
-
-                var prefix = registry.name.Replace('/', k_MenuSeparatorStandIn) + "/";
-                for (var i = 0; i < registry.Count; ++i)
-                {
-                    StateTreeRegistryEntry entry = registry.EntryAt(i);
-                    if (entry == null || string.IsNullOrEmpty(entry.id)
-                        || string.IsNullOrEmpty(entry.name))
-                        continue;
-
-                    var path = prefix
-                        + (string.IsNullOrEmpty(entry.group)
-                            ? string.Empty
-                            : entry.group.Trim('/') + "/")
-                        + entry.name.Replace('/', k_MenuSeparatorStandIn);
-                    var picked = entry;
-                    menu.AddItem(new GUIContent(path),
-                        string.Equals(entry.id, reference.EntryId, StringComparison.Ordinal),
-                        () =>
-                        {
-                            var group = StateTreeEditorOps.BeginUndoGroup(k_PickEntryUndo);
-                            StateTreeEditorOps.SetEntryRef(target, fieldName, picked,
-                                k_PickEntryUndo);
-                            StateTreeEditorOps.EndUndoGroup(group);
-                            RebuildPane();
-                        });
-                    ++offered;
-                }
+                var registry = m_Tree.registries[r];
+                if (registry != null && reference.EntryType.IsAssignableFrom(registry.entryType)
+                    && !registries.Contains(registry))
+                    registries.Add(registry);
             }
 
-            if (offered == 0)
+            var menu = StateTreePickItems.Rows(registries, m_Tree, reference.EntryType,
+                StateTreePickItems.Enclosing(target, reference.EntryType));
+            if (registries.Count == 0)
+                menu.empty = $"No {reference.EntryType.Name} entries — list the registry in the tree's "
+                    + "Data section first";
+            menu.OfferNew(registries);
+            var current = StateTreeEditorOps.FindTreeEntry(m_Tree, reference.EntryType, reference.EntryId);
+            menu.Show(at, current != null ? current.name : string.Empty, picked =>
             {
-                menu.AddDisabledItem(new GUIContent(
-                    $"No {reference.EntryType.Name} entries — list the registry in the tree's "
-                    + "Data section first"));
-            }
-
-            menu.ShowAsContext();
+                var entry = picked.payload as StateTreeRegistryEntry;
+                var undo = entry != null ? k_PickEntryUndo : k_ClearEntryUndo;
+                var group = StateTreeEditorOps.BeginUndoGroup(undo);
+                if (entry != null)
+                    StateTreeEditorOps.SetEntryRef(target, fieldName, entry, undo);
+                else
+                    StateTreeEditorOps.ClearEntryRef(target, fieldName, undo);
+                StateTreeEditorOps.EndUndoGroup(group);
+                RebuildPane();
+            });
         }
 
         // --- tree data: the registries ------------------------------------------------------
@@ -2457,6 +2492,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                 CollectKeyMenuEntries(others, null, seen);
 
             var menu = new GenericMenu();
+            menu.AddItem(new GUIContent(StateTreeKeyPick.NewKeyLabel(m_Tree).Replace('/', k_MenuSeparatorStandIn)),
+                false, () => StateTreeNamePrompt.Show(default,
+                    "A new key on " + StateTreeEditorOps.TreeDisplayName(m_Tree), string.Empty,
+                    name => DeclareAndLinkKey(name, keyKind, target, fieldName), "Create"));
+            menu.AddSeparator(string.Empty);
             for (var i = 0; i < matching.Count; ++i)
                 AddKeyMenuItem(menu, matching[i], string.Empty, linkedId, target, fieldName);
 
@@ -2535,11 +2575,6 @@ namespace PowerOfFire.DrawToPlay.Editor
                     $"Declare '{text.Replace('/', k_MenuSeparatorStandIn)}' on this tree"),
                     false, () => DeclareAndLinkKey(text, keyKind, target, fieldName));
             }
-            menu.AddItem(new GUIContent("Declare a new key on this tree…"), false,
-                () => StateTreeNamePrompt.Show(default,
-                    "A new key on " + StateTreeEditorOps.TreeDisplayName(m_Tree), string.Empty,
-                    name => DeclareAndLinkKey(name, keyKind, target, fieldName)));
-
             menu.ShowAsContext();
         }
 
@@ -2724,36 +2759,51 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         // --- sections ---------------------------------------------------------------------
 
+        /// <summary>Mission mode's header: the state's glyph (its schema kind's, when it is one), its
+        /// name, and one line of what it holds.</summary>
         private void BuildHeader()
         {
-            var header = new VisualElement();
-            header.style.flexDirection = FlexDirection.Row;
-            header.style.alignItems = Align.Center;
-            header.style.marginBottom = 6f;
+            StateGlyph(out string icon, out Color color);
+            var title = string.IsNullOrEmpty(m_Node.displayName) ? m_Node.nodeId : m_Node.displayName;
+            VisualElement header = StateTreeInspectorLook.Header(icon, color, title, out Label titleLabel);
+            titleLabel.tooltip = "State '" + m_Node.nodeId + "'";
 
-            var title = new Label(string.IsNullOrEmpty(m_Node.displayName)
-                ? m_Node.nodeId
-                : m_Node.displayName);
-            title.style.unityFontStyleAndWeight = FontStyle.Bold;
-            title.style.flexGrow = 1f;
-            header.Add(title);
-
-            var ping = new Button(() => EditorGUIUtility.PingObject(m_Node)) { text = "Ping" };
-            ping.tooltip = "Highlight this state's sub-asset in the Project window.";
-            header.Add(ping);
-
+            header.Add(StateTreeInspectorLook.SmallButton("◎",
+                "Highlight this state's sub-asset in the Project window.",
+                () => EditorGUIUtility.PingObject(m_Node)));
             m_Root.Add(header);
+
+            var parts = new List<string> { "State " + m_Node.nodeId };
+            parts.Add(Count(m_Node.tasks.Count, "task"));
+            parts.Add(Count(m_Node.transitions.Count, "transition"));
+            if (m_Node.children.Count > 0)
+                parts.Add(Count(m_Node.children.Count, "child", "children"));
+            m_Root.Add(StateTreeInspectorLook.Note(string.Join(" · ", parts)));
+        }
+
+        private static string Count(int count, string one, string many = null)
+        {
+            return count + " " + (count == 1 ? one : many ?? one + "s");
+        }
+
+        /// <summary>The schema kind's icon when the state is a domain node; otherwise what it is: the
+        /// root, a group of states, or a leaf that runs tasks.</summary>
+        private void StateGlyph(out string icon, out Color color)
+        {
+            StateTreeSchemaKind kind = StateTreeSchemaRules.KindOf(StateTreeSchemas.For(m_Tree), m_Node);
+            if (kind != null)
+            {
+                icon = string.IsNullOrEmpty(kind.icon) ? "●" : kind.icon;
+                color = kind.color;
+                return;
+            }
+            color = k_StateAccent;
+            icon = m_Node == m_Tree.root ? "⌂" : m_Node.children.Count > 0 ? "▤" : "◆";
         }
 
         private void BuildIdentity()
         {
-            var idField = new TextField("Node Id") { value = m_Node.nodeId, isDelayed = true };
-            idField.tooltip = "The string transitions target. Renaming rewires every transition "
-                + "that pointed here.";
-            idField.RegisterValueChangedCallback(evt => CommitNodeId(idField, evt.newValue));
-            m_Root.Add(idField);
-
-            var nameField = new TextField("Display Name")
+            var nameField = new TextField("Name")
             {
                 value = m_Node.displayName,
                 isDelayed = true
@@ -2768,6 +2818,14 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_StructuralChanged?.Invoke();
             });
             m_Root.Add(nameField);
+
+            var idField = new TextField("State") { value = m_Node.nodeId, isDelayed = true };
+            idField.tooltip = "The id transitions target. Renaming rewires every transition "
+                + "that pointed here.";
+            idField.RegisterValueChangedCallback(evt => CommitNodeId(idField, evt.newValue));
+            m_Root.Add(idField);
+
+            m_Root.Add(SectionLabel("Completion"));
 
             // THE M22 COMPLETION KNOBS, beside the identity because they are what the state
             // MEANS: when it counts as done, and where done goes when no edge says.
@@ -2808,9 +2866,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             var ghost = StateTreeEditorOps.DescribeImplicitFlow(m_Tree, m_Node);
             if (!string.IsNullOrEmpty(ghost))
             {
-                var ghostLabel = new Label(ghost);
-                ghostLabel.style.whiteSpace = WhiteSpace.Normal;
-                ghostLabel.style.opacity = 0.65f;
+                var ghostLabel = StateTreeInspectorLook.Note(ghost);
                 ghostLabel.style.marginLeft = 4f;
                 ghostLabel.style.marginBottom = 2f;
                 m_Root.Add(ghostLabel);
@@ -3377,24 +3433,24 @@ namespace PowerOfFire.DrawToPlay.Editor
                     : null;
 
                 var tint = k_BoxBackground;
+                var accent = k_TaskAccent;
                 if (composite != null)
+                {
                     tint = k_SubTreeBackground;
+                    accent = k_SubTreeAccent;
+                }
                 else if (program != null)
+                {
                     tint = k_GraphTaskBackground;
+                    accent = k_GraphAccent;
+                }
 
-                var box = Box(tint);
+                var box = StateTreeInspectorLook.Card(tint, accent);
+                box.name = "dtp-task-" + index;
 
-                var header = new VisualElement();
-                header.style.flexDirection = FlexDirection.Row;
-                header.style.alignItems = Align.Center;
-
-                var label = new Label(TaskBoxLabel(task));
-                label.style.unityFontStyleAndWeight = FontStyle.Bold;
-                label.style.flexGrow = 1f;
-                label.style.overflow = Overflow.Hidden;
-                label.style.textOverflow = TextOverflow.Ellipsis;
-                label.style.whiteSpace = WhiteSpace.NoWrap;
-                header.Add(label);
+                var header = StateTreeInspectorLook.CardHeader(TaskGlyph(task), accent,
+                    TaskBoxLabel(task), out var label);
+                label.tooltip = task != null ? task.GetType().FullName : "The task sub-asset is missing.";
 
                 if (composite != null && composite.subTree != null && composite.subTree != m_Tree)
                 {
@@ -3411,11 +3467,18 @@ namespace PowerOfFire.DrawToPlay.Editor
                     header.Add(open);
                 }
 
-                var remove = new Button(() => RemoveTask(index)) { text = "✕" };
-                remove.tooltip = "Delete this task sub-asset.";
-                remove.style.width = 22f;
-                header.Add(remove);
+                header.Add(StateTreeInspectorLook.MenuButton("Move, find or remove this task.",
+                    at => ShowTaskMenu(at, index)));
                 box.Add(header);
+
+                var description = TaskDescription(task);
+                if (!string.IsNullOrEmpty(description))
+                {
+                    var line = Hint(description);
+                    line.style.fontSize = 10;
+                    line.style.marginBottom = 2f;
+                    box.Add(line);
+                }
 
                 if (composite != null)
                 {
@@ -3543,6 +3606,66 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
         }
 
+        /// <summary>A task card's ⋮: order (evaluation order does not exist between tasks — they run
+        /// together — but the order is what the output routes and the bindings address, and moving
+        /// keeps both), find it, open its script, remove it.</summary>
+        private void ShowTaskMenu(Rect at, int index)
+        {
+            var menu = new GenericMenu();
+            var task = index >= 0 && index < m_Node.tasks.Count ? m_Node.tasks[index] : null;
+            if (index > 0)
+                menu.AddItem(new GUIContent("Move Up"), false, () => MoveTask(index, -1));
+            else
+                menu.AddDisabledItem(new GUIContent("Move Up"));
+            if (index < m_Node.tasks.Count - 1)
+                menu.AddItem(new GUIContent("Move Down"), false, () => MoveTask(index, 1));
+            else
+                menu.AddDisabledItem(new GUIContent("Move Down"));
+            menu.AddSeparator(string.Empty);
+            if (task != null)
+            {
+                menu.AddItem(new GUIContent("Ping Sub-Asset"), false, () => EditorGUIUtility.PingObject(task));
+                var script = MonoScript.FromScriptableObject(task);
+                if (script != null)
+                    menu.AddItem(new GUIContent("Edit Script"), false, () => AssetDatabase.OpenAsset(script));
+            }
+            menu.AddSeparator(string.Empty);
+            menu.AddItem(new GUIContent("Remove"), false, () => RemoveTask(index));
+            menu.DropDown(at);
+        }
+
+        private static string TaskGlyph(StateTreeTaskAsset task)
+        {
+            if (task is RunSubTreeTask)
+                return "⧉";
+            if (task is RunGraphTask)
+                return "⌬";
+            return "▸";
+        }
+
+        /// <summary>The one line under a card's title: the type's category and its own description
+        /// (<see cref="StateTreeCategoryAttribute"/>), when it has them.</summary>
+        internal static string TypeDescription(Type type)
+        {
+            if (type == null)
+                return string.Empty;
+            var attribute = (StateTreeCategoryAttribute)Attribute.GetCustomAttribute(type,
+                typeof(StateTreeCategoryAttribute), false);
+            if (attribute == null)
+                return string.Empty;
+            var path = string.IsNullOrWhiteSpace(attribute.path) ? string.Empty : attribute.path.Trim().Trim('/');
+            if (string.IsNullOrWhiteSpace(attribute.description))
+                return path;
+            return string.IsNullOrEmpty(path) ? attribute.description : path + " — " + attribute.description;
+        }
+
+        private static string TaskDescription(StateTreeTaskAsset task)
+        {
+            if (task == null || task is RunSubTreeTask || task is RunGraphTask)
+                return string.Empty;
+            return TypeDescription(task.GetType());
+        }
+
         /// <summary>The two authoring flavours, as a menu. Each item is disabled rather than
         /// hidden when its half of the frontend is missing: an author who used it yesterday must
         /// find out that it is broken, not that it never existed.</summary>
@@ -3600,7 +3723,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             return task is RunSubTreeTask composite
                 ? $"Sub Tree · {StateTreeEditorOps.TreeDisplayName(composite.subTree)}"
-                : task.GetType().Name;
+                : StateTreeNodePicker.DisplayNameOf(task.GetType());
         }
 
         /// <summary>A logic-graph wrapper is labelled the same way — by the graph it runs, which is
@@ -4581,16 +4704,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (transition == null)
                     continue;
 
-                var box = Box(transition.checkWhileRunning
-                    ? k_InterruptBackground
-                    : k_TransitionBackground);
+                var box = StateTreeInspectorLook.Card(
+                    transition.checkWhileRunning ? k_InterruptBackground : k_TransitionBackground,
+                    transition.checkWhileRunning ? k_InterruptAccent : k_TransitionAccent);
+                box.name = "dtp-transition-" + index;
 
-                box.Add(BuildTransitionHeader(index, transition));
+                box.Add(BuildTransitionHeader(index, transition, nodes));
                 box.Add(BuildTransitionTarget(index, transition, nodes));
                 box.Add(BuildTransitionInterrupt(transition));
                 box.Add(BuildTransitionCondition(transition));
-                box.Add(BuildParameterFields(transition.condition, null,
-                    StateTreeFieldBinding.TargetKind.TransitionCondition, index));
+                if (transition.condition != null)
+                    box.Add(BuildConditionCard(transition.condition, index));
 
                 // Last in the box, because it is last in time: everything above decides WHETHER this
                 // transition fires, and this decides what it carries when it does.
@@ -4604,79 +4728,166 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Root.Add(add);
         }
 
-        private VisualElement BuildTransitionHeader(int index, StateTreeTransition transition)
+        /// <summary>The transition as the line it reads as — "1. When done and Key Is (door.open) →
+        /// hall" — with its ⋮ (order, remove).</summary>
+        private VisualElement BuildTransitionHeader(int index, StateTreeTransition transition,
+            List<StateTreeNodeAsset> nodes)
         {
-            var header = new VisualElement();
-            header.style.flexDirection = FlexDirection.Row;
-            header.style.alignItems = Align.Center;
-
-            var label = new Label(transition.checkWhileRunning
-                ? $"{index + 1}. interrupt"
-                : $"{index + 1}. on completion");
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
-            label.style.flexGrow = 1f;
-            header.Add(label);
-
-            var up = new Button(() => MoveTransition(index, -1)) { text = "▲" };
-            up.tooltip = "Evaluate this transition earlier.";
-            up.style.width = 22f;
-            up.SetEnabled(index > 0);
-            header.Add(up);
-
-            var down = new Button(() => MoveTransition(index, 1)) { text = "▼" };
-            down.tooltip = "Evaluate this transition later.";
-            down.style.width = 22f;
-            down.SetEnabled(index < m_Node.transitions.Count - 1);
-            header.Add(down);
-
-            var remove = new Button(() => RemoveTransition(index)) { text = "✕" };
-            remove.tooltip = "Delete this transition and its condition sub-asset.";
-            remove.style.width = 22f;
-            header.Add(remove);
-
+            var accent = transition.checkWhileRunning ? k_InterruptAccent : k_TransitionAccent;
+            var header = StateTreeInspectorLook.CardHeader(transition.checkWhileRunning ? "⚡" : "→", accent,
+                $"{index + 1}. " + TransitionSentence(transition, nodes), out var label);
+            label.style.whiteSpace = WhiteSpace.Normal;
+            label.tooltip = transition.checkWhileRunning
+                ? "An interrupt: checked every tick while the tasks run; firing cancels them."
+                : "Checked once every task in the state has finished. First passing transition wins.";
+            header.Add(StateTreeInspectorLook.MenuButton("Order or remove this transition.",
+                at => ShowTransitionMenu(at, index)));
             return header;
         }
 
-        /// <summary>Target picker. Choices are index-addressed, never matched back by their
-        /// label — display names are not unique and a tree mid-edit can hold two states with the
-        /// same id, so string matching would silently pick the wrong one.</summary>
+        private void ShowTransitionMenu(Rect at, int index)
+        {
+            var menu = new GenericMenu();
+            if (index > 0)
+                menu.AddItem(new GUIContent("Evaluate Earlier"), false, () => MoveTransition(index, -1));
+            else
+                menu.AddDisabledItem(new GUIContent("Evaluate Earlier"));
+            if (index < m_Node.transitions.Count - 1)
+                menu.AddItem(new GUIContent("Evaluate Later"), false, () => MoveTransition(index, 1));
+            else
+                menu.AddDisabledItem(new GUIContent("Evaluate Later"));
+            menu.AddSeparator(string.Empty);
+            menu.AddItem(new GUIContent("Remove"), false, () => RemoveTransition(index));
+            menu.DropDown(at);
+        }
+
+        /// <summary>"When done and &lt;condition&gt; → &lt;target&gt;", or "While running, when … →" for an
+        /// interrupt.</summary>
+        internal static string TransitionSentence(StateTreeTransition transition, List<StateTreeNodeAsset> nodes)
+        {
+            if (transition == null)
+                return string.Empty;
+            var condition = ConditionSummary(transition.condition);
+            var target = string.IsNullOrEmpty(transition.targetNodeId)
+                ? k_NoTargetChoice
+                : TargetLabel(transition.targetNodeId, nodes);
+            var when = transition.checkWhileRunning
+                ? (condition == null ? "While running, at once" : "While running, when " + condition)
+                : (condition == null ? "When done" : "When done and " + condition);
+            return when + " → " + target;
+        }
+
+        private static string TargetLabel(string id, List<StateTreeNodeAsset> nodes)
+        {
+            for (var i = 0; nodes != null && i < nodes.Count; ++i)
+            {
+                if (nodes[i] != null && nodes[i].nodeId == id)
+                    return string.IsNullOrEmpty(nodes[i].displayName) ? id : nodes[i].displayName;
+            }
+            return id + " (missing)";
+        }
+
+        /// <summary>A condition in a few words: its name, and the first values it was given (a key,
+        /// a row, a text) — enough to tell two transitions apart without opening them.</summary>
+        internal static string ConditionSummary(StateTreeConditionAsset condition)
+        {
+            if (condition == null)
+                return null;
+            var values = new List<string>();
+            foreach (var field in condition.GetType().GetFields(
+                         System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
+            {
+                if (values.Count >= 2)
+                    break;
+                switch (field.GetValue(condition))
+                {
+                    case string text when !string.IsNullOrEmpty(text):
+                        values.Add(text);
+                        break;
+                    case StateTreeKeyField key when !string.IsNullOrEmpty(key.text):
+                        values.Add(key.text);
+                        break;
+                    case IStateTreeEntryRef entry when !string.IsNullOrEmpty(entry.EntryName):
+                        values.Add(entry.EntryName);
+                        break;
+                }
+            }
+            var name = StateTreeNodePicker.DisplayNameOf(condition.GetType());
+            return values.Count == 0 ? name : name + " (" + string.Join(" · ", values) + ")";
+        }
+
+        /// <summary>The condition as its own card inside the transition: name, description, fields.</summary>
+        private VisualElement BuildConditionCard(StateTreeConditionAsset condition, int index)
+        {
+            var card = StateTreeInspectorLook.Card(k_ConditionBackground, k_ConditionAccent);
+            card.name = "dtp-condition-" + index;
+            card.style.marginTop = 2f;
+            var header = StateTreeInspectorLook.CardHeader("◇", k_ConditionAccent,
+                StateTreeNodePicker.DisplayNameOf(condition.GetType()), out var title);
+            title.tooltip = condition.GetType().FullName;
+            card.Add(header);
+            var description = TypeDescription(condition.GetType());
+            if (!string.IsNullOrEmpty(description))
+            {
+                var line = Hint(description);
+                line.style.fontSize = 10;
+                card.Add(line);
+            }
+            card.Add(BuildParameterFields(condition, null,
+                StateTreeFieldBinding.TargetKind.TransitionCondition, index));
+            return card;
+        }
+
+        /// <summary>Target picker — the one searchable picker, over the tree's states grouped under
+        /// their parents. Writes the id; a target no state holds is shown as missing.</summary>
         private VisualElement BuildTransitionTarget(int index, StateTreeTransition transition,
             List<StateTreeNodeAsset> nodes)
         {
-            var ids = new List<string> { string.Empty };
-            var labels = new List<string> { k_NoTargetChoice };
-
-            for (var i = 0; i < nodes.Count; ++i)
+            var current = transition.targetNodeId ?? string.Empty;
+            var known = string.IsNullOrEmpty(current) || ContainsId(nodes, current);
+            StateTreeNodeAsset node = null;
+            for (var i = 0; i < nodes.Count && node == null; ++i)
             {
-                ids.Add(nodes[i].nodeId);
-                labels.Add(FormatNode(nodes[i]));
+                if (nodes[i] != null && nodes[i].nodeId == current)
+                    node = nodes[i];
             }
+            var field = new StateTreePickField("Then", node != null ? FormatNode(node) : current, !known,
+                "The state this transition enters.", at => ShowTargetMenu(at, index, nodes));
+            field.name = "dtp-target-" + index;
+            return field;
+        }
 
-            var selected = ids.IndexOf(transition.targetNodeId ?? string.Empty);
-            if (selected < 0)
+        private void ShowTargetMenu(Rect at, int index, List<StateTreeNodeAsset> nodes)
+        {
+            var menu = new StateTreePickMenu { title = "State", none = k_NoTargetChoice, empty = "No states" };
+            foreach (var node in nodes)
             {
-                ids.Add(transition.targetNodeId);
-                labels.Add($"<missing: {transition.targetNodeId}>");
-                selected = ids.Count - 1;
+                if (node == null || string.IsNullOrEmpty(node.nodeId))
+                    continue;
+                var path = new List<string>();
+                for (var parent = StateTreeEditorOps.FindParent(m_Tree, node); parent != null;
+                     parent = StateTreeEditorOps.FindParent(m_Tree, parent))
+                    path.Insert(0, string.IsNullOrEmpty(parent.displayName) ? parent.nodeId : parent.displayName);
+                menu.items.Add(new StateTreePickItem(node.nodeId, FormatNode(node),
+                    node == m_Node ? "this state" : string.Empty, string.Join("/", path)) { payload = node });
             }
+            var current = index >= 0 && index < m_Node.transitions.Count
+                ? m_Node.transitions[index].targetNodeId
+                : string.Empty;
+            menu.Show(at, current, picked => SetTransitionTarget(index, picked.value));
+        }
 
-            var dropdown = new DropdownField("Target", labels, selected);
-            dropdown.RegisterValueChangedCallback(evt =>
-            {
-                var choice = dropdown.index;
-                if (choice < 0 || choice >= ids.Count)
-                    return;
-
-                var group = StateTreeEditorOps.BeginUndoGroup("Set Transition Target");
-                Undo.RecordObject(m_Node, "Set Transition Target");
-                m_Node.transitions[index].targetNodeId = ids[choice];
-                EditorUtility.SetDirty(m_Node);
-                StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
-                StateTreeEditorOps.EndUndoGroup(group);
-                DeferStructuralChange();
-            });
-
-            return dropdown;
+        private void SetTransitionTarget(int index, string id)
+        {
+            if (index < 0 || index >= m_Node.transitions.Count)
+                return;
+            var group = StateTreeEditorOps.BeginUndoGroup("Set Transition Target");
+            Undo.RecordObject(m_Node, "Set Transition Target");
+            m_Node.transitions[index].targetNodeId = id ?? string.Empty;
+            EditorUtility.SetDirty(m_Node);
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            DeferStructuralChange();
         }
 
         private VisualElement BuildTransitionInterrupt(StateTreeTransition transition)
@@ -5223,9 +5434,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return container;
 
             var serialized = new SerializedObject(target);
+            var defaults = DefaultsOf(target);
             var iterator = serialized.GetIterator();
             var enterChildren = true;
             var any = false;
+            var quiet = new List<VisualElement>();
 
             while (iterator.NextVisible(enterChildren))
             {
@@ -5248,13 +5461,40 @@ namespace PowerOfFire.DrawToPlay.Editor
                 // Only the top level is walked (NextVisible stops entering children after the
                 // first step), so a path IS a field name — which is what a link row stores and what
                 // the executor's reflection looks up.
-                container.Add(BuildFieldRow(new PropertyField(iterator.Copy()), target,
-                    iterator.propertyPath, bindingKind, targetIndex));
+                var path = iterator.propertyPath;
+                var row = new VisualElement { name = FieldRowName(path) };
+                row.Add(BuildFieldRow(new PropertyField(iterator.Copy()), target, path, bindingKind,
+                    targetIndex));
                 any = true;
+
+                // A field still at its type's default, and not wired to anything, is quiet: it
+                // waits under the card's "More" so the card shows what this state SAYS.
+                var bound = targetIndex >= 0 && m_Node != null
+                    && StateTreeEditorOps.FindFieldBinding(m_Node, bindingKind, targetIndex, path) != null;
+                var atDefault = defaults != null && defaults.FindProperty(path) is SerializedProperty fresh
+                    && SerializedProperty.DataEquals(iterator, fresh);
+                if (atDefault && !bound)
+                    quiet.Add(row);
+                else
+                    container.Add(row);
             }
 
             if (!any)
                 container.Add(Hint("No parameters."));
+
+            if (quiet.Count > 0)
+            {
+                var more = StateTreeInspectorLook.More(quiet.Count, m_OpenMore.Contains(target), open =>
+                {
+                    if (open)
+                        m_OpenMore.Add(target);
+                    else
+                        m_OpenMore.Remove(target);
+                });
+                foreach (var row in quiet)
+                    more.Add(row);
+                container.Add(more);
+            }
 
             container.Bind(serialized);
 
@@ -6542,6 +6782,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             DeferStructuralChange();
         }
 
+        private void MoveTask(int index, int delta)
+        {
+            var group = StateTreeEditorOps.BeginUndoGroup("Reorder Task");
+            StateTreeEditorOps.MoveTask(m_Tree, m_Node, index, delta, "Reorder Task");
+            StateTreeEditorOps.RefreshSubAssetNames(m_Tree);
+            StateTreeEditorOps.EndUndoGroup(group);
+            m_StructuralChanged?.Invoke();
+        }
+
         private void RemoveTask(int index)
         {
             if (index < 0 || index >= m_Node.tasks.Count)
@@ -6843,36 +7092,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                 : $"{node.nodeId} — {node.displayName}";
         }
 
-        private static Label SectionLabel(string text)
-        {
-            var label = new Label(text);
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
-            label.style.marginTop = 10f;
-            return label;
-        }
+        private static Label SectionLabel(string text) => StateTreeInspectorLook.Section(text);
 
         private static Label Hint(string text)
         {
-            var label = new Label(text);
+            var label = StateTreeInspectorLook.Note(text);
             label.style.opacity = 0.7f;
-            label.style.whiteSpace = WhiteSpace.Normal;
             return label;
-        }
-
-        private static VisualElement Box(Color background)
-        {
-            var box = new VisualElement();
-            box.style.backgroundColor = background;
-            box.style.paddingLeft = 6f;
-            box.style.paddingRight = 6f;
-            box.style.paddingTop = 4f;
-            box.style.paddingBottom = 6f;
-            box.style.marginBottom = 4f;
-            box.style.borderTopLeftRadius = 4f;
-            box.style.borderTopRightRadius = 4f;
-            box.style.borderBottomLeftRadius = 4f;
-            box.style.borderBottomRightRadius = 4f;
-            return box;
         }
     }
 }

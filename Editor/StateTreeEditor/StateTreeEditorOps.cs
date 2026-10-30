@@ -1753,6 +1753,41 @@ namespace PowerOfFire.DrawToPlay.Editor
                 EditorUtility.SetDirty(tree);
         }
 
+        /// <summary>Swap a task with its neighbour. The parameter links and the output routes address
+        /// tasks by position, so both follow the tasks they belong to.</summary>
+        internal static bool MoveTask(StateTreeAsset tree, StateTreeNodeAsset node, int index, int delta,
+            string undoName)
+        {
+            if (node == null)
+                return false;
+            var target = index + delta;
+            if (index < 0 || index >= node.tasks.Count || target < 0 || target >= node.tasks.Count)
+                return false;
+
+            Undo.RecordObject(node, undoName);
+            var moved = node.tasks[index];
+            node.tasks[index] = node.tasks[target];
+            node.tasks[target] = moved;
+            SwapBindings(node, StateTreeFieldBinding.TargetKind.Task, index, target);
+            for (var t = 0; t < node.transitions.Count; ++t)
+            {
+                var rows = node.transitions[t] != null ? node.transitions[t].outputRoutes : null;
+                for (var i = 0; rows != null && i < rows.Count; ++i)
+                {
+                    if (rows[i] == null)
+                        continue;
+                    if (rows[i].taskIndex == index)
+                        rows[i].taskIndex = target;
+                    else if (rows[i].taskIndex == target)
+                        rows[i].taskIndex = index;
+                }
+            }
+            EditorUtility.SetDirty(node);
+            if (tree != null)
+                EditorUtility.SetDirty(tree);
+            return true;
+        }
+
         /// <summary>Order is evaluation order in the runner, so moving a transition IS a
         /// behavioural edit — exposed as up/down rather than a drag to keep it deliberate.</summary>
         internal static bool MoveTransition(StateTreeAsset tree, StateTreeNodeAsset node, int index,

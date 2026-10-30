@@ -29,8 +29,13 @@ namespace PowerOfFire.DrawToPlay.Editor
     {
         private static Dictionary<Type, Type> s_ByRegistry;
 
-        /// <summary>The creator panel for this registry, or null when none is offered.</summary>
-        public static VisualElement For(StateTreeRegistryAsset registry, Action changed)
+        /// <summary>Whether this registry makes its own rows through a creator panel.</summary>
+        public static bool Has(StateTreeRegistryAsset registry)
+        {
+            return PanelType(registry) != null;
+        }
+
+        private static Type PanelType(StateTreeRegistryAsset registry)
         {
             if (registry == null)
                 return null;
@@ -46,8 +51,18 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
             for (Type type = registry.GetType(); type != null; type = type.BaseType)
             {
-                if (!s_ByRegistry.TryGetValue(type, out Type panelType))
-                    continue;
+                if (s_ByRegistry.TryGetValue(type, out Type panelType))
+                    return panelType;
+            }
+            return null;
+        }
+
+        /// <summary>The creator panel for this registry, or null when none is offered.</summary>
+        public static VisualElement For(StateTreeRegistryAsset registry, Action changed)
+        {
+            Type panelType = PanelType(registry);
+            if (panelType != null)
+            {
                 try
                 {
                     return Activator.CreateInstance(panelType, registry, changed) as VisualElement;

@@ -59,6 +59,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             var level = StateTreePickItems.Enclosing(owner.targetObject, typeof(LevelObjectDef)) as LevelObjectRegistry;
             StateTreePickMenu menu = StateTreePickItems.Placements(offers,
                 StateTreePickItems.Owning(owner.targetObject, out _), level);
+            menu.OfferNew(level != null ? new List<StateTreeRegistryAsset> { level }
+                : declared ? DeclaredManifests(owner.targetObject) : new List<StateTreeRegistryAsset>(), byId: true);
             if (!declared)
                 menu.title = "Placement (project-wide: this object declares nothing)";
             menu.Show(anchor, current, picked => Set(owner, path, container, label, picked.value));
@@ -110,6 +112,28 @@ namespace PowerOfFire.DrawToPlay.Editor
                 }
             }
             return false;
+        }
+
+        /// <summary>The manifests the asset (or its file's main asset) declares — where "+ New" may place.</summary>
+        internal static List<StateTreeRegistryAsset> DeclaredManifests(Object target)
+        {
+            var manifests = new List<StateTreeRegistryAsset>();
+            if (target is LevelObjectRegistry own)
+                manifests.Add(own);
+            var reachable = new List<StateTreeRegistryAsset>();
+            StateTreeOffers.ReachableRegistries(target, reachable);
+            if (reachable.Count == 0 && target != null)
+            {
+                Object main = AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GetAssetPath(target));
+                if (main != null && main != target)
+                    StateTreeOffers.ReachableRegistries(main, reachable);
+            }
+            foreach (StateTreeRegistryAsset registry in reachable)
+            {
+                if (registry is LevelObjectRegistry manifest && !manifests.Contains(manifest))
+                    manifests.Add(manifest);
+            }
+            return manifests;
         }
 
         private static LevelObjectDef Row(List<LevelObjectDef> offers, string id)

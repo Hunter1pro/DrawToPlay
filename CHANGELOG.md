@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.2 - 2026-10-30
+- Dev mode's inspector in Mission mode's look (`StateTreeInspectorLook`, shared by both): a header,
+  sections, a card per task and condition (readable name, its category line, quiet fields under
+  "More", ⋮ to move or remove — `StateTreeEditorOps.MoveTask` carries bindings and routes), a
+  transition as its sentence with a searchable target picker and its condition as a card. The
+  tree's parameters, keys, data and users follow under "This tree". Nothing the raw view edited is gone.
+- "+ New" in the pickers: a row in the registry a field narrows to or declares (`StateTreeRowCreate`,
+  `StateTreePickMenu.Create`), picked and revealed, one undo; a manifest's placement at the Scene
+  view's centre; a key declared on the tree. The Dev view's entry ⛃ and a placement's definition entry
+  open the searchable picker too.
+
 ## 0.6.0 - 2026-10-29
 - Episode trees: a context host of kind `Episode` holds a tree above the levels. A level joins it
   once put back (`JoinEpisodeTask`); its `IStateTreeLevel` node runs on the level's board and

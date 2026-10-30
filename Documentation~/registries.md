@@ -47,6 +47,12 @@ In the inspector this draws as a picker — ⛃ — offering exactly the rows of
 not a free text field. That is the point: a def that names a row can only name a row that
 exists, and renaming content does not silently break a reference.
 
+The picker's top item makes the row it lacks: **+ New &lt;row&gt; in &lt;registry&gt;…** (one per
+registry the field narrows to or declares — never on the project-wide fallback) asks a name, adds
+the row there with a fresh id (a manifest's placement at the Scene view's centre), picks it, and
+selects the registry to configure it — one undo step. A registry with its own creator panel (a
+level) is only selected. Key pickers offer **+ New key on &lt;tree&gt;…** the same way.
+
 A ref resolves to `entry`, and exposes `entryName` through it. `entryNamePrefix` supports
 grouped naming where a family of rows shares a stem.
 
