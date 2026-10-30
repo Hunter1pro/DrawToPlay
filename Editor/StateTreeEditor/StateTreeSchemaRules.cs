@@ -64,6 +64,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         public bool isTag => field != null && field.FieldType == typeof(string)
             && field.IsDefined(typeof(WorldTagAttribute), true);
 
+        /// <summary>An enum: picked from its values, kept as the value's name.</summary>
+        public bool isEnum => field != null && field.FieldType.IsEnum;
+
         /// <summary>The step does not pick it: it follows from something the step holds.</summary>
         public bool isDerived => declaration != null && declaration.IsDerived;
 
@@ -75,7 +78,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 if (field == null)
                     return StateTreeStringKind.Free;
-                if (isKey || entryType != null || isPlacement)
+                if (isKey || entryType != null || isPlacement || isEnum)
                     return StateTreeStringKind.Picked;
                 StateTreeStringKind kind = StateTreeStringRule.Classify(field);
                 return kind == StateTreeStringKind.NotString ? StateTreeStringKind.Free : kind;
@@ -664,6 +667,21 @@ namespace PowerOfFire.DrawToPlay.Editor
             return "";
         }
 
+        /// <summary>The board a routed node's answer is read on — its <see cref="StateTreeSchemaKind.routeScopeBy"/>
+        /// parameter's value, a <see cref="StateTreeContextKind"/> by name — or null for the node's own board.</summary>
+        public static StateTreeContextKind? RouteScope(StateTreeSchemaKind kind, StateTreeNodeAsset node)
+        {
+            if (kind == null || string.IsNullOrEmpty(kind.routeScopeBy))
+                return null;
+            foreach (StateTreeStepParameter parameter in Parameters(kind, node))
+            {
+                if (parameter.declaration.name == kind.routeScopeBy
+                    && System.Enum.TryParse(parameter.stringValue, out StateTreeContextKind scope))
+                    return scope;
+            }
+            return null;
+        }
+
         /// <summary>
         /// A routed node's ways out, one per child: the i-th child when the answer key holds i. They
         /// follow from the children and the answer, so they are written, never authored — and a
@@ -675,6 +693,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (kind == null || string.IsNullOrEmpty(kind.routeBy))
                 return 0;
             string key = RouteKey(kind, node);
+            StateTreeContextKind? scope = RouteScope(kind, node);
             List<StateTreeNodeAsset> branches = DomainChildren(schema, node);
             if (string.IsNullOrEmpty(key))
                 branches.Clear();
@@ -684,10 +703,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 StateTreeTransition transition = node.transitions[i];
                 same = transition != null && !transition.checkWhileRunning
                     && transition.targetNodeId == branches[i].nodeId
-                    && transition.condition is BlackboardCompareCondition compare
-                    && compare.key != null && compare.key.text == key
-                    && compare.op == BlackboardCompareCondition.Operator.Equal
-                    && Mathf.Approximately(compare.value, i);
+                    && IsRoute(transition.condition, key, scope, i);
             }
             if (same)
                 return 0;
@@ -697,13 +713,40 @@ namespace PowerOfFire.DrawToPlay.Editor
             for (int i = 0; i < branches.Count; i++)
             {
                 StateTreeEditorOps.AddTransition(tree, node, branches[i].nodeId, undo);
-                var answer = ScriptableObject.CreateInstance<BlackboardCompareCondition>();
-                answer.key = new StateTreeKeyField(key);
-                answer.op = BlackboardCompareCondition.Operator.Equal;
-                answer.value = i;
-                StateTreeEditorOps.SetTransitionCondition(tree, node, node.transitions[i], answer, undo);
+                StateTreeEditorOps.SetTransitionCondition(tree, node, node.transitions[i], Route(key, scope, i), undo);
             }
             return 1;
+        }
+
+        /// <summary>The i-th answer: the key holds i, on the node's own board or on the scope it names.</summary>
+        private static StateTreeConditionAsset Route(string key, StateTreeContextKind? scope, int i)
+        {
+            if (scope.HasValue)
+            {
+                var onScope = ScriptableObject.CreateInstance<ContextNumberCompareCondition>();
+                onScope.scope = scope.Value;
+                onScope.key = new StateTreeKeyField(key);
+                onScope.op = BlackboardCompareCondition.Operator.Equal;
+                onScope.value = i;
+                return onScope;
+            }
+            var answer = ScriptableObject.CreateInstance<BlackboardCompareCondition>();
+            answer.key = new StateTreeKeyField(key);
+            answer.op = BlackboardCompareCondition.Operator.Equal;
+            answer.value = i;
+            return answer;
+        }
+
+        private static bool IsRoute(StateTreeConditionAsset condition, string key, StateTreeContextKind? scope, int i)
+        {
+            if (scope.HasValue)
+                return condition is ContextNumberCompareCondition onScope && onScope.scope == scope.Value
+                    && onScope.key != null && onScope.key.text == key
+                    && onScope.op == BlackboardCompareCondition.Operator.Equal && Mathf.Approximately(onScope.value, i);
+            return condition is BlackboardCompareCondition compare
+                && compare.key != null && compare.key.text == key
+                && compare.op == BlackboardCompareCondition.Operator.Equal
+                && Mathf.Approximately(compare.value, i);
         }
 
         private static int ApplyParameters(StateTreeAsset tree, StateTreeSchema schema, StateTreeNodeAsset node,

@@ -1671,7 +1671,7 @@ namespace PowerOfFire.DrawToPlay
         /// Writes a parameter into a field, or refuses. The accepted pairs are the ones where the
         /// value carries over with no interpretation: Float into <c>float</c> or <c>int</c> (a
         /// tuning knob is routinely an int count), Bool into <c>bool</c>, String into
-        /// <c>string</c>.
+        /// <c>string</c>, a key, a row reference or an enum (by its value's name).
         ///
         /// Everything else is refused rather than converted, including the pairs that would
         /// "work" — a Bool into a float field, a Float into a bool one. A silent conversion is how a
@@ -1747,6 +1747,16 @@ namespace PowerOfFire.DrawToPlay
                     field.SetValue(target, reference);
                 }
                 reference.PointAt(name);
+                return true;
+            }
+            if (type.IsEnum)
+            {
+                // An enum picked in a step is kept by its value's name; empty keeps the field's own.
+                if (string.IsNullOrEmpty(name))
+                    return true;
+                if (!Enum.IsDefined(type, name))
+                    return false;
+                field.SetValue(target, Enum.Parse(type, name));
                 return true;
             }
             return false;
