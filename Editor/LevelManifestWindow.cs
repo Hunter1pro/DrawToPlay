@@ -195,8 +195,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Palette?.Show(m_Level != null && m_Level.objects != null ? Kinds() : null, Presets());
             if (m_Level == null)
             {
-                m_Root.Add(Hint("No level owns the open scene. Open an area scene — the level "
-                    + "whose Scene Path matches is edited here."));
+                var top = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.FlexStart } };
+                Label hint = Hint("No level owns the open scene. Open an area scene — the level "
+                    + "whose Scene Path matches is edited here.");
+                hint.style.flexGrow = 1f;
+                hint.style.flexShrink = 1f;
+                top.Add(hint);
+                top.Add(EditorGuides.HelpButton(false));
+                m_Root.Add(top);
                 if (LevelSetups.current != null)
                 {
                     var create = new Button(() => LevelSetups.Prompt()) { text = "+ New level…" };
@@ -208,10 +214,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             }
 
-            m_Root.Add(StateTreeInspectorLook.Header("▦", new Color(0.45f, 0.8f, 1f),
+            VisualElement header = StateTreeInspectorLook.Header("▦", new Color(0.45f, 0.8f, 1f),
                 m_Level.displayName.Length > 0
                     ? m_Level.displayName + "  (" + m_Level.name + ")"
-                    : m_Level.name, out _));
+                    : m_Level.name, out _);
+            header.Add(EditorGuides.HelpButton(false));
+            m_Root.Add(header);
             m_Root.Add(BuildLinks());
 
             if (m_Level.objects == null)

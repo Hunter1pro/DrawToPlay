@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.9 - 2026-10-30
+- An interactive guide for designers: a game registers an `EditorGuide` (`EditorGuides.Register`) — chapters of
+  step cards, each with a few plain sentences, a "Why" fold, Show me / Do it for me, and a check that turns it ✓
+  by itself — and the Guide window plays it (`EditorGuideWindow`). Next opens once a step is ✓; Skip moves on.
+  Checks are asked when the Editor reports a change, never per repaint. Progress is per user, in
+  `UserSettings/Guides/<id>.json`. `GuideShow` points at the package's windows, a node, an asset, or a control
+  (Unity's `Highlighter`, with a fallback).
+- The Level Manifest's header and the State Tree toolbar show a "?" that opens the guide while one is registered.
+- `LevelLinks.RemoveLevelNode`: a level's node out of its episode, with its zones and steps — the first half of
+  removing a level.
+
 ## 0.6.8 - 2026-10-30
 - New level through the game: `ILevelSetup` (registered with `LevelSetups.Register`) makes a level from a
   name and a place, and connects it to its story. The level catalogue's creator panel, the Level Manifest

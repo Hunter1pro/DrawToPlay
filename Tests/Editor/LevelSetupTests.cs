@@ -153,6 +153,26 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void RemovingALevelNode_TakesItsZonesAndSteps_AndNothingElse()
+        {
+            StateTreeAsset episode = m_Setup.episode;
+            var other = Make<StateTreeNodeAsset>();
+            other.nodeId = "mission.hall";
+            episode.root.children.Add(other);
+            LevelSetups.ConnectIfMissing(m_Level);
+            StateTreeNodeAsset node = LevelLinks.LevelNode(episode, m_Level, "cove");
+            var zone = Make<StateTreeNodeAsset>();
+            zone.nodeId = "mission.cove.zone";
+            node.children.Add(zone);
+
+            Assert.IsTrue(LevelLinks.RemoveLevelNode(episode, m_Level, "cove"));
+            Assert.IsNull(LevelLinks.LevelNode(episode, m_Level, "cove"));
+            CollectionAssert.AreEqual(new[] { other }, episode.root.children, "the other level stays");
+            Assert.IsTrue(node == null && zone == null, "its node and its zone are gone");
+            Assert.IsFalse(LevelLinks.RemoveLevelNode(episode, m_Level, "cove"), "nothing left to remove");
+        }
+
+        [Test]
         public void ALevelInNoEpisode_IsNeverConnected()
         {
             m_Setup.episode = null;
