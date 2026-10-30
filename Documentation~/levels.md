@@ -120,12 +120,15 @@ to say where a level stands in its story. With one registered:
   may be saved first (Unity's own prompt); the setup makes the level and its row; its scene opens.
 - **The Level Manifest shows the level's connections** under its name: **Episode** — its Level node in
   the episode tree (◎ shows it in the State Tree window), "missing", or "in no episode"; **Session** — the
-  tree the level runs (◎ selects it, ▶ opens it) or "missing" (`LevelLinks.Of`).
+  tree the level runs (◎ selects it, ▶ opens it), "not run by its scene: <tree>" when it was made but the
+  scene does not run it (the wire is in the scene, so a scene closed unsaved loses it —
+  `ILevelSetup.SessionMadeOf`), or "missing" (`LevelLinks.Of`).
 - **The first object placed makes what is missing**, in the object's undo step: the setup's `Connect`
   makes the level's tree and its Level node once; a level whose connections exist, or that is in no
   episode, is never touched (`LevelSetups.ConnectIfMissing`). "Use in mission…" can offer the new
   Level's zone at once. **+ Add to episode** beside a missing Episode and **+ Create session tree** beside
-  a missing Session make the same now, in one undo step, without placing anything. A level in no episode
+  a missing Session make the same now, in one undo step, without placing anything; **+ Run it in the
+  scene** beside a tree its scene does not run wires that tree — nothing new is made. A level in no episode
   has neither button: its place is where its scene lives, which the setup decides.
 - **The level shown is always the open scene's**, checked against the scene each time it is drawn and
   before anything is placed — a scene made with NewScene and saved under a level's path (as a New level

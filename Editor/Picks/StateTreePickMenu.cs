@@ -82,6 +82,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         public readonly List<StateTreePickCreate> creates = new List<StateTreePickCreate>();
 
         private Action<StateTreePickItem> m_Picked;
+        private string m_Current;
         private Rect m_At;
 
         /// <summary>The last menu shown — what a test reads back.</summary>
@@ -228,12 +229,16 @@ namespace PowerOfFire.DrawToPlay.Editor
         public void Show(Rect at, string current, Action<StateTreePickItem> picked)
         {
             m_Picked = picked;
+            m_Current = current;
             m_At = at;
             lastShown = this;
             if (headless)
                 return;
-            new StateTreePickDropdown(this, current, picked).Show(at);
+            Dropdown().Show(at);
         }
+
+        /// <summary>The dropdown <see cref="Show"/> opens, picking into what it was given — a test chooses its lines.</summary>
+        internal StateTreePickDropdown Dropdown() => new StateTreePickDropdown(this, m_Current, m_Picked);
 
         // --- what this tree already uses -------------------------------------------------------
 
@@ -327,15 +332,25 @@ namespace PowerOfFire.DrawToPlay.Editor
     }
 
     /// <summary>The searchable dropdown itself — Unity's <see cref="AdvancedDropdown"/>, laid out by
-    /// <see cref="StateTreePickMenu.Build"/>.</summary>
+    /// <see cref="StateTreePickMenu.Build"/>. A leaf carries what choosing it does: Unity re-numbers an item's
+    /// <c>id</c> when it is added to its parent, so an id is never the key.</summary>
     internal sealed class StateTreePickDropdown : AdvancedDropdown
     {
         private readonly StateTreePickMenu m_Menu;
         private readonly string m_Current;
         private readonly Action<StateTreePickItem> m_Picked;
-        private readonly Dictionary<int, StateTreePickItem> m_Items = new Dictionary<int, StateTreePickItem>();
-        private readonly Dictionary<int, Action> m_Commands = new Dictionary<int, Action>();
-        private readonly Dictionary<int, int> m_Creates = new Dictionary<int, int>();
+
+        /// <summary>A choosable line: a pick, a command or a "+ New".</summary>
+        internal sealed class Leaf : AdvancedDropdownItem
+        {
+            public Leaf(string name) : base(name)
+            {
+            }
+
+            public StateTreePickItem item;
+            public Action command;
+            public int create = -1;
+        }
 
         public StateTreePickDropdown(StateTreePickMenu menu, string current, Action<StateTreePickItem> picked)
             : base(new AdvancedDropdownState())
@@ -346,11 +361,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             minimumSize = new Vector2(320f, 360f);
         }
 
+        /// <summary>Tests: the tree the dropdown shows, and choosing one of its lines.</summary>
+        internal AdvancedDropdownItem Root() => BuildRoot();
+
+        internal void Choose(AdvancedDropdownItem item) => ItemSelected(item);
+
         protected override AdvancedDropdownItem BuildRoot()
         {
             var root = new AdvancedDropdownItem(m_Menu.title);
             var groups = new Dictionary<string, AdvancedDropdownItem>();
-            int next = 1;
             m_Menu.Build(m_Current,
                 (path, item) =>
                 {
@@ -368,39 +387,34 @@ namespace PowerOfFire.DrawToPlay.Editor
                         }
                         parent = group;
                     }
-                    var leaf = new AdvancedDropdownItem(parts[parts.Length - 1]) { id = next++ };
-                    m_Items[leaf.id] = item;
-                    parent.AddChild(leaf);
+                    parent.AddChild(new Leaf(parts[parts.Length - 1]) { item = item });
                 },
-                header => root.AddChild(new AdvancedDropdownItem(header) { enabled = false, id = next++ }),
+                header => root.AddChild(new AdvancedDropdownItem(header) { enabled = false }),
                 root.AddSeparator,
                 command =>
                 {
-                    var leaf = new AdvancedDropdownItem(command) { id = next++ };
+                    var leaf = new Leaf(command);
                     foreach (KeyValuePair<string, Action> each in m_Menu.commands)
                     {
                         if (each.Key == command)
-                            m_Commands[leaf.id] = each.Value;
+                            leaf.command = each.Value;
                     }
                     root.AddChild(leaf);
                 },
-                (index, label) =>
-                {
-                    var leaf = new AdvancedDropdownItem(label) { id = next++ };
-                    m_Creates[leaf.id] = index;
-                    root.AddChild(leaf);
-                });
+                (index, label) => root.AddChild(new Leaf(label) { create = index }));
             return root;
         }
 
         protected override void ItemSelected(AdvancedDropdownItem item)
         {
-            if (m_Items.TryGetValue(item.id, out StateTreePickItem picked))
-                m_Picked?.Invoke(picked);
-            else if (m_Commands.TryGetValue(item.id, out Action command))
-                command?.Invoke();
-            else if (m_Creates.TryGetValue(item.id, out int create))
-                m_Menu.Choose(create);
+            if (item is not Leaf leaf)
+                return;
+            if (leaf.item != null)
+                m_Picked?.Invoke(leaf.item);
+            else if (leaf.command != null)
+                leaf.command.Invoke();
+            else if (leaf.create >= 0)
+                m_Menu.Choose(leaf.create);
         }
     }
 }

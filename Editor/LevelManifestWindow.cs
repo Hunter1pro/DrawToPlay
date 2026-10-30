@@ -300,7 +300,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     () => StateTreeEditorWindow.ShowAdded(episode, node), null));
             }
             else
-                block.Add(LinkRow("Episode", "missing — made with the first object placed", null, null,
+                block.Add(LinkRow("Episode", "missing — made with the next object placed, or now", null, null,
                     MakeButton("+ Add to episode", "Adds its Level node, with one zone, under " + links.episode.name
                         + " now — and its tree when that is missing too. One undo step.")));
 
@@ -315,8 +315,19 @@ namespace PowerOfFire.DrawToPlay.Editor
                     },
                     () => StateTreeEditorWindow.Open(session)));
             }
+            else if (links.sessionMade != null)
+            {
+                // Made, but the scene does not run it — its wire went with a scene closed unsaved.
+                StateTreeAsset made = links.sessionMade;
+                block.Add(LinkRow("Session", "not run by its scene: " + made.name, null, () => StateTreeEditorWindow.Open(made),
+                    links.inEpisode
+                        ? MakeButton("+ Run it in the scene", "Wires " + made.name + " into the level's scene now (save the "
+                            + "scene after) — and its Level node in " + links.episode.name + " when that is missing too. "
+                            + "Nothing new is made.")
+                        : null));
+            }
             else
-                block.Add(LinkRow("Session", links.inEpisode ? "missing — made with the first object placed" : "missing",
+                block.Add(LinkRow("Session", links.inEpisode ? "missing — made with the next object placed, or now" : "missing",
                     null, null, links.inEpisode
                         ? MakeButton("+ Create session tree", "Makes the level's own tree and wires it into its scene now "
                             + "— and its Level node in " + links.episode.name + " when that is missing too. One undo step.")
@@ -363,7 +374,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             var value = new Label(text) { name = "value" };
             value.style.flexGrow = 1f;
             value.style.whiteSpace = WhiteSpace.Normal;
-            if (select == null && text.StartsWith("missing", StringComparison.Ordinal))
+            if (select == null && (text.StartsWith("missing", StringComparison.Ordinal)
+                    || text.StartsWith("not run", StringComparison.Ordinal)))
                 value.style.color = new Color(1f, 0.6f, 0.4f);
             row.Add(value);
             if (select != null)

@@ -45,6 +45,11 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             public StateTreeAsset SessionOf(LevelContent level) => session;
 
+            /// <summary>Made, but its scene does not run it.</summary>
+            public StateTreeAsset unwired;
+
+            public StateTreeAsset SessionMadeOf(LevelContent level) => session != null ? session : unwired;
+
             public List<string> Connect(LevelContent level)
             {
                 connects++;
@@ -62,7 +67,12 @@ namespace PowerOfFire.DrawToPlay.Tests
                     episode.root.children.Add(node);
                     made.Add("its Level node");
                 }
-                if (session == null)
+                if (session == null && unwired != null)
+                {
+                    session = unwired;
+                    made.Add("its scene runs it");
+                }
+                else if (session == null)
                 {
                     session = sessionToMake;
                     made.Add("its tree");
@@ -171,6 +181,25 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             Undo.PerformUndo();
             Assert.AreEqual(0, m_Setup.episode.root.children.Count, "one undo takes the Level node back");
+        }
+
+        [Test]
+        public void ATreeMadeButNotRun_IsFound_AndItsButtonWiresIt_MakingNothingNew()
+        {
+            m_Setup.Connect(m_Level);
+            m_Setup.unwired = m_Setup.session;
+            m_Setup.session = null;
+            m_Setup.sessionToMake = null;
+            m_Window = Open();
+
+            Assert.AreEqual("not run by its scene: CoveTree", Links()[1], "the tree is found, not called missing");
+            Assert.AreEqual(new[] { "+ Run it in the scene" }, ConnectButtons());
+            Assert.IsFalse(m_Window.links.complete, "a tree its scene does not run is a link still to make");
+
+            CollectionAssert.AreEqual(new[] { "its scene runs it" }, m_Window.Connect());
+            Assert.AreEqual("CoveTree", Links()[1]);
+            Assert.IsEmpty(ConnectButtons());
+            Assert.AreEqual(1, m_Setup.episode.root.children.Count, "the Level node was there: not made twice");
         }
 
         [Test]

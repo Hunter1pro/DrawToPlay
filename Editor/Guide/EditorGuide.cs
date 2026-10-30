@@ -19,6 +19,26 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>A line over every page while it returns text: a warning that outlives any one step.</summary>
         public Func<GuideRun, string> banner;
 
+        /// <summary>Puts the run's own names into a text before it shows — the name the designer gave what the guide
+        /// only suggested. Null: every text shows as written.</summary>
+        public Func<GuideRun, string, string> words;
+
+        /// <summary>A text (a title, a card, a tip) as <paramref name="run"/> shows it.</summary>
+        public string Say(GuideRun run, string text)
+        {
+            if (words == null || string.IsNullOrEmpty(text))
+                return text;
+            try
+            {
+                return words(run, text) ?? text;
+            }
+            catch (Exception e)
+            {
+                UnityEngine.Debug.LogWarning("Guide: its words failed — " + e.Message);
+                return text;
+            }
+        }
+
         public EditorGuide(string id, string title)
         {
             this.id = id;
