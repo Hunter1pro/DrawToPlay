@@ -108,6 +108,24 @@ namespace PowerOfFire.DrawToPlay.Tests
         // ---- the Dev view ----------------------------------------------------------------------
 
         [Test]
+        public void ADevRowsCounts_AreWords_NotGlyphsTheFontLacks()
+        {
+            var node = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
+            try
+            {
+                node.roleKind = "zone";
+                node.transitions.Add(new StateTreeTransition { targetNodeId = "a", checkWhileRunning = true });
+                string counts = StateTreeEditorWindow.Counts(node);
+                Assert.AreEqual("0 tasks · 1 → ⚡1", counts);
+                StringAssert.DoesNotContain("⟨", counts, "the kind is its own label, not a bracketed badge");
+            }
+            finally
+            {
+                Object.DestroyImmediate(node);
+            }
+        }
+
+        [Test]
         public void TheDevView_HasMissionModesHeader_AndACardPerTaskAndCondition()
         {
             Fixture fixture = Build();

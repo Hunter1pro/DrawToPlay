@@ -713,10 +713,25 @@ namespace PowerOfFire.DrawToPlay.Editor
             row.style.borderBottomRightRadius = 4f;
             row.style.backgroundColor = RowTint(node);
 
+            StateTreeSchemaKind kind = m_Schema != null ? StateTreeSchemaRules.KindOf(m_Schema, node) : null;
+            var icon = new Label(kind != null && !string.IsNullOrEmpty(kind.icon) ? kind.icon : "●");
+            icon.style.color = kind != null ? kind.color : new Color(0.7f, 0.7f, 0.7f);
+            icon.style.width = 18f;
+            icon.style.unityTextAlign = TextAnchor.MiddleCenter;
+            row.Add(icon);
+
             var title = new Label(RowTitle(node));
-            title.style.flexGrow = 1f;
-            title.style.overflow = Overflow.Hidden;
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            title.style.marginRight = 6f;
             row.Add(title);
+
+            string kindName = kind != null ? kind.Label : node.roleKind;
+            var id = new Label(string.IsNullOrEmpty(kindName) ? node.nodeId : kindName + " · " + node.nodeId);
+            id.style.opacity = 0.55f;
+            id.style.flexGrow = 1f;
+            id.style.overflow = Overflow.Hidden;
+            id.style.textOverflow = TextOverflow.Ellipsis;
+            row.Add(id);
 
             var badge = new Label(RowBadge(node));
             badge.style.opacity = 0.65f;
@@ -750,7 +765,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private string RowTitle(StateTreeNodeAsset node)
         {
-            var text = StateTreeInspectorPane.FormatNode(node);
+            var text = string.IsNullOrEmpty(node.displayName) ? node.nodeId : node.displayName;
             if (m_Tree != null && node == m_Tree.root)
                 text += "  (root)";
             else if (m_Tree != null && node == StateTreeEditorOps.ResolveEntryNode(m_Tree.root))
@@ -760,6 +775,17 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private string RowBadge(StateTreeNodeAsset node)
         {
+            var badge = Counts(node);
+            // The GHOST EDGE (M22), in badge form: where completion goes when no declared edge
+            // fires — '⇢id' the implicit sibling, '⇢↑' a bubble, '⇢■' finishes the tree,
+            // '∞' resident, '⊣' hold. A default the author can see instead of a trap.
+            var ghost = StateTreeEditorOps.ImplicitBadge(m_Tree, node);
+            return string.IsNullOrEmpty(ghost) ? badge : badge + "  " + ghost;
+        }
+
+        /// <summary>A Dev row's counts in words the font has: "2 tasks · 1 →", "⚡1" for interrupts.</summary>
+        internal static string Counts(StateTreeNodeAsset node)
+        {
             var interrupts = 0;
             for (var i = 0; i < node.transitions.Count; ++i)
             {
@@ -767,16 +793,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                     ++interrupts;
             }
 
-            var badge = $"T{node.tasks.Count} →{node.transitions.Count}";
+            var text = node.tasks.Count == 1 ? "1 task" : node.tasks.Count + " tasks";
+            if (node.transitions.Count > 0)
+                text += $" · {node.transitions.Count} →";
             if (interrupts > 0)
-                badge += $" ⚡{interrupts}";
-            if (!string.IsNullOrEmpty(node.roleKind))
-                badge = "⟨" + node.roleKind + "⟩ " + badge;
-            // The GHOST EDGE (M22), in badge form: where completion goes when no declared edge
-            // fires — '⇢id' the implicit sibling, '⇢↑' a bubble, '⇢■' finishes the tree,
-            // '∞' resident, '⊣' hold. A default the author can see instead of a trap.
-            var ghost = StateTreeEditorOps.ImplicitBadge(m_Tree, node);
-            return string.IsNullOrEmpty(ghost) ? badge : badge + "  " + ghost;
+                text += $" ⚡{interrupts}";
+            return text;
         }
 
         private void OnRowSelectionChanged(IEnumerable<object> selection)
