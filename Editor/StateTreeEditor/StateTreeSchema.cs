@@ -215,6 +215,25 @@ namespace PowerOfFire.DrawToPlay.Editor
             s_ByKind = null;
         }
 
+        /// <summary>Every schema the project has (registered ones first) — scanned once, like <see cref="For(string)"/>.</summary>
+        public static List<StateTreeSchema> All()
+        {
+            var all = new List<StateTreeSchema>();
+            foreach (StateTreeSchema schema in s_Registered)
+            {
+                if (schema != null && !all.Contains(schema))
+                    all.Add(schema);
+            }
+            if (s_ByKind == null)
+                Scan();
+            foreach (StateTreeSchema schema in s_ByKind.Values)
+            {
+                if (schema != null && !all.Contains(schema))
+                    all.Add(schema);
+            }
+            return all;
+        }
+
         internal static Type FindType(string fullName)
         {
             if (s_Types.TryGetValue(fullName, out Type known))

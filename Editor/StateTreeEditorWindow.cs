@@ -136,6 +136,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// the M7b verification menu, which asserts the window renders the real states.</summary>
         public IReadOnlyList<string> visibleNodeIds => m_RowOrder;
 
+        internal string selectedNodeId => m_SelectedNodeId;
+
         /// <summary>The state the matching runner is in while playing, "" otherwise.</summary>
         public string activeNodeId => m_Probe.activeNodeId;
 
@@ -467,6 +469,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 var ids = args.dragAndDropData.GetGenericData(k_DragKey) as List<int>;
                 return ApplyDrop(ids, args.parentId, args.childIndex);
             };
+            // A level object dragged in from the Level Manifest: caught before the tree view's own reorder.
+            m_TreeView.RegisterCallback<DragUpdatedEvent>(OnObjectDragUpdated, TrickleDown.TrickleDown);
+            m_TreeView.RegisterCallback<DragPerformEvent>(OnObjectDragPerform, TrickleDown.TrickleDown);
 
             pane.Add(m_TreeView);
 
@@ -954,6 +959,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             menu.style.width = 22f;
             row.Add(menu);
 
+            row.userData = node;
             element.Add(row);
         }
 
@@ -1019,6 +1025,124 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (node != null)
                 SelectNode(node.nodeId);
             return node;
+        }
+
+        // --- a level object dropped in (mission mode) --------------------------------------
+
+        private void OnObjectDragUpdated(DragUpdatedEvent evt)
+        {
+            LevelObjectDrag drag = LevelObjectDrag.Dragged();
+            if (drag == null)
+                return;
+            evt.StopImmediatePropagation();
+            DragAndDrop.visualMode = DropPlace(NodeUnder(evt.target as VisualElement), drag, out _, out _,
+                out List<StateTreeSchemaKind> fits) && fits.Count > 0
+                ? DragAndDropVisualMode.Copy
+                : DragAndDropVisualMode.Rejected;
+        }
+
+        private void OnObjectDragPerform(DragPerformEvent evt)
+        {
+            LevelObjectDrag drag = LevelObjectDrag.Dragged();
+            if (drag == null)
+                return;
+            evt.StopImmediatePropagation();
+            if (!DropPlace(NodeUnder(evt.target as VisualElement), drag, out StateTreeNodeAsset parent, out int index,
+                    out List<StateTreeSchemaKind> fits) || fits.Count == 0)
+                return;
+            DragAndDrop.AcceptDrag();
+            if (fits.Count == 1)
+            {
+                DropObject(parent, index, fits[0].kind, drag.manifest, drag.row);
+                return;
+            }
+            var menu = new GenericMenu();
+            foreach (StateTreeSchemaKind kind in fits)
+            {
+                string kindName = kind.kind;
+                menu.AddItem(new GUIContent(kind.Label), false, () => DropObject(parent, index, kindName, drag.manifest, drag.row));
+            }
+            menu.ShowAsContext();
+        }
+
+        private static StateTreeNodeAsset NodeUnder(VisualElement element)
+        {
+            for (VisualElement at = element; at != null; at = at.parent)
+            {
+                if (at.userData is StateTreeNodeAsset node)
+                    return node;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Where a step about the dragged row goes when it is dropped on <paramref name="onto"/>: into it, last,
+        /// when it is a group of the row's level that holds one of the preset's steps; else just after it, in its
+        /// group. False when nothing of the row's fits there.
+        /// </summary>
+        internal bool DropPlace(StateTreeNodeAsset onto, LevelObjectDrag drag, out StateTreeNodeAsset parent, out int index,
+            out List<StateTreeSchemaKind> fits)
+        {
+            parent = null;
+            index = -1;
+            fits = new List<StateTreeSchemaKind>();
+            LevelObjectDef row = drag != null ? drag.row : null;
+            LevelObjectPresetDef preset = row != null ? drag.manifest.PresetOf(row) : null;
+            if (!missionMode || onto == null || preset == null)
+                return false;
+            StateTreeSchemaKind ontoKind = StateTreeSchemaRules.KindOf(m_Schema, onto);
+            if (ontoKind != null && !ontoKind.isTemplate && StateTreeObjectSteps.Fitting(m_Schema, onto, preset).Count > 0)
+                parent = onto;
+            else
+            {
+                parent = StateTreeEditorOps.FindParent(m_Tree, onto);
+                index = parent != null ? parent.children.IndexOf(onto) + 1 : -1;
+            }
+            if (parent == null
+                || StateTreeSchemaRules.EnclosingRegistry(m_Tree, m_Schema, parent, typeof(LevelObjectDef)) != drag.manifest)
+                return false;
+            fits = StateTreeObjectSteps.Fitting(m_Schema, parent, preset);
+            return true;
+        }
+
+        /// <summary>A step of <paramref name="kind"/> about <paramref name="row"/>, put in and selected.</summary>
+        internal StateTreeNodeAsset DropObject(StateTreeNodeAsset parent, int index, string kind,
+            LevelObjectRegistry manifest, LevelObjectDef row)
+        {
+            StateTreeNodeAsset node = StateTreeObjectSteps.Add(m_Tree, m_Schema, parent, index, kind, manifest, row);
+            if (node != null)
+                Added(node);
+            return node;
+        }
+
+        /// <summary>A node another window added: redraw, and select it.</summary>
+        internal void Added(StateTreeNodeAsset node)
+        {
+            OnStructuralChanged();
+            if (node != null)
+                SelectNode(node.nodeId);
+        }
+
+        /// <summary>A node another window added to <paramref name="tree"/>, shown and selected in the window
+        /// showing that tree in its schema's mode — or in this window, opened on it.</summary>
+        internal static void ShowAdded(StateTreeAsset tree, StateTreeNodeAsset node)
+        {
+            StateTreeEditorWindow window = MissionWindows().Find(open => open.treeAsset == tree) ?? Open(tree);
+            if (!window.missionMode && window.schema != null)
+                window.SetDevMode(false);
+            window.Added(node);
+        }
+
+        /// <summary>The open windows showing a tree in its schema's mode.</summary>
+        internal static List<StateTreeEditorWindow> MissionWindows()
+        {
+            var open = new List<StateTreeEditorWindow>();
+            foreach (StateTreeEditorWindow window in Resources.FindObjectsOfTypeAll<StateTreeEditorWindow>())
+            {
+                if (window != null && window.missionMode && window.treeAsset != null)
+                    open.Add(window);
+            }
+            return open;
         }
 
         private void ShowInDevMode(StateTreeNodeAsset node)

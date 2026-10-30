@@ -151,6 +151,12 @@ the schema's mode, on the same asset. The toolbar's **Dev** toggle is today's wi
   instead of going on to its next sibling; a kind with `routeBy` (a question) goes to its i-th
   child when the parameter's key holds i — the routes are written by `ApplyDerived`, never authored.
 
+- **Steps about an object** — a key parameter bound into the same task or condition as a placement
+  parameter is a fact *of* that placement (`StateTreeSchemaRules.FactTarget`). When the picked object
+  has a preset that declares facts, the fact picker (Mission and Dev mode) offers only those, by
+  meaning, and validation flags another. `StateTreeObjectSteps` adds a step about an object from its
+  preset's fitting steps — the Level Manifest's "Use in mission…" and a row dropped on the tree.
+
 ## Episode trees: one story above the levels
 
 A host of kind `Episode` (a child of the root) holds a tree whose nodes with an `IStateTreeLevel`

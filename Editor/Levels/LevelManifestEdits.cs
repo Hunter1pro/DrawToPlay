@@ -31,8 +31,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// files that kind under. One undo step; the manifest is dirtied.
         /// </summary>
         /// <param name="onSurface">The point is on something in the scene rather than the ground plane.</param>
+        /// <param name="preset">The preset it is made from, or null for a row of the kind alone.</param>
         internal static LevelObjectDef CreateRow(LevelObjectRegistry manifest, LevelObjectKindRegistry kinds,
-            string kindName, string levelKey, Vector3 world, bool onSurface)
+            string kindName, string levelKey, Vector3 world, bool onSurface, LevelObjectPresetDef preset = null)
         {
             if (manifest == null || string.IsNullOrEmpty(kindName))
                 return null;
@@ -46,6 +47,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             var kind = kinds != null ? kinds.FindByName(kindName) as LevelObjectKindDef : null;
             row.kind.entryId = kind != null ? kind.id : "";
             row.kind.entryName = kindName;
+            if (preset != null)
+                row.preset = new StateTreeEntryRef<LevelObjectPresetDef> { entryId = preset.id, entryName = preset.name };
             Stand(manifest, row, world, onSurface);
 
             manifest.entries.Add(row);

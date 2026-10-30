@@ -217,12 +217,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             var problems = new List<StateTreeSchemaProblem>();
             if (tree == null || tree.root == null || schema == null)
                 return problems;
-            Visit(tree.root, null, schema, problems, 0);
+            Visit(tree, tree.root, null, schema, problems, 0);
             return problems;
         }
 
-        private static void Visit(StateTreeNodeAsset node, StateTreeNodeAsset parent, StateTreeSchema schema,
-            List<StateTreeSchemaProblem> problems, int depth)
+        private static void Visit(StateTreeAsset tree, StateTreeNodeAsset node, StateTreeNodeAsset parent,
+            StateTreeSchema schema, List<StateTreeSchemaProblem> problems, int depth)
         {
             if (node == null || depth > StateTreeEditorOps.DepthGuard)
                 return;
@@ -253,7 +253,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                         $"Holds {count} — a {kind.Label} holds at most {kind.childLimit}."));
 
                 if (kind.isTemplate)
-                    ValidateTemplate(node, kind, problems);
+                    ValidateTemplate(tree, schema, node, kind, problems);
                 else
                 {
                     for (int i = 0; i < node.tasks.Count; i++)
@@ -273,11 +273,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             for (int i = 0; i < node.children.Count; i++)
-                Visit(node.children[i], node, schema, problems, depth + 1);
+                Visit(tree, node.children[i], node, schema, problems, depth + 1);
         }
 
-        private static void ValidateTemplate(StateTreeNodeAsset node, StateTreeSchemaKind kind,
-            List<StateTreeSchemaProblem> problems)
+        private static void ValidateTemplate(StateTreeAsset tree, StateTreeSchema schema, StateTreeNodeAsset node,
+            StateTreeSchemaKind kind, List<StateTreeSchemaProblem> problems)
         {
             RunSubTreeTask run = TemplateTask(kind, node);
             if (run == null)
@@ -298,7 +298,87 @@ namespace PowerOfFire.DrawToPlay.Editor
                     && string.IsNullOrEmpty(parameter.stringValue))
                     problems.Add(new StateTreeSchemaProblem(node,
                         $"'{Pretty(parameter.declaration.name)}' is not set."));
+                // A fact of an object whose preset says what it writes must be one of those.
+                if (parameter.isKey && !parameter.isDerived && !string.IsNullOrEmpty(parameter.stringValue))
+                {
+                    List<LevelObjectPresetFact> facts = TargetFacts(tree, schema, node, run, parameter,
+                        out LevelObjectDef target, out LevelObjectPresetDef preset);
+                    if (facts != null && !facts.Exists(f => f != null && f.key.text == parameter.stringValue))
+                        problems.Add(new StateTreeSchemaProblem(node,
+                            $"'{Pretty(parameter.declaration.name)}' is '{parameter.stringValue}', which {target.name} "
+                            + $"({preset.name}) does not write — it writes {FactNames(facts)}."));
+                }
             }
+        }
+
+        private static string FactNames(List<LevelObjectPresetFact> facts)
+        {
+            var names = new List<string>();
+            foreach (LevelObjectPresetFact fact in facts)
+            {
+                if (fact != null)
+                    names.Add(fact.Label + " (" + fact.key.text + ")");
+            }
+            return string.Join(", ", names);
+        }
+
+        // --- what an object offers ---------------------------------------------------------
+
+        /// <summary>
+        /// The placement parameter a key parameter is a fact OF — one bound into the same task or condition of
+        /// <paramref name="template"/> (Use Object's target and its fact) — or null when the key is about no object.
+        /// </summary>
+        public static string FactTarget(StateTreeAsset template, string keyParameterId)
+        {
+            if (template == null || string.IsNullOrEmpty(keyParameterId))
+                return null;
+            foreach (StateTreeNodeAsset node in StateTreeEditorOps.CollectNodes(template))
+            {
+                foreach (StateTreeFieldBinding key in node.bindings)
+                {
+                    if (key == null || key.sourceKind != StateTreeFieldBinding.SourceKind.Parameter
+                        || key.parameterId != keyParameterId)
+                        continue;
+                    UnityEngine.Object target = StateTreeEditorOps.ResolveBindingTarget(node, key.targetKind, key.targetIndex);
+                    if (target == null)
+                        continue;
+                    foreach (StateTreeFieldBinding other in node.bindings)
+                    {
+                        if (other == null || other == key || other.sourceKind != StateTreeFieldBinding.SourceKind.Parameter
+                            || other.targetKind != key.targetKind || other.targetIndex != key.targetIndex
+                            || string.IsNullOrEmpty(other.parameterId))
+                            continue;
+                        FieldInfo field = target.GetType().GetField(other.fieldName, BindingFlags.Public | BindingFlags.Instance);
+                        if (field != null && field.FieldType == typeof(string) && field.IsDefined(typeof(PlacementIdAttribute), true))
+                            return other.parameterId;
+                    }
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The facts a key parameter may name: those the preset of the object the step's matching placement
+        /// parameter picks declares. Null — every key may be named, as before presets — when the key is about no
+        /// object, no object is picked, the object has no preset, or its preset declares no facts.
+        /// </summary>
+        public static List<LevelObjectPresetFact> TargetFacts(StateTreeAsset tree, StateTreeSchema schema,
+            StateTreeNodeAsset node, RunSubTreeTask run, StateTreeStepParameter keyParameter, out LevelObjectDef target,
+            out LevelObjectPresetDef preset)
+        {
+            target = null;
+            preset = null;
+            if (run == null || keyParameter == null || !keyParameter.isKey)
+                return null;
+            string targetId = FactTarget(run.subTree, keyParameter.declaration.id);
+            if (targetId == null)
+                return null;
+            StateTreeStepParameter about = Parameters(run).Find(p => p.declaration.id == targetId);
+            if (about == null || string.IsNullOrEmpty(about.stringValue))
+                return null;
+            target = Placement(tree, schema, node, about.stringValue, out LevelObjectRegistry manifest);
+            preset = manifest != null ? manifest.PresetOf(target) : null;
+            return preset != null && preset.facts.Count > 0 ? preset.facts : null;
         }
 
         private static string Holders(StateTreeSchema schema, StateTreeSchemaKind child)

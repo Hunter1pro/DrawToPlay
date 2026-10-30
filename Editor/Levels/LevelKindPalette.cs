@@ -9,26 +9,42 @@ namespace PowerOfFire.DrawToPlay.Editor
 {
     /// <summary>
     /// The Level Manifest's side column: one tile per kind the level's kind registry offers — its
-    /// prefab's preview (or its initial on the kind's colour) and its name. Drag a tile into the Scene
-    /// view or onto the list to place one; double-click it to place one at the view's centre (a single click
-    /// places nothing: tapping tiles made duplicates).
+    /// prefab's preview (or its initial on the kind's colour) and its name — and under it a tile per preset of
+    /// that kind from the catalogue the level lists. Drag a tile into the Scene view or onto the list to place
+    /// one; double-click it to place one at the view's centre (a single click places nothing: tapping tiles made
+    /// duplicates). A preset's tile places an object made from the preset.
     /// </summary>
     internal sealed class LevelKindPalette : VisualElement
     {
         public const string TileClass = "dtp-manifest-tile";
 
+        public const string PresetTileClass = "dtp-manifest-preset-tile";
+
         /// <summary>The DragAndDrop generic-data key a dragged tile carries its kind name under.</summary>
         public const string DragKey = "PowerOfFire.DrawToPlay.LevelKind";
 
-        /// <summary>Above this many kinds the column gets a search field.</summary>
+        /// <summary>The key a dragged preset tile carries its preset's id under, beside its kind's name.</summary>
+        public const string PresetDragKey = "PowerOfFire.DrawToPlay.LevelPreset";
+
+        /// <summary>What a preset tile stands for.</summary>
+        internal sealed class PresetTile
+        {
+            public string kind;
+            public string id;
+            public string name;
+        }
+
+        /// <summary>Above this many tiles the column gets a search field.</summary>
         private const int k_SearchFrom = 7;
 
-        private readonly Action<string> m_Clicked;
+        private readonly Action<string, string> m_Clicked;
         private readonly VisualElement m_Tiles = new VisualElement();
         private readonly ToolbarSearchField m_Search = new ToolbarSearchField();
         private LevelObjectKindRegistry m_Shown;
+        private string m_ShownPresets;
 
-        public LevelKindPalette(Action<string> clicked)
+        /// <param name="clicked">A tile double-clicked: its kind, and its preset's id (null for a kind's tile).</param>
+        public LevelKindPalette(Action<string, string> clicked)
         {
             m_Clicked = clicked;
             style.paddingLeft = 4f;
@@ -44,13 +60,15 @@ namespace PowerOfFire.DrawToPlay.Editor
             Add(m_Tiles);
         }
 
-        /// <summary>The kinds a tile stands for, in the registry's order — nothing is rebuilt when the
-        /// same registry is shown again.</summary>
-        public void Show(LevelObjectKindRegistry kinds)
+        /// <summary>The kinds a tile stands for, in the registry's order, each followed by its presets —
+        /// nothing is rebuilt when the same registry and the same presets are shown again.</summary>
+        public void Show(LevelObjectKindRegistry kinds, LevelObjectPresetRegistry presets = null)
         {
-            if (kinds == m_Shown && m_Tiles.childCount > 0)
+            string shownPresets = Signature(presets);
+            if (kinds == m_Shown && shownPresets == m_ShownPresets && m_Tiles.childCount > 0)
                 return;
             m_Shown = kinds;
+            m_ShownPresets = shownPresets;
             m_Tiles.Clear();
 
             var count = 0;
@@ -60,14 +78,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                 {
                     if (kind == null || string.IsNullOrEmpty(kind.name))
                         continue;
-                    m_Tiles.Add(Tile(kind, LevelManifestEdits.KindColour(kinds, kind.name)));
+                    Color colour = LevelManifestEdits.KindColour(kinds, kind.name);
+                    m_Tiles.Add(Tile(kind, colour, null));
+                    foreach (LevelObjectPresetDef preset in LevelPresetEdits.Under(presets, kind.name))
+                        m_Tiles.Add(Tile(kind, colour, preset));
                     count++;
                 }
             }
             if (count == 0)
                 m_Tiles.Add(StateTreeInspectorLook.Note(
                     "No kinds: this level's catalog names no LevelObjectKindRegistry."));
-            m_Search.style.display = count >= k_SearchFrom ? DisplayStyle.Flex : DisplayStyle.None;
+            m_Search.style.display = m_Tiles.childCount >= k_SearchFrom ? DisplayStyle.Flex : DisplayStyle.None;
             Filter(m_Search.value);
         }
 
@@ -76,35 +97,70 @@ namespace PowerOfFire.DrawToPlay.Editor
         public void Forget()
         {
             m_Shown = null;
+            m_ShownPresets = null;
             m_Tiles.Clear();
         }
 
+        /// <summary>The presets' ids, names and kinds in order — what decides whether the tiles are stale.</summary>
+        private static string Signature(LevelObjectPresetRegistry presets)
+        {
+            if (presets == null)
+                return "";
+            var text = new System.Text.StringBuilder();
+            foreach (LevelObjectPresetDef preset in presets.entries)
+            {
+                if (preset != null)
+                    text.Append(preset.id).Append('|').Append(preset.name).Append('|').Append(preset.kind.entryName).Append(';');
+            }
+            return text.ToString();
+        }
+
+        /// <summary>A kind's tile shows when its name or any of its presets' matches; a preset's when its own
+        /// name or its kind's does.</summary>
         private void Filter(string filter)
         {
+            bool all = string.IsNullOrWhiteSpace(filter);
+            string trimmed = all ? "" : filter.Trim();
+            bool Has(string text) => all || (text ?? "").IndexOf(trimmed, StringComparison.OrdinalIgnoreCase) >= 0;
+            var kindsShown = new HashSet<string>();
             foreach (VisualElement tile in m_Tiles.Children())
             {
-                if (!(tile.userData is string kind))
+                if (tile.userData is PresetTile preset && (Has(preset.name) || Has(preset.kind)))
+                    kindsShown.Add(preset.kind);
+            }
+            foreach (VisualElement tile in m_Tiles.Children())
+            {
+                bool shown;
+                if (tile.userData is string kind)
+                    shown = Has(kind) || kindsShown.Contains(kind);
+                else if (tile.userData is PresetTile preset)
+                    shown = Has(preset.name) || Has(preset.kind);
+                else
                     continue;
-                bool shown = string.IsNullOrWhiteSpace(filter)
-                    || kind.IndexOf(filter.Trim(), StringComparison.OrdinalIgnoreCase) >= 0;
                 tile.style.display = shown ? DisplayStyle.Flex : DisplayStyle.None;
             }
         }
 
-        private VisualElement Tile(LevelObjectKindDef kind, Color colour)
+        private VisualElement Tile(LevelObjectKindDef kind, Color colour, LevelObjectPresetDef preset)
         {
             VisualElement tile = StateTreeInspectorLook.Card(StateTreeInspectorLook.CardBackground, colour);
-            tile.AddToClassList(TileClass);
-            tile.userData = kind.name;
+            tile.AddToClassList(preset != null ? PresetTileClass : TileClass);
+            tile.userData = preset != null
+                ? new PresetTile { kind = kind.name, id = preset.id, name = preset.name }
+                : (object)kind.name;
             tile.style.flexDirection = FlexDirection.Row;
             tile.style.alignItems = Align.Center;
             tile.style.paddingTop = 3f;
             tile.style.paddingBottom = 3f;
-            tile.tooltip = (string.IsNullOrEmpty(kind.description) ? kind.name : kind.description)
-                + "\n\nDrag into the Scene view to place one there, or double-click to place one at the view's centre.";
+            string what = preset != null
+                ? (string.IsNullOrEmpty(preset.description) ? "A " + kind.name + " preset." : preset.description)
+                : string.IsNullOrEmpty(kind.description) ? kind.name : kind.description;
+            tile.tooltip = what + "\n\nDrag into the Scene view to place one there, or double-click to place one at the view's centre.";
+            if (preset != null)
+                tile.style.marginLeft = 14f;
 
-            tile.Add(Icon(kind, kind.name, colour, 28f));
-            var label = new Label(kind.name);
+            tile.Add(Icon(kind, preset != null ? preset.name : kind.name, colour, preset != null ? 20f : 28f));
+            var label = new Label(preset != null ? preset.name : kind.name);
             label.style.marginLeft = 6f;
             label.style.flexShrink = 1f;
             label.style.overflow = Overflow.Hidden;
@@ -112,6 +168,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             tile.Add(label);
 
             string name = kind.name;
+            string presetId = preset != null ? preset.id : null;
             Vector2 pressedAt = default;
             var pressed = false;
             var clicks = 0;
@@ -131,7 +188,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     return;
                 pressed = false;
                 tile.ReleasePointer(move.pointerId);
-                StartDrag(name);
+                StartDrag(name, presetId);
             });
             tile.RegisterCallback<PointerUpEvent>(up =>
             {
@@ -142,7 +199,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     return;
                 pressed = false;
                 if (Places(clicks))
-                    m_Clicked?.Invoke(name);
+                    m_Clicked?.Invoke(name, presetId);
             });
             tile.RegisterCallback<PointerCaptureOutEvent>(_ => pressed = false);
             return tile;
@@ -151,12 +208,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>A click places a row only when it is a double-click.</summary>
         internal static bool Places(int clickCount) => clickCount >= 2;
 
-        private static void StartDrag(string kind)
+        private static void StartDrag(string kind, string presetId)
         {
             DragAndDrop.PrepareStartDrag();
             DragAndDrop.objectReferences = Array.Empty<UnityEngine.Object>();
             DragAndDrop.paths = Array.Empty<string>();
             DragAndDrop.SetGenericData(DragKey, kind);
+            DragAndDrop.SetGenericData(PresetDragKey, presetId);
             DragAndDrop.StartDrag(kind);
         }
 
@@ -164,6 +222,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         public static string DraggedKind()
         {
             return DragAndDrop.GetGenericData(DragKey) as string;
+        }
+
+        /// <summary>The preset a palette tile is being dragged with, or null for a kind's tile.</summary>
+        public static string DraggedPreset()
+        {
+            return DragAndDrop.GetGenericData(PresetDragKey) as string;
         }
 
         /// <summary>
@@ -221,7 +285,19 @@ namespace PowerOfFire.DrawToPlay.Editor
             return badge;
         }
 
-        /// <summary>The tiles' kind names in order — what the column offers.</summary>
+        /// <summary>The preset tiles in order, as "kind/preset" — what the column offers under each kind.</summary>
+        internal List<string> OfferedPresets()
+        {
+            var names = new List<string>();
+            foreach (VisualElement tile in m_Tiles.Children())
+            {
+                if (tile.userData is PresetTile preset)
+                    names.Add(preset.kind + "/" + preset.name);
+            }
+            return names;
+        }
+
+        /// <summary>The kind tiles' names in order — what the column offers.</summary>
         internal List<string> Offered()
         {
             var names = new List<string>();

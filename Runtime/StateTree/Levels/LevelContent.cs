@@ -74,7 +74,7 @@ namespace PowerOfFire.DrawToPlay
                 return;
             for (int i = 0; i < objects.entries.Count; i++)
             {
-                LevelObjectDef row = objects.entries[i];
+                LevelObjectDef row = objects.Resolve(objects.entries[i]);
                 if (row == null)
                     continue;
                 AddOnce(into, row.kind.entryName);

@@ -66,6 +66,12 @@ namespace PowerOfFire.DrawToPlay
         public StateTreeEntryRef<LevelObjectKindDef> kind =
             new StateTreeEntryRef<LevelObjectKindDef>();
 
+        /// <summary>The preset this object is made from — a row of the catalogue its manifest lists
+        /// (<see cref="LevelObjectRegistry.presets"/>). Set, the preset's core is what runs (its kind, tree,
+        /// arguments and tags) and <see cref="parameters"/> holds only this object's values for the preset's
+        /// settings; empty, the row is its own core, as every row was before presets.</summary>
+        public StateTreeEntryRef<LevelObjectPresetDef> preset = new StateTreeEntryRef<LevelObjectPresetDef>();
+
         /// <summary>The definition row this object is an instance OF (unit row, item row) —
         /// id-wired, and picked from the registry the <see cref="kind"/>'s row names in
         /// <see cref="LevelObjectKindDef.definitions"/>.</summary>
@@ -167,6 +173,19 @@ namespace PowerOfFire.DrawToPlay
         /// that vocabulary, never typed: see <see cref="LevelObjectTagRef"/>.</summary>
         public List<LevelObjectTagRef> tags = new List<LevelObjectTagRef>();
 
+        /// <summary>A copy whose lists are its own — what a preset dresses without touching the row.</summary>
+        public LevelObjectDef Copy()
+        {
+            var made = (LevelObjectDef)MemberwiseClone();
+            made.parameters = new GraphTaskParameterSet();
+            for (int i = 0; parameters != null && i < parameters.values.Count; i++)
+            {
+                if (parameters.values[i] != null)
+                    made.parameters.values.Add(LevelObjectPresetDef.Copy(parameters.values[i]));
+            }
+            made.tags = tags != null ? new List<LevelObjectTagRef>(tags) : new List<LevelObjectTagRef>();
+            return made;
+        }
     }
 
     /// <summary>The catalog of levels — a registry kind like any other: list it in a tree's
