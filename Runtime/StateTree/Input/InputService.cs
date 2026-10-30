@@ -32,6 +32,11 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>The dash press — one-shot, consumed by whoever moves the body.</summary>
         public bool dashPressed { get; set; }
 
+        /// <summary>Whether the player is asking to SEE THE SCORE — held, not pressed, because
+        /// a scoreboard is a thing you look at while holding a key rather than a screen you
+        /// open. The game decides what to show; this only says the key is down.</summary>
+        public bool scoreHeld { get; set; }
+
         /// <summary>Which way the dash was ASKED for — the flick's direction on a touch stick,
         /// zero when the press carried none (a button, a key): then the mover falls back to
         /// the stick, then to the aim.</summary>

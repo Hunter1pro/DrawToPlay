@@ -117,7 +117,7 @@ namespace PowerOfFire.DrawToPlay.Tests
                 node.transitions.Add(new StateTreeTransition { targetNodeId = "a", checkWhileRunning = true });
                 string counts = StateTreeEditorWindow.Counts(node);
                 Assert.AreEqual("0 tasks · 1 → ⚡1", counts);
-                StringAssert.DoesNotContain("⟨", counts, "the kind is its own label, not a bracketed badge");
+                Assert.IsFalse(counts.Contains('⟨'), "the kind is its own label, not a bracketed badge");
             }
             finally
             {
