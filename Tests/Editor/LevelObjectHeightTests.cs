@@ -107,6 +107,31 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void APaletteDrop_OnARaisedSurface_StandsThere_OnTheFloorOrAtTheCentre_KeepsTheKind(
+            [Values(LevelGroundPlane.XY, LevelGroundPlane.XZ)] LevelGroundPlane plane)
+        {
+            LevelObjectRegistry manifest = Manifest(plane);
+            var kinds = ScriptableObject.CreateInstance<LevelObjectKindRegistry>();
+            kinds.entries.Add(new LevelObjectKindDef { id = "kind.crate", name = "crate" });
+            m_Junk.Add(kinds);
+            var at = new Vector2(1f, 2f);
+
+            LevelObjectDef onDesk = PowerOfFire.DrawToPlay.Editor.LevelManifestEdits.CreateRow(
+                manifest, kinds, "crate", "hall", manifest.ToWorld(at, 0.8f), true);
+            LevelObjectDef onFloor = PowerOfFire.DrawToPlay.Editor.LevelManifestEdits.CreateRow(
+                manifest, kinds, "crate", "hall", manifest.ToWorld(at, 0.01f), true);
+            LevelObjectDef atCentre = PowerOfFire.DrawToPlay.Editor.LevelManifestEdits.CreateRow(
+                manifest, kinds, "crate", "hall", manifest.ToWorld(at, 1.5f), false);
+            UnityEditor.Undo.ClearUndo(manifest);
+
+            Assert.AreEqual(at, onDesk.position);
+            Assert.IsTrue(onDesk.overrideHeight);
+            Assert.AreEqual(0.8f, onDesk.height, 1e-5f);
+            Assert.IsFalse(onFloor.overrideHeight, "a floor mesh's few centimetres are the floor");
+            Assert.IsFalse(atCentre.overrideHeight, "the view's centre is a spot on the plan, not a surface");
+        }
+
+        [Test]
         public void ARowWrittenBeforeTheField_ReadsAsUnset()
         {
             var manifest = ScriptableObject.CreateInstance<LevelObjectRegistry>();
