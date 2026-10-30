@@ -114,6 +114,26 @@ and one it never set follows the preset's.
   fit each; the step is added last, its object and the preset's primary fact filled in, and selected in
   the State Tree window. A row dragged from the list onto a zone or a step does the same there.
 
+### A new level, and its connections
+
+A game registers an `ILevelSetup` (from an `[InitializeOnLoad]` class) to make its levels its own way and
+to say where a level stands in its story. With one registered:
+
+- **New level** asks for a name and a place (the setup's word: "Episode") — in the level catalogue's
+  creator panel (when the setup adds to that catalogue), as **+ New level…** in the Level Manifest when
+  the open scene is no level's, and wherever the game offers it (a mission node's button). What is open
+  may be saved first (Unity's own prompt); the setup makes the level and its row; its scene opens.
+- **The Level Manifest shows the level's connections** under its name: **Episode** — its Level node in
+  the episode tree (◎ shows it in the State Tree window), "missing", or "in no episode"; **Session** — the
+  tree the level runs (◎ selects it, ▶ opens it) or "missing" (`LevelLinks.Of`).
+- **The first object placed makes what is missing**, in the object's undo step: the setup's `Connect`
+  makes the level's tree and its Level node once; a level whose connections exist, or that is in no
+  episode, is never touched (`LevelSetups.ConnectIfMissing`). "Use in mission…" can offer the new
+  Level's zone at once.
+
+Without a setup the creator panel keeps `LevelFactory` (a folder, an `ILevelTemplate`), and the window
+shows no connections.
+
 The test that a level is well-formed is that you can delete the scene and rebuild it from the
 manifest with no difference. If that is not true, something was placed by hand.
 

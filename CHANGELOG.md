@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.8 - 2026-10-30
+- New level through the game: `ILevelSetup` (registered with `LevelSetups.Register`) makes a level from a
+  name and a place, and connects it to its story. The level catalogue's creator panel, the Level Manifest
+  with no level open (**+ New level…**) and a game's mission button show its box; the open scene may be
+  saved first, then the new scene opens.
+- The Level Manifest shows the level's connections: its Level node in the episode (◎) and its own tree
+  (◎ ▶), or that they are missing (`LevelLinks`). The first object placed makes what is missing, once, in
+  its undo step (`LevelSetups.ConnectIfMissing`).
+- Mission mode's Scene view draws only the open levels' zones and lines (`StateTreeSchemaGizmos.Visible`).
+
 ## 0.6.7 - 2026-10-30
 - Level object presets: `LevelObjectPresetDef` rows in one `LevelObjectPresetRegistry` per game, listed by
   each manifest (`LevelObjectRegistry.presets`). A preset is a core (kind, tree, arguments, tags, the facts

@@ -136,7 +136,9 @@ the schema's mode, on the same asset. The toolbar's **Dev** toggle is today's wi
   its registry's rows; a key field → a name), and read-only facts (resume, saves, where it leads).
 - **Connection layer** — a context implementing `IStateTreeArea` is a circle in the Scene view; a
   step's placement parameter is a line from it to the row. Selection lights both ways; Play
-  highlights the active domain node.
+  highlights the active domain node. Only the open levels' marks are drawn: a mark placed through a
+  level's manifest shows while that level's scene is loaded (an episode's other levels stay out of
+  this scene's space); a manifest no level carries shows always (`StateTreeSchemaGizmos.Visible`).
 - **Templates' parameters** — a String parameter binds into a `string`, a `StateTreeKeyField` or a
   `StateTreeEntryRef<>` (resolved by name against the template's own registries). Parameter
   bindings are applied before keys and entry refs resolve.

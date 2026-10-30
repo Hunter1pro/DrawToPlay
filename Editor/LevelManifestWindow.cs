@@ -80,7 +80,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             SceneView.duringSceneGui += OnSceneGui;
             EditorApplication.projectChanged += OnProjectChanged;
             EditorSceneManagerHooks();
-            Undo.undoRedoPerformed += Rebuild;
+            Undo.undoRedoPerformed += OnUndoRedo;
         }
 
         private void OnDisable()
@@ -88,7 +88,13 @@ namespace PowerOfFire.DrawToPlay.Editor
             SceneView.duringSceneGui -= OnSceneGui;
             EditorApplication.projectChanged -= OnProjectChanged;
             UnityEditor.SceneManagement.EditorSceneManager.sceneOpened -= OnSceneOpened;
-            Undo.undoRedoPerformed -= Rebuild;
+            Undo.undoRedoPerformed -= OnUndoRedo;
+        }
+
+        private void OnUndoRedo()
+        {
+            m_Links = null;
+            Rebuild();
         }
 
         private void EditorSceneManagerHooks()
@@ -102,6 +108,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Kinds = null;
             m_KindsSearched = false;
             m_LevelKey = null;
+            m_Links = null;
             m_Selected = -1;
             Rebuild();
         }
@@ -150,13 +157,18 @@ namespace PowerOfFire.DrawToPlay.Editor
             Rebuild();
         }
 
-        /// <summary>For tests: edit <paramref name="level"/> with <paramref name="kinds"/>, without a scene.</summary>
+        /// <summary>Set by <see cref="Edit"/>: the level is the one handed in, never the open scene's.</summary>
+        private bool m_Pinned;
+
+        /// <summary>For tests: edit <paramref name="level"/> (none: null) with <paramref name="kinds"/>, without a scene.</summary>
         internal void Edit(LevelContent level, LevelObjectKindRegistry kinds, string levelKey)
         {
             m_Level = level;
             m_Kinds = kinds;
             m_KindsSearched = true;
             m_LevelKey = levelKey;
+            m_Links = null;
+            m_Pinned = true;
             if (m_Root == null)
                 CreateGUI();
             else
@@ -164,6 +176,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         internal int selected => m_Selected;
+
+        public const string NewLevelClass = "dtp-manifest-new-level";
+        public const string LinkClass = "dtp-manifest-link";
         internal LevelKindPalette palette => m_Palette;
 
         // ---- panel -----------------------------------------------------------------------
@@ -182,6 +197,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 m_Root.Add(Hint("No level owns the open scene. Open an area scene — the level "
                     + "whose Scene Path matches is edited here."));
+                if (LevelSetups.current != null)
+                {
+                    var create = new Button(() => LevelSetups.Prompt()) { text = "+ New level…" };
+                    create.AddToClassList(NewLevelClass);
+                    create.style.alignSelf = Align.FlexStart;
+                    create.tooltip = "Makes a level — its scene and data from the game's template — and opens it.";
+                    m_Root.Add(create);
+                }
                 return;
             }
 
@@ -189,6 +212,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Level.displayName.Length > 0
                     ? m_Level.displayName + "  (" + m_Level.name + ")"
                     : m_Level.name, out _));
+            m_Root.Add(BuildLinks());
 
             if (m_Level.objects == null)
             {
@@ -204,6 +228,72 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Root.Add(BuildSaveRow());
             SceneView.RepaintAll();
         }
+
+        /// <summary>The level's connections, as the game's setup sees them: its Level node in the episode (◎ shows it in
+        /// the State Tree window) and the tree it runs (◎ selects it, ▶ opens it) — or what is missing, which the first
+        /// object placed makes. Nothing when no setup is registered.</summary>
+        private VisualElement BuildLinks()
+        {
+            var block = new VisualElement { style = { marginTop = 2f, marginBottom = 4f } };
+            if (LevelSetups.current == null)
+                return block;
+            m_Links ??= LevelLinks.Of(m_Level);
+            LevelLinks links = m_Links;
+
+            if (!links.inEpisode)
+                block.Add(LinkRow("Episode", "— in no episode", null, null));
+            else if (links.episodeNode != null)
+            {
+                StateTreeAsset episode = links.episode;
+                StateTreeNodeAsset node = links.episodeNode;
+                string shown = (string.IsNullOrEmpty(node.displayName) ? node.nodeId : node.displayName)
+                    + "  (" + episode.name + ")";
+                block.Add(LinkRow("Episode", shown,
+                    () => StateTreeEditorWindow.ShowAdded(episode, node), null));
+            }
+            else
+                block.Add(LinkRow("Episode", "missing — made with the first object placed", null, null));
+
+            if (links.session != null)
+            {
+                StateTreeAsset session = links.session;
+                block.Add(LinkRow("Session", session.name,
+                    () =>
+                    {
+                        Selection.activeObject = session;
+                        EditorGUIUtility.PingObject(session);
+                    },
+                    () => StateTreeEditorWindow.Open(session)));
+            }
+            else
+                block.Add(LinkRow("Session", links.inEpisode ? "missing — made with the first object placed" : "missing",
+                    null, null));
+            return block;
+        }
+
+        private static VisualElement LinkRow(string label, string text, Action select, Action open)
+        {
+            var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
+            row.AddToClassList(LinkClass);
+            var name = new Label(label) { style = { width = 64f, opacity = 0.7f } };
+            row.Add(name);
+            var value = new Label(text) { name = "value" };
+            value.style.flexGrow = 1f;
+            value.style.whiteSpace = WhiteSpace.Normal;
+            if (select == null && text.StartsWith("missing", StringComparison.Ordinal))
+                value.style.color = new Color(1f, 0.6f, 0.4f);
+            row.Add(value);
+            if (select != null)
+                row.Add(new Button(select) { text = "◎", tooltip = "Show it.", style = { width = 22f } });
+            if (open != null)
+                row.Add(new Button(open) { text = "▶", tooltip = "Open it in the State Tree window.", style = { width = 22f } });
+            return row;
+        }
+
+        /// <summary>The level's connections, resolved once per level and again after a scene, project or undo change.</summary>
+        private LevelLinks m_Links;
+
+        internal LevelLinks links => m_Links;
 
         /// <summary>
         /// CLEARING SAVED PROGRESS, from where the level is being edited.
@@ -1063,10 +1153,20 @@ namespace PowerOfFire.DrawToPlay.Editor
             LevelObjectPresetDef preset = Presets() != null && !string.IsNullOrEmpty(presetId)
                 ? Presets().FindById(presetId) as LevelObjectPresetDef
                 : null;
+            int group = StateTreeEditorOps.BeginUndoGroup("Place " + kindName);
             LevelObjectDef row = LevelManifestEdits.CreateRow(m_Level.objects, Kinds(), kindName,
                 LevelKey(), world, onSurface, preset);
             if (row == null)
                 return null;
+            // The first object of a level its story does not know yet: its episode entry and its tree are made
+            // now, in the same undo step, so "Use in mission…" has a zone to offer at once.
+            List<string> made = LevelSetups.ConnectIfMissing(m_Level);
+            StateTreeEditorOps.EndUndoGroup(group);
+            if (made.Count > 0)
+            {
+                m_Links = null;
+                Debug.Log("[Level Manifest] " + m_Level.name + ": " + string.Join("; ", made));
+            }
             m_Selected = m_Level.objects.entries.Count - 1;
             SetFolded(kindName, false);
             m_FocusName = true;
@@ -1439,7 +1539,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// editor rather than a floating asset editor.</summary>
         private void ResolveLevel()
         {
-            if (m_Level != null)
+            if (m_Level != null || m_Pinned)
                 return;
             string scenePath = SceneManager.GetActiveScene().path;
             if (string.IsNullOrEmpty(scenePath))
@@ -1480,6 +1580,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// noticed here — and the panel redrawn, since "nothing to add" may have changed.</summary>
         private void OnProjectChanged()
         {
+            m_Links = null;
             m_Kinds = null;
             m_KindsSearched = false;
             m_LevelKey = null;
