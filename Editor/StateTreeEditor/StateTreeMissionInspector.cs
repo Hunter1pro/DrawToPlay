@@ -264,7 +264,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                     break;
                 }
                 default:
-                    if (parameter.isPlacement || parameter.entryType != null)
+                    if (parameter.isEnum)
+                        input = BuildEnum(run, parameter, label);
+                    else if (parameter.isPlacement || parameter.entryType != null)
                         input = BuildPick(kind, run, parameter, label);
                     else if (parameter.isKey)
                         input = BuildKeyPick(kind, run, parameter, label);
@@ -293,6 +295,19 @@ namespace PowerOfFire.DrawToPlay.Editor
                 row.Add(reset);
             }
             return row;
+        }
+
+        /// <summary>An enum field: its values, kept as the picked value's name (the template's default when the step sets none).</summary>
+        private VisualElement BuildEnum(RunSubTreeTask run, StateTreeStepParameter parameter, string label)
+        {
+            System.Type type = parameter.field.FieldType;
+            string held = parameter.stringValue;
+            System.Enum value = !string.IsNullOrEmpty(held) && System.Enum.IsDefined(type, held)
+                ? (System.Enum)System.Enum.Parse(type, held)
+                : (System.Enum)System.Enum.GetValues(type).GetValue(0);
+            var field = new EnumField(label, value);
+            field.RegisterValueChangedCallback(evt => Write(run, parameter.declaration, evt.newValue.ToString(), 0f, ""));
+            return field;
         }
 
         /// <summary>Words a person reads (or a literal value) — the only text box a step may show.</summary>

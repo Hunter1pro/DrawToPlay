@@ -15,6 +15,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         internal static string seenKey;
         internal static string seenRow;
         internal static string seenPlacement;
+        internal static StateTreeContextKind seenBoard;
 
         public StateTreeKeyField key = new StateTreeKeyField();
 
@@ -22,8 +23,11 @@ namespace PowerOfFire.DrawToPlay.Tests
 
         [PlacementId] public string near = "";
 
+        public StateTreeContextKind board = StateTreeContextKind.Level;
+
         public override void OnEnter(StateTreeContext context)
         {
+            seenBoard = board;
             seenKey = key;
             seenRow = row.entry != null ? row.entry.name : "<none>";
             seenPlacement = near;
@@ -172,6 +176,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             template.parameters.Add(new GraphTaskParameter { name = "t.key", id = "k", kind = GraphTaskParameterKind.String });
             template.parameters.Add(new GraphTaskParameter { name = "t.row", id = "r", kind = GraphTaskParameterKind.String });
             template.parameters.Add(new GraphTaskParameter { name = "t.near", id = "n", kind = GraphTaskParameterKind.String });
+            template.parameters.Add(new GraphTaskParameter { name = "t.board", id = "b", kind = GraphTaskParameterKind.String });
             var state = Junk(ScriptableObject.CreateInstance<StateTreeNodeAsset>());
             state.nodeId = "s";
             var stub = Junk(ScriptableObject.CreateInstance<SchemaStubTask>());
@@ -181,6 +186,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             state.bindings.Add(new StateTreeFieldBinding { fieldName = "key", parameterId = "k" });
             state.bindings.Add(new StateTreeFieldBinding { fieldName = "row", parameterId = "r" });
             state.bindings.Add(new StateTreeFieldBinding { fieldName = "near", parameterId = "n" });
+            state.bindings.Add(new StateTreeFieldBinding { fieldName = "board", parameterId = "b" });
             template.root = state;
 
             var caller = Junk(ScriptableObject.CreateInstance<StateTreeAsset>());
@@ -191,6 +197,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             run.overrides.Add(new GraphTaskParameterOverride { id = "k", name = "t.key", enabled = true, stringValue = "helped" });
             run.overrides.Add(new GraphTaskParameterOverride { id = "r", name = "t.row", enabled = true, stringValue = "hall.door", entryId = "p.door" });
             run.overrides.Add(new GraphTaskParameterOverride { id = "n", name = "t.near", enabled = true, stringValue = "p.stand" });
+            run.overrides.Add(new GraphTaskParameterOverride { id = "b", name = "t.board", enabled = true, stringValue = "Root" });
             call.tasks.Add(run);
             caller.root = call;
 
@@ -203,6 +210,58 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual("helped", SchemaStubTask.seenKey, "the key is the parameter, the stale wire dropped");
             Assert.AreEqual("hall.door", SchemaStubTask.seenRow, "the row resolves by name in the template's Data");
             Assert.AreEqual("p.stand", SchemaStubTask.seenPlacement);
+            Assert.AreEqual(StateTreeContextKind.Root, SchemaStubTask.seenBoard, "an enum is written by its value's name");
+        }
+
+        [Test]
+        public void ARoutedNode_ReadsItsAnswerOnTheBoardItsStepNames_AndTheBoardIsPickedAsAnEnum()
+        {
+            StateTreeAsset recall = TemplateTree(k_Folder + "/Recall.asset");
+            recall.parameters.Add(new GraphTaskParameter { name = "recall.answer", id = "answer", kind = GraphTaskParameterKind.String });
+            recall.parameters.Add(new GraphTaskParameter
+            {
+                name = "recall.board", id = "board", kind = GraphTaskParameterKind.String, stringValue = "Level"
+            });
+            recall.root.bindings.Add(new StateTreeFieldBinding { fieldName = "key", parameterId = "answer" });
+            recall.root.bindings.Add(new StateTreeFieldBinding { fieldName = "board", parameterId = "board" });
+            m_Schema.kinds.Add(new StateTreeSchemaKind
+            {
+                kind = "recall", template = recall, children = { "branch" }, childLimit = 2,
+                routeBy = "recall.answer", routeScopeBy = "recall.board"
+            });
+            m_Schema.Kind("level").children.Add("recall");
+            StateTreeAsset tree = HostTree(k_Folder + "/Host.asset");
+            StateTreeNodeAsset level = StateTreeSchemaRules.AddNode(tree, m_Schema, tree.root, "level");
+            StateTreeNodeAsset node = StateTreeSchemaRules.AddNode(tree, m_Schema, level, "recall");
+            StateTreeSchemaRules.AddNode(tree, m_Schema, node, "branch");
+            StateTreeSchemaRules.AddNode(tree, m_Schema, node, "branch");
+            var run = (RunSubTreeTask)node.tasks[0];
+            StateTreeSchemaRules.SetParameter(run, recall.parameters.Single(p => p.name == "recall.answer"), "stay", 0f, "", "t");
+            StateTreeSchemaRules.ApplyDerived(tree, m_Schema);
+            Assert.IsTrue(node.transitions.All(t => t.condition is ContextNumberCompareCondition c && c.scope == StateTreeContextKind.Level),
+                "the template's default board: the level's");
+
+            StateTreeSchemaRules.SetParameter(run, recall.parameters.Single(p => p.name == "recall.board"), "Root", 0f, "", "t");
+            StateTreeSchemaRules.ApplyDerived(tree, m_Schema);
+            Assert.AreEqual(2, node.transitions.Count);
+            for (int i = 0; i < 2; i++)
+            {
+                var route = node.transitions[i].condition as ContextNumberCompareCondition;
+                Assert.IsNotNull(route, "the answer is read on the root");
+                Assert.AreEqual(StateTreeContextKind.Root, route.scope);
+                Assert.AreEqual("stay", route.key.text);
+                Assert.AreEqual((float)i, route.value);
+            }
+            Assert.AreEqual(0, StateTreeSchemaRules.ApplyDerived(tree, m_Schema), "written once");
+
+            StateTreeStepParameter board = StateTreeSchemaRules.Parameters(m_Schema.Kind("recall"), node)
+                .Single(p => p.declaration.name == "recall.board");
+            Assert.IsTrue(board.isEnum);
+            Assert.AreEqual(StateTreeStringKind.Picked, board.stringKind, "an enum is picked, never typed");
+            var root = new ScrollView();
+            var inspector = new StateTreeMissionInspector(root, null, null, null, null);
+            inspector.Rebuild(tree, m_Schema, node, StateTreeSchemaRules.Validate(tree, m_Schema));
+            Assert.AreEqual("Root", root.Query<UnityEngine.UIElements.EnumField>().ToList().Single().value.ToString());
         }
 
         // ---- the keep a build script uses ------------------------------------------------

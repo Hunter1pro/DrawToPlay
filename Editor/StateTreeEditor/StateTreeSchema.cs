@@ -129,6 +129,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             + "its first child when that key holds 0, its second at 1… Empty: its children run in order.")]
         public string routeBy = "";
 
+        [Tooltip("A template parameter naming the board the answer is read on (a context kind, picked as an "
+            + "enum): Root for an answer an earlier level lifted there. Empty: the node's own board.")]
+        public string routeScopeBy = "";
+
         [Tooltip("The new state's id starts with this.")]
         public string idPrefix = "";
 
