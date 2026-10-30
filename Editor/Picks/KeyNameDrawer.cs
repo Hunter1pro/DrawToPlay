@@ -47,7 +47,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
     }
 
-    /// <summary>The key menu every key picker shares: offers, (none), and "Declare a new key…".</summary>
+    /// <summary>The key menu every key picker shares: "+ New key on …" first, the offers, (none).</summary>
     internal static class StateTreeKeyPick
     {
         public static StateTreeAsset TreeOf(Object owner)
@@ -79,13 +79,24 @@ namespace PowerOfFire.DrawToPlay.Editor
                 bool known = StateTreeKeyOffers.TryFind(offers, current, out _);
                 if (!string.IsNullOrEmpty(current) && !known)
                     menu.Command("Declare '" + current + "' on " + declareOn.name, () => Declared(declareOn, current, kind, picked));
-                menu.Command("Declare a new key on " + declareOn.name + "…",
-                    () => StateTreeNamePrompt.Show(at, "A new key on " + declareOn.name, "",
-                        name => Declared(declareOn, name, kind, picked)));
+                menu.Create(NewKeyLabel(declareOn), "A new key on " + declareOn.name, name => NewKey(declareOn, name, kind));
             }
             menu.Show(at, current, item => picked(item.payload is StateTreeKeyOffer offer
                 ? offer
                 : new StateTreeKeyOffer("", "", "", "")));
+        }
+
+        public static string NewKeyLabel(StateTreeAsset tree) => "+ New key on " + (tree != null ? tree.name : "this tree") + "…";
+
+        /// <summary>A declared key on <paramref name="tree"/>, as the item a picker picks.</summary>
+        public static StateTreePickItem NewKey(StateTreeAsset tree, string name, StateTreeKeyKind kind)
+        {
+            StateTreeKeyDeclaration declaration = StateTreeKeyOffers.Declare(tree, name, kind, "Declare Key");
+            if (declaration == null)
+                return null;
+            var offer = new StateTreeKeyOffer(declaration.name, declaration.id, "declared", declaration.description,
+                declaration.kind);
+            return new StateTreePickItem(declaration.name, declaration.name, "declared") { payload = offer };
         }
 
         private static void Declared(StateTreeAsset tree, string name, StateTreeKeyKind kind,

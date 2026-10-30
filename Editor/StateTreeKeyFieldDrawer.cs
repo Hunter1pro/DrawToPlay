@@ -195,8 +195,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (!string.IsNullOrEmpty(text) && string.IsNullOrEmpty(idProperty.stringValue)
                     && !StateTreeKeyOffers.TryFind(StateTreeKeyOffers.For(owner, tree), text, out _))
                     menu.Command("Declare '" + text + "' on " + tree.name, () => declare(text));
-                menu.Command("Declare a new key on " + tree.name + "…",
-                    () => StateTreeNamePrompt.Show(anchor, "A new key on " + tree.name, "", declare));
+                menu.Create(StateTreeKeyPick.NewKeyLabel(tree), "A new key on " + tree.name,
+                    name => StateTreeKeyPick.NewKey(tree, name, preferred ?? StateTreeKeyKind.String));
             }
 
             menu.Show(anchor, textProperty.stringValue, picked =>

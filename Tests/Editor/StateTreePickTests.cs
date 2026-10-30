@@ -273,6 +273,34 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.IsTrue(labels.Any(l => l.Contains("from the Choice 'yes-no'")), "and where it comes from");
         }
 
+        [Test]
+        public void TheMissionInspector_OffersANewRow_InTheTemplatesCatalog_AndPicksIt()
+        {
+            Fixture fixture = Build();
+            StateTreePickMenu.headless = true;
+            try
+            {
+                var root = new ScrollView();
+                var inspector = new StateTreeMissionInspector(root, null, null, null, null);
+                inspector.Rebuild(fixture.host, fixture.schema, fixture.step,
+                    StateTreeSchemaRules.Validate(fixture.host, fixture.schema));
+                root.Query<StateTreePickField>().ToList().First(p => p.Q<Label>().text == "Choice").Open();
+                StateTreePickMenu menu = StateTreePickMenu.lastShown;
+                Assert.AreEqual(1, menu.creates.Count, "one target: the template's catalog of that row");
+                StringAssert.Contains(fixture.rows.name, menu.creates[0].label);
+
+                menu.RunCreate(0, "maybe");
+                StateTreeRegistryEntry made = fixture.rows.FindByName("maybe");
+                Assert.IsNotNull(made, "the row is made there");
+                Assert.AreEqual("maybe", StateTreeSchemaRules.Parameters(fixture.kind, fixture.step)
+                    .Single(p => p.declaration.name == "talk.choice").stringValue, "and picked for the step");
+            }
+            finally
+            {
+                StateTreePickMenu.headless = false;
+            }
+        }
+
         // ---- helpers ------------------------------------------------------------------------
 
         private sealed class Fixture

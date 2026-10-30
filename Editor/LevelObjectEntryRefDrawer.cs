@@ -7,7 +7,7 @@ using UnityEngine.UIElements;
 namespace PowerOfFire.DrawToPlay.Editor
 {
     /// <summary>
-    /// A placement's definition reference as a DROPDOWN of the right table: the sibling
+    /// A placement's definition reference as a PICKER of the right table: the sibling
     /// <see cref="LevelObjectDef.kind"/> names a kind row, that row names its
     /// <see cref="LevelObjectKindDef.definitions"/> registry, and this field offers exactly
     /// those rows — so "which grunt?" is a pick, never a typed name beside a raw GUID.
@@ -18,8 +18,6 @@ namespace PowerOfFire.DrawToPlay.Editor
     [CustomPropertyDrawer(typeof(LevelObjectEntryRef))]
     internal sealed class LevelObjectEntryRefDrawer : PropertyDrawer
     {
-        private const string k_Unset = "(none)";
-
         public override VisualElement CreatePropertyGUI(SerializedProperty property)
         {
             SerializedProperty idProperty = property.FindPropertyRelative("entryId");
@@ -40,45 +38,32 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return hint;
             }
 
-            var rows = new List<StateTreeRegistryEntry>();
-            for (int i = 0; i < definitions.Count; i++)
-            {
-                StateTreeRegistryEntry row = definitions.EntryAt(i);
-                if (row != null && !string.IsNullOrEmpty(row.name))
-                    rows.Add(row);
-            }
-
-            var choices = new List<string> { k_Unset };
-            for (int i = 0; i < rows.Count; i++)
-            {
-                if (!choices.Contains(rows[i].name))
-                    choices.Add(rows[i].name);
-            }
-
-            string current = string.IsNullOrEmpty(nameProperty.stringValue)
-                ? k_Unset
-                : nameProperty.stringValue;
-            if (!choices.Contains(current))
-                choices.Add(current); // a row deleted from the table stays visible as a break
-
-            var field = new DropdownField("Entry (" + definitions.name + ")", choices,
-                Mathf.Max(0, choices.IndexOf(current)));
-            field.RegisterValueChangedCallback(changed =>
-            {
-                StateTreeRegistryEntry picked = null;
-                for (int i = 0; i < rows.Count; i++)
-                {
-                    if (string.Equals(rows[i].name, changed.newValue,
-                        System.StringComparison.Ordinal))
+            StateTreeRegistryEntry current = definitions.FindById(idProperty.stringValue)
+                ?? definitions.FindByName(nameProperty.stringValue);
+            bool missing = current == null && !string.IsNullOrEmpty(nameProperty.stringValue);
+            SerializedObject owner = property.serializedObject;
+            string path = property.propertyPath;
+            StateTreePickField field = null;
+            field = new StateTreePickField("Entry (" + definitions.name + ")",
+                current != null ? current.name : nameProperty.stringValue, missing,
+                current != null ? StateTreePickItems.Meaning(current) : "A row of " + definitions.name + ".",
+                at => StateTreePickItems.Rows(new List<StateTreeRegistryAsset> { definitions }, null,
+                        definitions.entryType)
+                    .OfferNew(new List<StateTreeRegistryAsset> { definitions })
+                    .Show(at, current != null ? current.name : nameProperty.stringValue, picked =>
                     {
-                        picked = rows[i];
-                        break;
-                    }
-                }
-                nameProperty.stringValue = picked != null ? picked.name : "";
-                idProperty.stringValue = picked != null ? picked.id : "";
-                property.serializedObject.ApplyModifiedProperties();
-            });
+                        owner.Update();
+                        SerializedProperty live = owner.FindProperty(path);
+                        if (live == null)
+                            return;
+                        var row = picked.payload as StateTreeRegistryEntry;
+                        live.FindPropertyRelative("entryName").stringValue = row != null ? row.name : "";
+                        live.FindPropertyRelative("entryId").stringValue = row != null ? row.id : "";
+                        owner.ApplyModifiedProperties();
+                        field.button.text = (row != null ? row.name : "(none)") + "  ▾";
+                        field.button.style.color = StyleKeyword.Null;
+                    }));
+            field.WithPing(definitions, "the table " + definitions.name);
             return field;
         }
 

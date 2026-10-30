@@ -121,22 +121,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void BuildHeader(StateTreeSchemaKind kind)
         {
-            var header = new VisualElement();
-            header.style.flexDirection = FlexDirection.Row;
-            header.style.alignItems = Align.Center;
-            header.style.marginBottom = 4f;
-
-            var icon = new Label(string.IsNullOrEmpty(kind.icon) ? "●" : kind.icon);
-            icon.style.fontSize = 18;
-            icon.style.color = kind.color;
-            icon.style.marginRight = 6f;
-            header.Add(icon);
-
-            var kindLabel = new Label(kind.Label);
-            kindLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
-            kindLabel.style.fontSize = 14;
-            kindLabel.style.flexGrow = 1f;
-            header.Add(kindLabel);
+            VisualElement header = StateTreeInspectorLook.Header(kind.icon, kind.color, kind.Label, out _);
 
             var raw = new Button(() => m_ShowRaw?.Invoke(m_Node)) { text = "Dev view" };
             raw.tooltip = "Show this node's states, tasks and transitions in Dev mode.";
@@ -455,19 +440,44 @@ namespace PowerOfFire.DrawToPlay.Editor
                 menu = StateTreePickItems.Placements(rows, m_Tree, manifest);
                 if (manifest == null)
                     menu.empty = "No level manifest — give the Level its manifest";
+                else
+                    menu.OfferNew(new List<StateTreeRegistryAsset> { manifest }, byId: true);
             }
             else
             {
                 List<StateTreeRegistryAsset> sources = StateTreeSchemaRules.RowSources(m_Tree, m_Schema, m_Node,
                     kind.template, parameter.entryType);
-                menu = StateTreePickItems.Rows(sources, m_Tree, parameter.entryType,
-                    StateTreeSchemaRules.EnclosingRegistry(m_Tree, m_Schema, m_Node, parameter.entryType));
+                StateTreeRegistryAsset narrowTo = StateTreeSchemaRules.EnclosingRegistry(m_Tree, m_Schema, m_Node,
+                    parameter.entryType);
+                menu = StateTreePickItems.Rows(sources, m_Tree, parameter.entryType, narrowTo);
                 if (sources.Count == 0)
                     menu.empty = $"No {parameter.entryType.Name} registry in the template's Data";
+                menu.OfferNew(NewRowTargets(kind, parameter.entryType, narrowTo));
             }
             menu.Show(at, parameter.stringValue, picked =>
                 Write(run, parameter.declaration, picked.value, 0f,
                     parameter.isPlacement ? picked.value : (picked.payload as StateTreeRegistryEntry)?.id ?? ""));
+        }
+
+        /// <summary>Where "+ New" may make a step's row: the catalog an enclosing group names, else the
+        /// template's own Data — never the project-wide fallback the picker lists when neither declares one.</summary>
+        internal List<StateTreeRegistryAsset> NewRowTargets(StateTreeSchemaKind kind, Type entryType,
+            StateTreeRegistryAsset narrowTo)
+        {
+            var targets = new List<StateTreeRegistryAsset>();
+            if (narrowTo != null)
+            {
+                targets.Add(narrowTo);
+                return targets;
+            }
+            StateTreeAsset template = kind != null ? kind.template : null;
+            for (int i = 0; template != null && entryType != null && i < template.registries.Count; i++)
+            {
+                StateTreeRegistryAsset registry = template.registries[i];
+                if (registry != null && entryType.IsAssignableFrom(registry.entryType) && !targets.Contains(registry))
+                    targets.Add(registry);
+            }
+            return targets;
         }
 
         private void BuildContext(StateTreeSchemaKind kind)
@@ -558,22 +568,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Changed?.Invoke();
         }
 
-        private static Label Section(string text)
-        {
-            var label = new Label(text);
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
-            label.style.marginTop = 8f;
-            label.style.marginBottom = 2f;
-            return label;
-        }
+        private static Label Section(string text) => StateTreeInspectorLook.Section(text);
 
-        private static Label Note(string text)
-        {
-            var label = new Label(text);
-            label.style.whiteSpace = WhiteSpace.Normal;
-            label.style.opacity = 0.8f;
-            return label;
-        }
+        private static Label Note(string text) => StateTreeInspectorLook.Note(text);
 
         private static string Names(List<StateTreeSchemaKind> kinds)
         {

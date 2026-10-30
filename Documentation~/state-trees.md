@@ -95,8 +95,17 @@ states — a copied state stops being the same behaviour the first time one copy
 ## Editing
 
 The **State Tree Editor** opens on the asset. It shows the real states, edits the inspector in
-place, wires transitions (target dropdown, condition slot, interrupt toggle), and manages
+place, wires transitions (target picker, condition slot, interrupt toggle), and manages
 sub-asset lifetime with full undo.
+
+Dev mode's inspector speaks Mission mode's look: a header (the state's glyph — its schema kind's
+icon when it is a domain node — its name, and a line of what it holds), then **Completion**,
+**Tasks** and **Transitions**, then **This tree** (parameters, keys, data, used by). Each task and
+condition is a card titled by its readable name with its `StateTreeCategory` line; a field still at
+its type's default and bound to nothing waits under the card's **More**; ⋮ moves or removes a task
+(its bindings and output routes follow it) or a transition. A transition's title is its sentence —
+"When done and Key Is (door.open) → Hall" — with the target as the searchable state picker and
+its condition as a card inside it. Everything the raw view edited is still on the page.
 
 In play mode it highlights the **active state green and the previous amber**, matched by
 `nodeId` through the executor's deep copy — so you are watching the exact machine you authored,

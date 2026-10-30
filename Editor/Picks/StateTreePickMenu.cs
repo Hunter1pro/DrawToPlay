@@ -41,11 +41,23 @@ namespace PowerOfFire.DrawToPlay.Editor
         public object payload;
     }
 
+    /// <summary>A "+ New …" at the top of a picker: a name is asked, <see cref="make"/> creates the row (or
+    /// key) in its one target and hands back the item to pick; <see cref="reveal"/> is selected after, so
+    /// the new row can be configured. No <see cref="make"/>: the target makes its own rows (a registry
+    /// with a creator panel) and is only revealed.</summary>
+    public sealed class StateTreePickCreate
+    {
+        public string label;
+        public string prompt;
+        public Func<string, StateTreePickItem> make;
+        public UnityEngine.Object reveal;
+    }
+
     /// <summary>
     /// THE ONE PICKER every reference field opens: a searchable dropdown (type to filter across every
-    /// group). What this tree already uses comes first, then the catalogue grouped by meaning, then what
-    /// the field's narrowing set aside, then the commands (Declare…). Built only when opened — nothing
-    /// here runs per repaint.
+    /// group). The "+ New …" items first (one per target the field can resolve from), then what this tree
+    /// already uses, then the catalogue grouped by meaning, then what the field's narrowing set aside,
+    /// then the commands (Declare…). Built only when opened — nothing here runs per repaint.
     /// </summary>
     public sealed class StateTreePickMenu
     {
@@ -67,6 +79,11 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         public readonly List<KeyValuePair<string, Action>> commands = new List<KeyValuePair<string, Action>>();
 
+        public readonly List<StateTreePickCreate> creates = new List<StateTreePickCreate>();
+
+        private Action<StateTreePickItem> m_Picked;
+        private Rect m_At;
+
         /// <summary>The last menu shown — what a test reads back.</summary>
         internal static StateTreePickMenu lastShown;
 
@@ -79,20 +96,79 @@ namespace PowerOfFire.DrawToPlay.Editor
             return this;
         }
 
+        /// <summary>A "+ New …" item: <paramref name="make"/> gets the typed name and returns the item to
+        /// pick (null: nothing made).</summary>
+        public StateTreePickMenu Create(string label, string prompt, Func<string, StateTreePickItem> make,
+            UnityEngine.Object reveal = null)
+        {
+            if (!string.IsNullOrEmpty(label))
+                creates.Add(new StateTreePickCreate { label = label, prompt = prompt, make = make, reveal = reveal });
+            return this;
+        }
+
+        /// <summary>Make the <paramref name="index"/>th "+ New" with <paramref name="name"/>, pick what it
+        /// made, then reveal its target — one undo step. What the dropdown runs once the name is typed.</summary>
+        public StateTreePickItem RunCreate(int index, string name)
+        {
+            if (index < 0 || index >= creates.Count)
+                return null;
+            StateTreePickCreate create = creates[index];
+            StateTreePickItem made = null;
+            if (create.make != null && string.IsNullOrWhiteSpace(name))
+                return null;
+            Undo.IncrementCurrentGroup();
+            int group = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName(create.label.TrimStart('+', ' ').TrimEnd('…'));
+            if (create.make != null)
+            {
+                made = create.make(name.Trim());
+                if (made != null)
+                    m_Picked?.Invoke(made);
+            }
+            if (create.reveal != null && !headless)
+            {
+                Selection.activeObject = create.reveal;
+                EditorGUIUtility.PingObject(create.reveal);
+            }
+            Undo.FlushUndoRecordObjects();
+            Undo.CollapseUndoOperations(group);
+            return made;
+        }
+
+        /// <summary>What choosing a "+ New" item does: ask the name (a small prompt), then make it.</summary>
+        internal void Choose(int index)
+        {
+            if (index < 0 || index >= creates.Count)
+                return;
+            StateTreePickCreate create = creates[index];
+            if (create.make == null)
+            {
+                RunCreate(index, "");
+                return;
+            }
+            StateTreeNamePrompt.Show(m_At, create.prompt ?? create.label, "", name => RunCreate(index, name), "Create");
+        }
+
         /// <summary>The menu as the dropdown lays it out, top to bottom: section headers, groups as
         /// paths ("Catalogue/room204/door/room204.door.opened"). For tests and diagnostics.</summary>
         public List<string> Layout(string current)
         {
             var lines = new List<string>();
             Build(current, (path, item) => lines.Add(path), header => lines.Add("# " + header), () => lines.Add("---"),
-                command => lines.Add("> " + command));
+                command => lines.Add("> " + command), (index, label) => lines.Add(label));
             return lines;
         }
 
         /// <summary>The layout, handed to whoever draws it.</summary>
         internal void Build(string current, Action<string, StateTreePickItem> item, Action<string> header,
-            Action separator, Action<string> command)
+            Action separator, Action<string> command, Action<int, string> create = null)
         {
+            if (create != null && creates.Count > 0)
+            {
+                for (int i = 0; i < creates.Count; i++)
+                    create(i, creates[i].label);
+                separator();
+            }
             if (none != null)
                 item(Mark(none, string.IsNullOrEmpty(current)), new StateTreePickItem("", none));
             var inTree = items.FindAll(i => i.inTree);
@@ -151,6 +227,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Open it under <paramref name="at"/> (a GUI rect, as a picker button's worldBound).</summary>
         public void Show(Rect at, string current, Action<StateTreePickItem> picked)
         {
+            m_Picked = picked;
+            m_At = at;
             lastShown = this;
             if (headless)
                 return;
@@ -257,6 +335,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private readonly Action<StateTreePickItem> m_Picked;
         private readonly Dictionary<int, StateTreePickItem> m_Items = new Dictionary<int, StateTreePickItem>();
         private readonly Dictionary<int, Action> m_Commands = new Dictionary<int, Action>();
+        private readonly Dictionary<int, int> m_Creates = new Dictionary<int, int>();
 
         public StateTreePickDropdown(StateTreePickMenu menu, string current, Action<StateTreePickItem> picked)
             : base(new AdvancedDropdownState())
@@ -304,6 +383,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                             m_Commands[leaf.id] = each.Value;
                     }
                     root.AddChild(leaf);
+                },
+                (index, label) =>
+                {
+                    var leaf = new AdvancedDropdownItem(label) { id = next++ };
+                    m_Creates[leaf.id] = index;
+                    root.AddChild(leaf);
                 });
             return root;
         }
@@ -314,6 +399,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Picked?.Invoke(picked);
             else if (m_Commands.TryGetValue(item.id, out Action command))
                 command?.Invoke();
+            else if (m_Creates.TryGetValue(item.id, out int create))
+                m_Menu.Choose(create);
         }
     }
 }

@@ -37,6 +37,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 {
                     StateTreeRegistryAsset level = StateTreePickItems.Enclosing(owner.targetObject, entryType);
                     StateTreePickItems.Rows(catalogs, StateTreePickItems.Owning(owner.targetObject, out _), entryType, level)
+                        .OfferNew(StateTreeRowCreate.Targets(level, catalogs, declared))
                         .Show(at, current, picked => Set(container, owner, path, label, entryType, picked.value));
                 });
             field.WithRowButtons(row, row != null ? StateTreeRowOffers.CatalogOf(catalogs, row) : catalogs.Count > 0 ? catalogs[0] : null);
