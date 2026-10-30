@@ -169,13 +169,14 @@ namespace PowerOfFire.DrawToPlay.Tests
             CollectionAssert.AreEquivalent(new[] { m_Level, m_Zone }, door.Select(use => use.place).Distinct().ToArray());
             CollectionAssert.AreEqual(new[] { "use", "walk" },
                 door.Where(use => use.place == m_Zone).Select(use => use.kind.kind).ToArray(), "in the preset's order");
-            Assert.IsTrue(door.Any(use => use.path == m_Level.displayName + " › " + m_Zone.displayName + "/Use"),
+            Assert.IsTrue(door.Any(use => use.path == m_Level.displayName + " › " + m_Zone.displayName + " (" + KindLabel(m_Zone) + ")/Use"),
                 string.Join(" | ", door.Select(use => use.path)));
 
             List<StateTreeObjectSteps.Use> marker = StateTreeObjectSteps.Uses(trees, m_Manifest, Row("p.mark"));
             Assert.IsTrue(marker.All(use => use.kind.kind == "walk"));
-            Assert.IsTrue(marker.Any(use => use.path == m_Level.displayName + " › " + m_Zone.displayName),
-                "one fitting step: no submenu");
+            Assert.IsTrue(marker.Any(use => use.path == m_Level.displayName + " › " + m_Zone.displayName
+                    + " (" + KindLabel(m_Zone) + ")/" + marker[0].kind.Label),
+                "one fitting step still reads as a step, and the place says it is a zone");
 
             Assert.AreEqual(0, StateTreeObjectSteps.Uses(trees, m_Manifest, Row("p.plain")).Count, "no preset, no steps");
             var elsewhere = ScriptableObject.CreateInstance<LevelObjectRegistry>();
@@ -269,6 +270,8 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             return StateTreeSchemaRules.Parameters((RunSubTreeTask)step.tasks[0]).Single(p => p.declaration.id == id);
         }
+
+        private string KindLabel(StateTreeNodeAsset node) => StateTreeSchemaRules.KindOf(m_Schema, node).Label;
 
         private LevelObjectDef Row(string id) => (LevelObjectDef)m_Manifest.FindById(id);
 
