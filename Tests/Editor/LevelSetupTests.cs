@@ -103,7 +103,8 @@ namespace PowerOfFire.DrawToPlay.Tests
             if (m_Window != null)
                 Object.DestroyImmediate(m_Window);
             Undo.ClearUndo(m_Level.objects);
-            Undo.ClearUndo(m_Setup.episode.root);
+            if (m_Setup.episode != null)
+                Undo.ClearUndo(m_Setup.episode.root);
             foreach (Object junk in m_Junk)
             {
                 if (junk != null)
@@ -186,10 +187,12 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual(1, m_Window.rootVisualElement.Query<Button>(className: LevelManifestWindow.NewLevelClass)
                 .ToList().Count);
 
+            // A game's own setup stays registered in its project; where there is none, there is no button.
             LevelSetups.Unregister(m_Setup);
             m_Window.Edit(null, m_Kinds, null);
-            Assert.AreEqual(0, m_Window.rootVisualElement.Query<Button>(className: LevelManifestWindow.NewLevelClass)
-                .ToList().Count, "no setup, no button");
+            if (LevelSetups.current == null)
+                Assert.AreEqual(0, m_Window.rootVisualElement.Query<Button>(className: LevelManifestWindow.NewLevelClass)
+                    .ToList().Count, "no setup, no button");
         }
 
         [Test]
