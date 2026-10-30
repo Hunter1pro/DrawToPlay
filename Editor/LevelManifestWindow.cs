@@ -49,7 +49,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         private VisualElement m_Root;
         private ScrollView m_Scroll;
         private LevelKindPalette m_Palette;
-        private LevelContent m_Level;
+        /// <summary>Kept over a domain reload with <see cref="m_Selected"/>, which is this level's row; checked against
+        /// the open scene before every use (<see cref="ResolveLevel"/>).</summary>
+        [SerializeField] private LevelContent m_Level;
         private SerializedObject m_Objects;
 
         /// <summary>Each group's fold and its rows' lines, for the search to hide rows without a rebuild.</summary>
@@ -81,6 +83,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             EditorApplication.projectChanged += OnProjectChanged;
             EditorSceneManagerHooks();
             Undo.undoRedoPerformed += OnUndoRedo;
+            m_ResolvedFor = null;
         }
 
         private void OnDisable()
@@ -88,6 +91,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             SceneView.duringSceneGui -= OnSceneGui;
             EditorApplication.projectChanged -= OnProjectChanged;
             UnityEditor.SceneManagement.EditorSceneManager.sceneOpened -= OnSceneOpened;
+            UnityEditor.SceneManagement.EditorSceneManager.newSceneCreated -= OnNewScene;
+            UnityEditor.SceneManagement.EditorSceneManager.sceneSaved -= OnSceneSaved;
+            UnityEditor.SceneManagement.EditorSceneManager.activeSceneChangedInEditMode -= OnActiveSceneChanged;
             Undo.undoRedoPerformed -= OnUndoRedo;
         }
 
@@ -100,17 +106,26 @@ namespace PowerOfFire.DrawToPlay.Editor
         private void EditorSceneManagerHooks()
         {
             UnityEditor.SceneManagement.EditorSceneManager.sceneOpened += OnSceneOpened;
+            // New level builds its scene with NewScene and saves it under its path: no sceneOpened is raised for it.
+            UnityEditor.SceneManagement.EditorSceneManager.newSceneCreated += OnNewScene;
+            UnityEditor.SceneManagement.EditorSceneManager.sceneSaved += OnSceneSaved;
+            UnityEditor.SceneManagement.EditorSceneManager.activeSceneChangedInEditMode += OnActiveSceneChanged;
         }
 
-        private void OnSceneOpened(Scene scene, UnityEditor.SceneManagement.OpenSceneMode mode)
+        private void OnSceneOpened(Scene scene, UnityEditor.SceneManagement.OpenSceneMode mode) => Follow();
+
+        private void OnNewScene(Scene scene, UnityEditor.SceneManagement.NewSceneSetup setup,
+            UnityEditor.SceneManagement.NewSceneMode mode) => Follow();
+
+        private void OnSceneSaved(Scene scene) => Follow();
+
+        private void OnActiveSceneChanged(Scene from, Scene to) => Follow();
+
+        /// <summary>Redraws when the open scene now belongs to another level, or to none.</summary>
+        private void Follow()
         {
-            m_Level = null;
-            m_Kinds = null;
-            m_KindsSearched = false;
-            m_LevelKey = null;
-            m_Links = null;
-            m_Selected = -1;
-            Rebuild();
+            if (ResolveLevel())
+                Rebuild();
         }
 
         /// <summary>The kinds' palette on the left, a splitter, and the rows in one SCROLL VIEW on the
@@ -159,6 +174,31 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>Set by <see cref="Edit"/>: the level is the one handed in, never the open scene's.</summary>
         private bool m_Pinned;
+
+        /// <summary>The open scene's path, as the window sees it; a test points it at a scene path of its own.</summary>
+        internal Func<string> openScene = () => SceneManager.GetActiveScene().path;
+
+        /// <summary>The level the window edits, resolved from the open scene first.</summary>
+        internal LevelContent level
+        {
+            get
+            {
+                ResolveLevel();
+                return m_Level;
+            }
+        }
+
+        /// <summary>For tests: follow <paramref name="scene"/> as the open scene's path, as the window does the real one.</summary>
+        internal void Follow(Func<string> scene)
+        {
+            openScene = scene;
+            m_Pinned = false;
+            m_ResolvedFor = null;
+            if (m_Root == null)
+                CreateGUI();
+            else
+                Rebuild();
+        }
 
         /// <summary>For tests: edit <paramref name="level"/> (none: null) with <paramref name="kinds"/>, without a scene.</summary>
         internal void Edit(LevelContent level, LevelObjectKindRegistry kinds, string levelKey)
@@ -260,7 +300,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                     () => StateTreeEditorWindow.ShowAdded(episode, node), null));
             }
             else
-                block.Add(LinkRow("Episode", "missing — made with the first object placed", null, null));
+                block.Add(LinkRow("Episode", "missing — made with the first object placed", null, null,
+                    MakeButton("+ Add to episode", "Adds its Level node, with one zone, under " + links.episode.name
+                        + " now — and its tree when that is missing too. One undo step.")));
 
             if (links.session != null)
             {
@@ -275,11 +317,44 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
             else
                 block.Add(LinkRow("Session", links.inEpisode ? "missing — made with the first object placed" : "missing",
-                    null, null));
+                    null, null, links.inEpisode
+                        ? MakeButton("+ Create session tree", "Makes the level's own tree and wires it into its scene now "
+                            + "— and its Level node in " + links.episode.name + " when that is missing too. One undo step.")
+                        : null));
             return block;
         }
 
-        private static VisualElement LinkRow(string label, string text, Action select, Action open)
+        /// <summary>What the first object placed would make, made now; null when the level has no object registry to
+        /// connect.</summary>
+        private Button MakeButton(string text, string tooltip)
+        {
+            if (m_Level == null || m_Level.objects == null)
+                return null;
+            var make = new Button(() => Connect()) { text = text, tooltip = tooltip };
+            make.AddToClassList(ConnectClass);
+            return make;
+        }
+
+        public const string ConnectClass = "dtp-manifest-connect";
+
+        /// <summary>The level's missing episode entry and tree, made now — the first object's connect, in one undo
+        /// step; nothing when the level is in no episode or has both. The lines say what was made.</summary>
+        internal List<string> Connect()
+        {
+            Follow();
+            if (m_Level == null)
+                return new List<string>();
+            int group = StateTreeEditorOps.BeginUndoGroup("Connect " + m_Level.name);
+            List<string> made = LevelSetups.ConnectIfMissing(m_Level);
+            StateTreeEditorOps.EndUndoGroup(group);
+            m_Links = null;
+            if (made.Count > 0)
+                Debug.Log("[Level Manifest] " + m_Level.name + ": " + string.Join("; ", made));
+            Rebuild();
+            return made;
+        }
+
+        private static VisualElement LinkRow(string label, string text, Action select, Action open, Button make = null)
         {
             var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
             row.AddToClassList(LinkClass);
@@ -295,6 +370,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 row.Add(new Button(select) { text = "◎", tooltip = "Show it.", style = { width = 22f } });
             if (open != null)
                 row.Add(new Button(open) { text = "▶", tooltip = "Open it in the State Tree window.", style = { width = 22f } });
+            if (make != null)
+                row.Add(make);
             return row;
         }
 
@@ -1145,6 +1222,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// or a kind dropped on the list.</summary>
         internal LevelObjectDef PlaceAtCentre(string kindName, string presetId = null)
         {
+            Follow();
             if (m_Level == null || m_Level.objects == null)
                 return null;
             Vector2 centre = StateTreeRowCreate.SceneCentre(m_Level.objects);
@@ -1156,6 +1234,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// opened and its name ready to type.</summary>
         internal LevelObjectDef Place(string kindName, Vector3 world, bool onSurface, string presetId = null)
         {
+            // Never into a level whose scene is not the open one: a drop lands in the level it is dropped on.
+            Follow();
             if (m_Level == null || m_Level.objects == null || string.IsNullOrEmpty(kindName))
                 return null;
             LevelObjectPresetDef preset = Presets() != null && !string.IsNullOrEmpty(presetId)
@@ -1380,6 +1460,9 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void OnSceneGui(SceneView view)
         {
+            EventType type = Event.current.type;
+            if (type == EventType.Layout || type == EventType.DragUpdated || type == EventType.DragPerform)
+                Follow();
             if (m_Level == null || m_Level.objects == null)
                 return;
 
@@ -1543,28 +1626,38 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         // ---- lookups ---------------------------------------------------------------------
 
-        /// <summary>The level whose scene is open — the one thing that makes this a scene
-        /// editor rather than a floating asset editor.</summary>
-        private void ResolveLevel()
+        /// <summary>
+        /// The level whose scene is open — the one thing that makes this a scene editor rather than a floating asset
+        /// editor. Checked against the open scene every time, not kept: New level builds its scene with NewScene and
+        /// saves it under its path, which raises no sceneOpened, and a level kept from before went on taking the new
+        /// level's objects. No level owns the scene: none — never the last one.
+        /// </summary>
+        /// <returns>True when the level changed.</returns>
+        private bool ResolveLevel()
         {
-            if (m_Level != null || m_Pinned)
-                return;
-            string scenePath = SceneManager.GetActiveScene().path;
-            if (string.IsNullOrEmpty(scenePath))
-                return;
-
-            string[] guids = AssetDatabase.FindAssets("t:" + nameof(LevelContent));
-            for (int i = 0; i < guids.Length; i++)
-            {
-                var level = AssetDatabase.LoadAssetAtPath<LevelContent>(
-                    AssetDatabase.GUIDToAssetPath(guids[i]));
-                if (level != null && level.scenePath == scenePath)
-                {
-                    m_Level = level;
-                    return;
-                }
-            }
+            if (m_Pinned)
+                return false;
+            string scenePath = openScene() ?? "";
+            if (m_Level != null && scenePath.Length > 0 && m_Level.scenePath == scenePath)
+                return false;
+            // A miss is kept until the scene or the project changes: the search walks the project.
+            if (m_Level == null && m_ResolvedFor == scenePath)
+                return false;
+            m_ResolvedFor = scenePath;
+            LevelContent found = LevelSetups.LevelOfScene(scenePath);
+            if (ReferenceEquals(found, m_Level))
+                return false;
+            m_Level = found;
+            m_Kinds = null;
+            m_KindsSearched = false;
+            m_LevelKey = null;
+            m_Links = null;
+            m_Selected = -1;
+            return true;
         }
+
+        /// <summary>The scene path the last search was for; null: search again.</summary>
+        private string m_ResolvedFor;
 
         /// <summary>
         /// THIS LEVEL'S kind catalog — the <see cref="LevelRegistry.kinds"/> of the registry that
@@ -1588,6 +1681,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// noticed here — and the panel redrawn, since "nothing to add" may have changed.</summary>
         private void OnProjectChanged()
         {
+            m_ResolvedFor = null;
             m_Links = null;
             m_Kinds = null;
             m_KindsSearched = false;

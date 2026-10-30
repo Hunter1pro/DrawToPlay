@@ -129,7 +129,13 @@ to say where a level stands in its story. With one registered:
 - **The first object placed makes what is missing**, in the object's undo step: the setup's `Connect`
   makes the level's tree and its Level node once; a level whose connections exist, or that is in no
   episode, is never touched (`LevelSetups.ConnectIfMissing`). "Use in mission…" can offer the new
-  Level's zone at once.
+  Level's zone at once. **+ Add to episode** beside a missing Episode and **+ Create session tree** beside
+  a missing Session make the same now, in one undo step, without placing anything. A level in no episode
+  has neither button: its place is where its scene lives, which the setup decides.
+- **The level shown is always the open scene's**, checked against the scene each time it is drawn and
+  before anything is placed — a scene made with NewScene and saved under a level's path (as a New level
+  does) raises no sceneOpened. When no level's Scene Path is the open scene, the window shows none and
+  + New level…; nothing placed lands in another level.
 
 Without a setup the creator panel keeps `LevelFactory` (a folder, an `ILevelTemplate`), and the window
 shows no connections.

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.10 - 2026-10-31
+- The Level Manifest shows the open scene's level, always: it is checked against the open scene on every
+  redraw, on a new, saved or switched scene and before anything is placed. Before, a level once found was
+  kept until a sceneOpened, which a New level (NewScene, then saved under its path) never raises — the
+  window went on showing the previous level and a drop wrote into its manifest. No level owns the scene:
+  none, and + New level…. `LevelSetups.LevelOfScene`.
+- **+ Add to episode** and **+ Create session tree** beside a missing Episode / Session: the first object's
+  connect, now, in one undo step. None for a level in no episode.
+
 ## 0.6.9 - 2026-10-30
 - An interactive guide for designers: a game registers an `EditorGuide` (`EditorGuides.Register`) — chapters of
   step cards, each with a few plain sentences, a "Why" fold, Show me / Do it for me, and a check that turns it ✓
