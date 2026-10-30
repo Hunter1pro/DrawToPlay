@@ -67,6 +67,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>An enum: picked from its values, kept as the value's name.</summary>
         public bool isEnum => field != null && field.FieldType.IsEnum;
 
+        /// <summary>Empty is a choice: the field says what none means.</summary>
+        public bool mayBeNone => field != null && field.IsDefined(typeof(NoneMeansAttribute), true);
+
         /// <summary>The step does not pick it: it follows from something the step holds.</summary>
         public bool isDerived => declaration != null && declaration.IsDerived;
 
@@ -291,7 +294,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 // A placement or a row is what a step is ABOUT; a text or a key may be empty on
                 // purpose (an unsaved film names no seen fact).
-                if (!parameter.isDerived && (parameter.isPlacement || parameter.entryType != null)
+                if (!parameter.isDerived && !parameter.mayBeNone && (parameter.isPlacement || parameter.entryType != null)
                     && string.IsNullOrEmpty(parameter.stringValue))
                     problems.Add(new StateTreeSchemaProblem(node,
                         $"'{Pretty(parameter.declaration.name)}' is not set."));

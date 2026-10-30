@@ -35,6 +35,19 @@ namespace PowerOfFire.DrawToPlay
         public Type entryType { get; }
     }
 
+    /// <summary>Picking nothing is a choice here, and this is what it means — a step may leave the
+    /// reference empty, where any other picked reference left empty is a step not finished.</summary>
+    [AttributeUsage(AttributeTargets.Field)]
+    public sealed class NoneMeansAttribute : Attribute
+    {
+        public NoneMeansAttribute(string meaning)
+        {
+            this.meaning = meaning;
+        }
+
+        public string meaning { get; }
+    }
+
     /// <summary>A string that names a blackboard key — picked from the declared keys (a tree's
     /// keys, a registry's, a <see cref="KeyCatalogAttribute"/> class's constants), never typed.</summary>
     [AttributeUsage(AttributeTargets.Field)]

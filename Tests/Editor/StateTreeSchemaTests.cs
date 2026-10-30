@@ -23,6 +23,8 @@ namespace PowerOfFire.DrawToPlay.Tests
 
         [PlacementId] public string near = "";
 
+        [NoneMeans("nothing")] public StateTreeEntryRef<LevelObjectDef> spare = new StateTreeEntryRef<LevelObjectDef>();
+
         public StateTreeContextKind board = StateTreeContextKind.Level;
 
         public override void OnEnter(StateTreeContext context)
@@ -164,6 +166,20 @@ namespace PowerOfFire.DrawToPlay.Tests
             problems = StateTreeSchemaRules.Validate(tree, m_Schema);
             Assert.IsTrue(problems.Any(p => p.node == stray && p.message.Contains("cannot sit at the top")));
             Assert.IsTrue(problems.Any(p => p.node == walk && p.message.Contains("template")));
+        }
+
+        [Test]
+        public void Validate_LetsARowMarkedNoneMeans_StayEmpty()
+        {
+            m_Template.parameters.Add(new GraphTaskParameter { name = "walk.spare", id = "spare", kind = GraphTaskParameterKind.String });
+            m_Template.root.bindings.Add(new StateTreeFieldBinding { fieldName = "spare", parameterId = "spare" });
+            StateTreeAsset tree = HostTree(k_Folder + "/Host.asset");
+            StateTreeNodeAsset level = StateTreeSchemaRules.AddNode(tree, m_Schema, tree.root, "level");
+            StateTreeNodeAsset walk = StateTreeSchemaRules.AddNode(tree, m_Schema, level, "walk");
+
+            List<StateTreeSchemaProblem> problems = StateTreeSchemaRules.Validate(tree, m_Schema);
+            Assert.AreEqual(1, problems.Count, string.Join("\n", problems.Select(p => p.message)));
+            StringAssert.Contains("'Near'", problems[0].message, "the target is still a step not finished");
         }
 
         // ---- the binding a template needs ------------------------------------------------
