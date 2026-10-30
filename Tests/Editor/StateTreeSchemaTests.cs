@@ -381,6 +381,119 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual(m_Manifest.ToWorld(new Vector2(3f, 4f)), target.position);
         }
 
+        // ---- the game's buttons -----------------------------------------------------------
+
+        /// <summary>A button a game registers: offered on the kind it names, run with the way to the node.</summary>
+        private sealed class StubAction : IStateTreeMissionAction
+        {
+            public string kind;
+            public string blocked;
+            public StateTreeMissionPath ran;
+
+            public bool Offers(StateTreeMissionPath at, out StateTreeMissionOffer offer)
+            {
+                offer = new StateTreeMissionOffer("Go " + kind, "a test's", blocked);
+                return at.node.roleKind == kind;
+            }
+
+            public void Run(StateTreeMissionPath at) => ran = at;
+        }
+
+        /// <summary>A level of two zones; the first asks "k" and walks one branch, the second asks "k" again.</summary>
+        private StateTreeAsset Questions(out Dictionary<string, StateTreeNodeAsset> nodes)
+        {
+            StateTreeAsset ask = TemplateTree(k_Folder + "/Ask.asset");
+            ask.parameters.Add(new GraphTaskParameter { name = "ask.answer", id = "answer", kind = GraphTaskParameterKind.String });
+            m_Schema.kinds.Add(new StateTreeSchemaKind { kind = "ask", template = ask, children = { "branch" }, routeBy = "ask.answer" });
+            m_Schema.Kind("zone").children.Add("ask");
+            m_Schema.Kind("level").rests = true;
+            StateTreeAsset tree = HostTree(k_Folder + "/Host.asset");
+            nodes = new Dictionary<string, StateTreeNodeAsset>();
+            StateTreeNodeAsset Add(StateTreeNodeAsset parent, string kind, string id)
+            {
+                StateTreeNodeAsset node = StateTreeSchemaRules.AddNode(tree, m_Schema, parent, kind);
+                if (kind == "ask")
+                    StateTreeSchemaRules.SetParameter((RunSubTreeTask)node.tasks[0], ask.parameters.Single(p => p.name == "ask.answer"),
+                        "k", 0f, "", "t");
+                nodes[id] = node;
+                return node;
+            }
+            StateTreeNodeAsset level = Add(tree.root, "level", "level");
+            StateTreeNodeAsset one = Add(level, "zone", "one");
+            Add(one, "walk", "a");
+            StateTreeNodeAsset q1 = Add(one, "ask", "q1");
+            Add(Add(q1, "branch", "yes"), "walk", "yes.walk");
+            Add(Add(q1, "branch", "no"), "walk", "no.walk");
+            Add(one, "walk", "c");
+            StateTreeNodeAsset two = Add(level, "zone", "two");
+            StateTreeNodeAsset q2 = Add(two, "ask", "q2");
+            Add(q2, "branch", "again.yes");
+            Add(Add(q2, "branch", "again.no"), "walk", "target");
+            return tree;
+        }
+
+        [Test]
+        public void ThePath_WalksTheRunToAStep_GoesTheWaysBranch_AndAnEarlierQuestionOfTheSameKeyGoesTheSameWay()
+        {
+            StateTreeAsset tree = Questions(out Dictionary<string, StateTreeNodeAsset> n);
+
+            StateTreeMissionPath path = StateTreeMissionPath.Of(tree, m_Schema, n["target"]);
+            CollectionAssert.AreEqual(new[] { tree.root, n["level"], n["two"], n["q2"], n["again.no"], n["target"] }, path.nodes);
+            Assert.AreEqual(1, path.BranchTaken(n["q2"]));
+            Assert.AreEqual(n["level"], path.Nearest("level"));
+            List<StateTreeMissionStep> before = path.Before();
+            CollectionAssert.AreEqual(new[] { n["a"], n["q1"], n["no.walk"], n["c"], n["q2"] }, before.Select(s => s.node));
+            Assert.AreEqual(1, before[1].branch, "the answer the way gives is the one the question before it took");
+            Assert.AreEqual(1, before[4].branch);
+            Assert.IsTrue(before.All(s => s.restsIn == n["level"]));
+
+            List<StateTreeMissionStep> toC = StateTreeMissionPath.Of(tree, m_Schema, n["c"]).Before();
+            CollectionAssert.AreEqual(new[] { n["a"], n["q1"], n["yes.walk"] }, toC.Select(s => s.node), "no answer on the way: the first branch");
+            Assert.AreEqual(0, toC[1].branch);
+            CollectionAssert.IsEmpty(StateTreeMissionPath.Of(tree, m_Schema, n["a"]).Before());
+        }
+
+        [Test]
+        public void TheMissionInspector_ShowsAGamesButton_OnlyWhereItIsOffered_AndRunsItWithTheWay()
+        {
+            StateTreeAsset tree = Questions(out Dictionary<string, StateTreeNodeAsset> n);
+            var root = new ScrollView();
+            var inspector = new StateTreeMissionInspector(root, null, null, null, null);
+            inspector.Rebuild(tree, m_Schema, n["target"], null);
+            Assert.IsFalse(root.Query<Button>().ToList().Any(b => b.text.StartsWith("Go ")), "none registered: no button");
+
+            var walk = new StubAction { kind = "walk" };
+            var level = new StubAction { kind = "level", blocked = "not now" };
+            StateTreeMissionActions.Register(walk);
+            StateTreeMissionActions.Register(level);
+            try
+            {
+                inspector.Rebuild(tree, m_Schema, n["target"], null);
+                Button go = root.Query<Button>().ToList().Single(b => b.text.StartsWith("Go "));
+                Assert.AreEqual("Go walk", go.text);
+                Assert.IsTrue(go.enabledSelf);
+                // No panel in a test: the press is the click handler's own invoke.
+                typeof(Clickable).GetMethod("Invoke", System.Reflection.BindingFlags.Instance
+                        | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public, null,
+                    new[] { typeof(EventBase) }, null)
+                    .Invoke(go.clickable, new object[] { null });
+                Assert.IsNotNull(walk.ran, "pressed, the action runs");
+                Assert.AreEqual(n["target"], walk.ran.node);
+                Assert.AreEqual(1, walk.ran.BranchTaken(n["q2"]));
+
+                inspector.Rebuild(tree, m_Schema, n["level"], null);
+                Button open = root.Query<Button>().ToList().Single(b => b.text.StartsWith("Go "));
+                Assert.AreEqual("Go level", open.text);
+                Assert.IsFalse(open.enabledSelf, "blocked: shown, greyed");
+                Assert.AreEqual("not now", open.tooltip);
+            }
+            finally
+            {
+                StateTreeMissionActions.Unregister(walk);
+                StateTreeMissionActions.Unregister(level);
+            }
+        }
+
         // ---- helpers ----------------------------------------------------------------------
 
         /// <summary>A reusable tree with one String parameter bound into a [PlacementId] field.</summary>

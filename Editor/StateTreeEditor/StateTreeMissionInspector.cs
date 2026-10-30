@@ -66,6 +66,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Edited?.Invoke();
 
             BuildHeader(kind);
+            BuildActions();
             BuildProblems(node);
             if (kind.isTemplate)
                 BuildParameters(kind);
@@ -160,6 +161,28 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             if (!string.IsNullOrEmpty(kind.help))
                 m_Root.Add(Note(kind.help));
+        }
+
+        /// <summary>The game's buttons on this node (open its level, play from it); none when no action offers one.</summary>
+        private void BuildActions()
+        {
+            StateTreeMissionPath path = StateTreeMissionPath.Of(m_Tree, m_Schema, m_Node);
+            List<(IStateTreeMissionAction action, StateTreeMissionOffer offer)> offered = StateTreeMissionActions.Offered(path);
+            if (offered.Count == 0)
+                return;
+            var row = new VisualElement();
+            row.AddToClassList("dtp-mission-actions");
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.flexWrap = Wrap.Wrap;
+            row.style.marginBottom = 4f;
+            foreach ((IStateTreeMissionAction action, StateTreeMissionOffer offer) in offered)
+            {
+                var button = new Button(() => action.Run(path)) { text = offer.label };
+                button.tooltip = offer.blocked ?? offer.tooltip;
+                button.SetEnabled(offer.blocked == null);
+                row.Add(button);
+            }
+            m_Root.Add(row);
         }
 
         private void BuildProblems(StateTreeNodeAsset node)
