@@ -9,7 +9,8 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// <summary>
     /// THE "NEW LEVEL" BOX on a level registry: a name, a group, a folder, the game's template,
     /// one button. Adding a row by hand is still there for a level that already exists as
-    /// assets; this is for the one that does not yet.
+    /// assets; this is for the one that does not yet. A game whose <see cref="ILevelSetup"/>
+    /// catalogues here gets its own box instead: a name and a place.
     /// </summary>
     [RegistryCreator(typeof(LevelRegistry))]
     internal sealed class NewLevelPanel : VisualElement
@@ -37,6 +38,18 @@ namespace PowerOfFire.DrawToPlay.Editor
             style.paddingBottom = 6f;
             style.borderLeftWidth = 2f;
             style.borderLeftColor = new Color(0.4f, 0.7f, 0.5f, 0.6f);
+
+            // The game's own setup, when it catalogues here: a name and a place, the rest is the game's.
+            ILevelSetup setup = LevelSetups.current;
+            if (setup != null && setup.levels == levels)
+            {
+                var made = new Label("New level — its scene and data from the game's template, its row; opened");
+                made.style.unityFontStyleAndWeight = FontStyle.Bold;
+                made.style.whiteSpace = WhiteSpace.Normal;
+                Add(made);
+                Add(new NewLevelBox(setup, null, _ => m_Changed?.Invoke()));
+                return;
+            }
 
             var title = new Label("New level — content, manifest, scene, row and build entry in one click");
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
