@@ -153,6 +153,42 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void TheMissingLinks_HaveButtonsThatConnectNow_InOneUndoStep_ThenGoAway()
+        {
+            m_Window = Open();
+            Assert.AreEqual(new[] { "+ Add to episode", "+ Create session tree" }, ConnectButtons(),
+                "one beside each missing link");
+
+            List<string> made = m_Window.Connect();
+            Assert.AreEqual(2, made.Count, string.Join("; ", made));
+            Assert.AreEqual(1, m_Setup.connects, "the first object's connect");
+            Assert.IsTrue(m_Window.links.complete);
+            Assert.IsEmpty(ConnectButtons(), "nothing left to make");
+            Assert.AreEqual(0, m_Level.objects.entries.Count, "nothing was placed");
+
+            Assert.IsEmpty(m_Window.Connect(), "made once");
+            Assert.AreEqual(1, m_Setup.episode.root.children.Count);
+
+            Undo.PerformUndo();
+            Assert.AreEqual(0, m_Setup.episode.root.children.Count, "one undo takes the Level node back");
+        }
+
+        [Test]
+        public void OnlyTheMissingLink_HasAButton_AndALevelInNoEpisodeHasNone()
+        {
+            m_Setup.session = m_Setup.sessionToMake;
+            m_Window = Open();
+            Assert.AreEqual(new[] { "+ Add to episode" }, ConnectButtons());
+
+            m_Setup.episode = null;
+            m_Setup.session = null;
+            m_Window.Edit(m_Level, m_Kinds, "cove");
+            Assert.IsEmpty(ConnectButtons(), "a level's episode is the setup's to say, not a button's");
+            Assert.IsEmpty(m_Window.Connect());
+            Assert.AreEqual(0, m_Setup.connects);
+        }
+
+        [Test]
         public void RemovingALevelNode_TakesItsZonesAndSteps_AndNothingElse()
         {
             StateTreeAsset episode = m_Setup.episode;
@@ -268,6 +304,12 @@ namespace PowerOfFire.DrawToPlay.Tests
             manifest.plane = LevelGroundPlane.XZ;
             manifest.entries.Add(new LevelObjectDef { id = "centre", name = "centre", position = centre });
             return manifest;
+        }
+
+        private string[] ConnectButtons()
+        {
+            return m_Window.rootVisualElement.Query<Button>(className: LevelManifestWindow.ConnectClass).ToList()
+                .Select(b => b.text).ToArray();
         }
 
         private List<string> Links()

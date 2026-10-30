@@ -157,6 +157,21 @@ namespace PowerOfFire.DrawToPlay.Editor
             return setup.Connect(level) ?? new List<string>();
         }
 
+        /// <summary>The level whose Scene Path is <paramref name="scenePath"/>, searched in the project as it is now — a
+        /// level made a moment ago included; null when none is.</summary>
+        public static LevelContent LevelOfScene(string scenePath)
+        {
+            if (string.IsNullOrEmpty(scenePath))
+                return null;
+            foreach (string guid in AssetDatabase.FindAssets("t:" + nameof(LevelContent)))
+            {
+                var level = AssetDatabase.LoadAssetAtPath<LevelContent>(AssetDatabase.GUIDToAssetPath(guid));
+                if (level != null && level.scenePath == scenePath)
+                    return level;
+            }
+            return null;
+        }
+
         /// <summary>The designer's New level: what is open may be saved first (Unity's own prompt), then the level is
         /// made, its scene opened and the Level Manifest shown.</summary>
         public static LevelDef CreateAndOpen(string name, string place, out string report)
