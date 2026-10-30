@@ -205,8 +205,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>A parameter the step does not pick: its value, read-only, and where it comes from.</summary>
         internal VisualElement BuildDerived(StateTreeSchemaKind kind, StateTreeStepParameter parameter)
         {
-            string value = StateTreeSchemaRules.DerivedValue(m_Tree, m_Schema, m_Node, kind, parameter,
-                out string why, out StateTreeRegistryEntry row);
+            RunSubTreeTask run = StateTreeSchemaRules.TemplateTask(kind, m_Node);
+            string value = Inputs(kind, run).Derivation(run, parameter, out string meaning);
             var box = new VisualElement();
             box.AddToClassList("dtp-derived");
             box.style.marginBottom = 2f;
@@ -224,13 +224,6 @@ namespace PowerOfFire.DrawToPlay.Editor
                 shown.style.color = new Color(1f, 0.45f, 0.4f);
             line.Add(shown);
             box.Add(line);
-            string meaning = why;
-            if (row != null && !string.IsNullOrEmpty(row.Describe()))
-                meaning += " — " + row.Describe();
-            if (parameter.isKey && !string.IsNullOrEmpty(value)
-                && StateTreeKeyOffers.TryFind(StateTreeKeyOffers.For(m_Tree, m_Tree), value, out StateTreeKeyOffer offer)
-                && !string.IsNullOrEmpty(offer.description))
-                meaning += ". " + offer.description;
             var note = Note(meaning);
             note.style.marginLeft = 120f;
             note.style.fontSize = 10;
@@ -272,20 +265,15 @@ namespace PowerOfFire.DrawToPlay.Editor
                     break;
                 }
                 default:
-                    if (parameter.isEnum)
-                        input = BuildEnum(run, parameter, label);
-                    else if (parameter.isPlacement || parameter.entryType != null)
-                        input = BuildPick(kind, run, parameter, label);
-                    else if (parameter.isKey)
-                        input = BuildKeyPick(kind, run, parameter, label);
-                    else if (parameter.isTag)
-                        input = BuildTagPick(run, parameter, label);
-                    else if (parameter.stringKind == StateTreeStringKind.HumanText
-                             || parameter.stringKind == StateTreeStringKind.Literal)
-                        input = BuildText(run, parameter, label);
-                    else
-                        input = BuildNoPicker(parameter, label);
+                {
+                    StateTreeStepParameterInputs inputs = Inputs(kind, run);
+                    input = inputs.Picker(parameter, label)
+                        ?? (parameter.stringKind == StateTreeStringKind.HumanText
+                            || parameter.stringKind == StateTreeStringKind.Literal
+                                ? inputs.Text(parameter, label)
+                                : inputs.NoPicker(parameter, label));
                     break;
+                }
             }
             input.style.flexGrow = 1f;
             input.style.opacity = parameter.overridden ? 1f : 0.6f;
@@ -305,179 +293,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             return row;
         }
 
-        /// <summary>An enum field: its values, kept as the picked value's name (the template's default when the step sets none).</summary>
-        private VisualElement BuildEnum(RunSubTreeTask run, StateTreeStepParameter parameter, string label)
+        /// <summary>The shared pickers, writing into this step's run of its template.</summary>
+        private StateTreeStepParameterInputs Inputs(StateTreeSchemaKind kind, RunSubTreeTask run)
         {
-            System.Type type = parameter.field.FieldType;
-            string held = parameter.stringValue;
-            System.Enum value = !string.IsNullOrEmpty(held) && System.Enum.IsDefined(type, held)
-                ? (System.Enum)System.Enum.Parse(type, held)
-                : (System.Enum)System.Enum.GetValues(type).GetValue(0);
-            var field = new EnumField(label, value);
-            field.RegisterValueChangedCallback(evt => Write(run, parameter.declaration, evt.newValue.ToString(), 0f, ""));
-            return field;
-        }
-
-        /// <summary>Words a person reads (or a literal value) — the only text box a step may show.</summary>
-        private VisualElement BuildText(RunSubTreeTask run, StateTreeStepParameter parameter, string label)
-        {
-            var text = new TextField(label) { value = parameter.stringValue, isDelayed = true };
-            text.tooltip = parameter.stringKind == StateTreeStringKind.HumanText ? "Words the player reads." : "A literal value.";
-            text.RegisterValueChangedCallback(evt => Write(run, parameter.declaration, evt.newValue, 0f, ""));
-            return text;
-        }
-
-        /// <summary>A parameter whose bound field names something but has no picker: shown, never typed
-        /// — the fix is a picker attribute on the field (or a derivation on the parameter).</summary>
-        private VisualElement BuildNoPicker(StateTreeStepParameter parameter, string label)
-        {
-            var box = new VisualElement();
-            var field = new StateTreePickField(label, parameter.stringValue, true,
-                "No picker: " + (parameter.field == null ? "the template binds this parameter to nothing"
-                    : parameter.field.DeclaringType?.Name + "." + parameter.field.Name + " is a free-text string"),
-                null);
-            field.button.SetEnabled(false);
-            box.Add(field);
-            box.Add(new HelpBox(parameter.field == null
-                ? "The template binds this parameter to no field — it reaches only the blackboard. Bind it in Dev mode."
-                : $"{parameter.field.DeclaringType?.Name}.{parameter.field.Name} is a free-text string, so there is "
-                + "nothing to pick from. Give the field a picker ([PlacementId], [RowName], [KeyName], …) or derive "
-                + "the parameter.", HelpBoxMessageType.Error));
-            return box;
-        }
-
-        /// <summary>A key: the declared keys the hall and the template see; a new one is declared on the
-        /// tree the step lives in.</summary>
-        private VisualElement BuildKeyPick(StateTreeSchemaKind kind, RunSubTreeTask run, StateTreeStepParameter parameter,
-            string label)
-        {
-            List<StateTreeKeyOffer> offers = StateTreeKeyOffers.For(m_Tree, m_Tree);
-            foreach (StateTreeKeyOffer extra in StateTreeKeyOffers.For(kind.template, kind.template))
-            {
-                if (!StateTreeKeyOffers.TryFind(offers, extra.name, out _))
-                    offers.Add(extra);
-            }
-            string current = parameter.stringValue;
-            bool known = StateTreeKeyOffers.TryFind(offers, current, out StateTreeKeyOffer offer);
-            return new StateTreePickField(label, current, !known && !string.IsNullOrEmpty(current),
-                StateTreeKeyPick.Tooltip(known, offer),
-                at => StateTreeKeyPick.Menu(at, offers, m_Tree, StateTreeKeyKind.String, current, true,
-                    picked => Write(run, parameter.declaration, picked.name, 0f, "", picked.id)));
-        }
-
-        private VisualElement BuildTagPick(RunSubTreeTask run, StateTreeStepParameter parameter, string label)
-        {
-            var tags = new List<WorldTagDef>();
-            StateTreeOffers.TagsFor(m_Tree, tags);
-            string current = parameter.stringValue;
-            bool known = tags.Exists(t => t.name == current);
-            return new StateTreePickField(label, current, !known && !string.IsNullOrEmpty(current), "A world tag.",
-                at => StateTreePickItems.Tags(tags, m_Tree).Show(at, current, picked =>
-                    Write(run, parameter.declaration, picked.value, 0f, (picked.payload as WorldTagDef)?.id ?? "")));
-        }
-
-        /// <summary>A row picker: the level's placements, or the rows of the bound field's registry —
-        /// with ◎ to the row's asset (▶ opens it) or its catalog.</summary>
-        private VisualElement BuildPick(StateTreeSchemaKind kind, RunSubTreeTask run,
-            StateTreeStepParameter parameter, string label)
-        {
-            string shown = parameter.stringValue;
-            bool missing = false;
-            StateTreePickField field;
-            if (parameter.isPlacement)
-            {
-                LevelObjectDef placement = StateTreeSchemaRules.Placement(m_Tree, m_Schema, m_Node, shown, out LevelObjectRegistry manifest);
-                if (placement != null)
-                    shown = placement.name;
-                else
-                    missing = !string.IsNullOrEmpty(shown);
-                field = new StateTreePickField(label, shown, missing,
-                    placement != null ? "A placement of " + manifest.name + " (" + placement.id + ")" : "A placement of the level's manifest.",
-                    at => ShowPick(at, kind, run, parameter));
-                field.WithPing(manifest, manifest != null ? "the manifest " + manifest.name : null);
-            }
-            else
-            {
-                StateTreeRegistryEntry entry = FindRow(kind, parameter, shown);
-                missing = !string.IsNullOrEmpty(shown) && entry == null;
-                List<StateTreeRegistryAsset> sources = StateTreeSchemaRules.RowSources(m_Tree, m_Schema, m_Node,
-                    kind.template, parameter.entryType);
-                field = new StateTreePickField(label, shown, missing,
-                    entry != null ? entry.Describe() : "A " + parameter.entryType.Name.Replace("Def", "") + " row.",
-                    at => ShowPick(at, kind, run, parameter));
-                field.WithRowButtons(entry, entry != null ? StateTreeRowOffers.CatalogOf(sources, entry)
-                    : sources.Count > 0 ? sources[0] : null);
-            }
-            return field;
-        }
-
-        private StateTreeRegistryEntry FindRow(StateTreeSchemaKind kind, StateTreeStepParameter parameter, string name)
-        {
-            foreach (StateTreeRegistryAsset registry in StateTreeSchemaRules.RowSources(m_Tree, m_Schema, m_Node,
-                         kind.template, parameter.entryType))
-            {
-                StateTreeRegistryEntry entry = registry.FindByName(name);
-                if (entry != null)
-                    return entry;
-            }
-            return null;
-        }
-
-        /// <summary>The step's picker: a placement of its Level's manifest, or a row — this level's
-        /// catalog first when an enclosing group names one.</summary>
-        private void ShowPick(Rect at, StateTreeSchemaKind kind, RunSubTreeTask run, StateTreeStepParameter parameter)
-        {
-            StateTreePickMenu menu;
-            if (parameter.isPlacement)
-            {
-                StateTreeSchemaRules.Placement(m_Tree, m_Schema, m_Node, "", out LevelObjectRegistry manifest);
-                var rows = new List<LevelObjectDef>();
-                for (int i = 0; manifest != null && i < manifest.Count; i++)
-                {
-                    if (manifest.EntryAt(i) is LevelObjectDef row)
-                        rows.Add(row);
-                }
-                menu = StateTreePickItems.Placements(rows, m_Tree, manifest);
-                if (manifest == null)
-                    menu.empty = "No level manifest — give the Level its manifest";
-                else
-                    menu.OfferNew(new List<StateTreeRegistryAsset> { manifest }, byId: true);
-            }
-            else
-            {
-                List<StateTreeRegistryAsset> sources = StateTreeSchemaRules.RowSources(m_Tree, m_Schema, m_Node,
-                    kind.template, parameter.entryType);
-                StateTreeRegistryAsset narrowTo = StateTreeSchemaRules.EnclosingRegistry(m_Tree, m_Schema, m_Node,
-                    parameter.entryType);
-                menu = StateTreePickItems.Rows(sources, m_Tree, parameter.entryType, narrowTo);
-                if (sources.Count == 0)
-                    menu.empty = $"No {parameter.entryType.Name} registry in the template's Data";
-                menu.OfferNew(NewRowTargets(kind, parameter.entryType, narrowTo));
-            }
-            menu.Show(at, parameter.stringValue, picked =>
-                Write(run, parameter.declaration, picked.value, 0f,
-                    parameter.isPlacement ? picked.value : (picked.payload as StateTreeRegistryEntry)?.id ?? ""));
-        }
-
-        /// <summary>Where "+ New" may make a step's row: the catalog an enclosing group names, else the
-        /// template's own Data — never the project-wide fallback the picker lists when neither declares one.</summary>
-        internal List<StateTreeRegistryAsset> NewRowTargets(StateTreeSchemaKind kind, Type entryType,
-            StateTreeRegistryAsset narrowTo)
-        {
-            var targets = new List<StateTreeRegistryAsset>();
-            if (narrowTo != null)
-            {
-                targets.Add(narrowTo);
-                return targets;
-            }
-            StateTreeAsset template = kind != null ? kind.template : null;
-            for (int i = 0; template != null && entryType != null && i < template.registries.Count; i++)
-            {
-                StateTreeRegistryAsset registry = template.registries[i];
-                if (registry != null && entryType.IsAssignableFrom(registry.entryType) && !targets.Contains(registry))
-                    targets.Add(registry);
-            }
-            return targets;
+            return new StateTreeStepParameterInputs(m_Tree, m_Schema, m_Node, kind.template,
+                (declaration, text, number, entryId, keyId) => Write(run, declaration, text, number, entryId, keyId));
         }
 
         private void BuildContext(StateTreeSchemaKind kind)

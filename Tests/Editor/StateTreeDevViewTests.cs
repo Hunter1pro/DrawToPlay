@@ -61,6 +61,30 @@ namespace PowerOfFire.DrawToPlay.Tests
         public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime) => StateTreeStatus.Running;
     }
 
+    internal enum DevViewStubMood
+    {
+        Calm,
+        Loud
+    }
+
+    /// <summary>A template's task: one field of every kind a sub-tree parameter can bind into.</summary>
+    internal sealed class DevViewStubStepTask : StateTreeTaskAsset
+    {
+        public StateTreeEntryRef<DevViewStubRow> row = new StateTreeEntryRef<DevViewStubRow>();
+
+        [PlacementId] public string at = "";
+
+        public StateTreeKeyField fact = new StateTreeKeyField();
+
+        public StateTreeKeyField answer = new StateTreeKeyField();
+
+        public DevViewStubMood mood;
+
+        [HumanText] public string line = "";
+
+        public override StateTreeStatus OnTick(StateTreeContext context, float deltaTime) => StateTreeStatus.Running;
+    }
+
     [StateTreeCategory("Conditions/Test", "A condition for the dev view")]
     internal sealed class DevViewStubCondition : StateTreeConditionAsset
     {
@@ -215,6 +239,107 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual(1, fixture.work.bindings.Single().targetIndex, "the binding follows its task");
             Assert.AreEqual(1, fixture.work.transitions[0].outputRoutes.Single().taskIndex, "and so does the route");
             Assert.IsFalse(StateTreeEditorOps.MoveTask(fixture.tree, fixture.work, 1, 1, "Move"), "nothing past the end");
+        }
+
+        // ---- a sub-tree's parameters ------------------------------------------------------------
+
+        /// <summary>"A reference is a picker, never free text" — in Dev mode too: a sub-tree task's override
+        /// rows take Mission mode's picker from the template field each parameter binds into.</summary>
+        [Test]
+        public void ASubTreesParameters_ArePickedInDevMode_LikeInMissionMode_OnlyWordsAreTyped()
+        {
+            Fixture fixture = Build();
+            RunSubTreeTask run = SubTreeStep(fixture, out StateTreeNodeAsset step);
+            var root = new ScrollView();
+            new StateTreeInspectorPane(root, null, null).Rebuild(fixture.tree, step);
+            VisualElement card = root.Q("dtp-task-0");
+            Assert.IsNotNull(card, "the sub-tree task is a card");
+
+            VisualElement Row(string name)
+            {
+                Label label = card.Query<Label>().ToList().FirstOrDefault(l => l.text == name);
+                Assert.IsNotNull(label, name + " has its override row");
+                return label.parent;
+            }
+
+            foreach (string picked in new[] { "t.row", "t.at", "t.fact", "t.answer", "t.typed" })
+            {
+                VisualElement row = Row(picked);
+                Assert.IsNull(row.Q<TextField>(), picked + " is not typed");
+                Assert.IsNotNull(row.Q<StateTreePickField>(), picked + " is picked");
+            }
+            Assert.IsNull(Row("t.mood").Q<TextField>(), "an enum is not typed");
+            Assert.IsNotNull(Row("t.mood").Q<EnumField>(), "an enum is its values");
+            Assert.IsNotNull(Row("t.line").Q<TextField>(), "words a person reads stay text");
+            Assert.IsNotNull(Row("t.loose").Q<TextField>(), "a parameter bound into nothing stays text");
+
+            Assert.IsFalse(Row("t.row").Q<StateTreePickField>().missing, "the override's row is a good pick");
+            Assert.IsTrue(Row("t.row").Q<StateTreePickField>().button.text.StartsWith("one", StringComparison.Ordinal),
+                "and shows it");
+            Assert.IsTrue(Row("t.row").Q<StateTreePickField>().Query<Button>().ToList().Any(b => b.text == "◎"),
+                "with ◎ to its catalog");
+            Assert.IsTrue(Row("t.answer").parent.Query<Label>().ToList()
+                    .Any(l => l.text.StartsWith("Follows from the step", StringComparison.Ordinal)),
+                "a derived parameter says where it comes from");
+
+            // Picking writes both halves of the reference into this state's run of the sub-tree.
+            fixture.rows.entries.Add(new DevViewStubRow { id = "row.two", name = "two" });
+            Row("t.row").Q<StateTreePickField>().Open();
+            StateTreePickMenu menu = StateTreePickMenu.lastShown;
+            Pick(menu, menu.items.Single(i => i.value == "two"));
+            GraphTaskParameterOverride written = run.overrides.Single(o => o.id == "row");
+            Assert.AreEqual(("two", "row.two", true), (written.stringValue, written.entryId, written.enabled));
+        }
+
+        /// <summary>A state running a template: every String parameter bound into one kind of field, one
+        /// derived, one typed by its declaration only, one bound into nothing. The row is overridden.</summary>
+        private RunSubTreeTask SubTreeStep(Fixture fixture, out StateTreeNodeAsset step)
+        {
+            var template = ScriptableObject.CreateInstance<StateTreeAsset>();
+            template.treeKind = "task";
+            template.registries.Add(fixture.rows);
+            GraphTaskParameter Declare(string id)
+            {
+                var parameter = new GraphTaskParameter { id = id, name = "t." + id, kind = GraphTaskParameterKind.String };
+                template.parameters.Add(parameter);
+                return parameter;
+            }
+            foreach (string id in new[] { "row", "at", "fact", "mood", "line", "loose" })
+                Declare(id);
+            Declare("answer").derived = new GraphTaskParameterDerivation { source = GraphTaskParameterDerivation.Source.Template };
+            Declare("typed").type = StateTreeValueType.RowsOf(fixture.rows);
+            AssetDatabase.CreateAsset(template, k_Folder + "/Template.asset");
+
+            var state = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
+            state.nodeId = "t";
+            AssetDatabase.AddObjectToAsset(state, template);
+            var task = ScriptableObject.CreateInstance<DevViewStubStepTask>();
+            AssetDatabase.AddObjectToAsset(task, template);
+            state.tasks.Add(task);
+            foreach (string id in new[] { "row", "at", "fact", "answer", "mood", "line" })
+                state.bindings.Add(new StateTreeFieldBinding { fieldName = id, parameterId = id });
+            template.root = state;
+
+            step = ScriptableObject.CreateInstance<StateTreeNodeAsset>();
+            step.nodeId = "film";
+            AssetDatabase.AddObjectToAsset(step, fixture.tree);
+            fixture.tree.root.children.Add(step);
+            var run = ScriptableObject.CreateInstance<RunSubTreeTask>();
+            run.subTree = template;
+            run.overrides.Add(new GraphTaskParameterOverride
+                { id = "row", name = "t.row", enabled = true, stringValue = "one", entryId = "row.one" });
+            AssetDatabase.AddObjectToAsset(run, fixture.tree);
+            step.tasks.Add(run);
+            return run;
+        }
+
+        /// <summary>The dropdown's choice, as a click on an item makes it.</summary>
+        private static void Pick(StateTreePickMenu menu, StateTreePickItem item)
+        {
+            var picked = (Action<StateTreePickItem>)typeof(StateTreePickMenu)
+                .GetField("m_Picked", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .GetValue(menu);
+            picked(item);
         }
 
         // ---- "+ New" ----------------------------------------------------------------------------

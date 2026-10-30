@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.6 - 2026-10-30
+- Dev mode: a sub-tree task's parameter rows pick, as Mission mode does — the picker comes from the
+  template field the parameter binds into (row with ◎/▶, placement, key, tag, enum), through the shared
+  `StateTreeStepParameterInputs`. A derived parameter says where it comes from and stays overridable; a
+  declared row type picks its catalog. Only words, a literal, or a parameter bound into nothing are typed.
+
 ## 0.6.3 - 2026-10-30
 - Level Manifest: a palette of the level's kinds on the side (the prefab's preview or the kind's
   initial on its colour, searchable past a handful). Drag a kind into the Scene view and a row of it
