@@ -63,6 +63,13 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void ASingleClickOnATile_PlacesNothing_ADoubleClickPlacesOne()
+        {
+            Assert.IsFalse(LevelKindPalette.Places(1), "tapping tiles made duplicates");
+            Assert.IsTrue(LevelKindPalette.Places(2));
+        }
+
+        [Test]
         public void Rows_LandInTheirKindsGroup_InTheRegistrysOrder_SortedByName()
         {
             List<LevelManifestEdits.KindGroup> groups =

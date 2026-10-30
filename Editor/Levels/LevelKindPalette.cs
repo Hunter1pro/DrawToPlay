@@ -10,7 +10,8 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// <summary>
     /// The Level Manifest's side column: one tile per kind the level's kind registry offers — its
     /// prefab's preview (or its initial on the kind's colour) and its name. Drag a tile into the Scene
-    /// view or onto the list to place one; click it to place one at the view's centre.
+    /// view or onto the list to place one; double-click it to place one at the view's centre (a single click
+    /// places nothing: tapping tiles made duplicates).
     /// </summary>
     internal sealed class LevelKindPalette : VisualElement
     {
@@ -100,7 +101,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             tile.style.paddingTop = 3f;
             tile.style.paddingBottom = 3f;
             tile.tooltip = (string.IsNullOrEmpty(kind.description) ? kind.name : kind.description)
-                + "\n\nDrag into the Scene view to place one there, or click to place one at the view's centre.";
+                + "\n\nDrag into the Scene view to place one there, or double-click to place one at the view's centre.";
 
             tile.Add(Icon(kind, kind.name, colour, 28f));
             var label = new Label(kind.name);
@@ -113,11 +114,13 @@ namespace PowerOfFire.DrawToPlay.Editor
             string name = kind.name;
             Vector2 pressedAt = default;
             var pressed = false;
+            var clicks = 0;
             tile.RegisterCallback<PointerDownEvent>(down =>
             {
                 if (down.button != 0)
                     return;
                 pressed = true;
+                clicks = down.clickCount;
                 pressedAt = down.position;
                 tile.CapturePointer(down.pointerId);
             });
@@ -138,11 +141,15 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (!pressed)
                     return;
                 pressed = false;
-                m_Clicked?.Invoke(name);
+                if (Places(clicks))
+                    m_Clicked?.Invoke(name);
             });
             tile.RegisterCallback<PointerCaptureOutEvent>(_ => pressed = false);
             return tile;
         }
+
+        /// <summary>A click places a row only when it is a double-click.</summary>
+        internal static bool Places(int clickCount) => clickCount >= 2;
 
         private static void StartDrag(string kind)
         {
