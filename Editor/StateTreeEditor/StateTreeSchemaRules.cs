@@ -317,8 +317,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>A template node's parameters, each with the template field it is bound to.</summary>
         public static List<StateTreeStepParameter> Parameters(StateTreeSchemaKind kind, StateTreeNodeAsset node)
         {
+            return Parameters(TemplateTask(kind, node));
+        }
+
+        /// <summary>The parameters of any sub-tree task, each with the template field it is bound to —
+        /// what Dev mode's override rows pick by, the same as a step's.</summary>
+        public static List<StateTreeStepParameter> Parameters(RunSubTreeTask run)
+        {
             var parameters = new List<StateTreeStepParameter>();
-            RunSubTreeTask run = TemplateTask(kind, node);
             if (run == null || run.subTree == null)
                 return parameters;
             foreach (GraphTaskParameter declaration in run.subTree.parameters)
@@ -523,6 +529,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         public static string DerivedValue(StateTreeAsset tree, StateTreeSchema schema, StateTreeNodeAsset node,
             StateTreeSchemaKind kind, StateTreeStepParameter parameter, out string why, out StateTreeRegistryEntry row)
         {
+            return DerivedValue(tree, schema, node, TemplateTask(kind, node), parameter, out why, out row);
+        }
+
+        /// <summary>The same, for the sub-tree task <paramref name="run"/> a state holds.</summary>
+        public static string DerivedValue(StateTreeAsset tree, StateTreeSchema schema, StateTreeNodeAsset node,
+            RunSubTreeTask run, StateTreeStepParameter parameter, out string why, out StateTreeRegistryEntry row)
+        {
             why = "";
             row = null;
             GraphTaskParameterDerivation derived = parameter.declaration.derived;
@@ -552,7 +565,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     return null;
                 case GraphTaskParameterDerivation.Source.Row:
                     StateTreeStepParameter source = null;
-                    foreach (StateTreeStepParameter candidate in Parameters(kind, node))
+                    foreach (StateTreeStepParameter candidate in Parameters(run))
                     {
                         if (candidate.declaration.id == derived.parameterId)
                             source = candidate;
@@ -568,7 +581,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                         why = "from the " + label + " row — none is picked yet";
                         return "";
                     }
-                    foreach (StateTreeRegistryAsset registry in RowSources(tree, schema, node, kind.template, source.entryType))
+                    foreach (StateTreeRegistryAsset registry in RowSources(tree, schema, node, run.subTree, source.entryType))
                     {
                         row = registry.FindByName(source.stringValue);
                         if (row != null)

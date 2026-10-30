@@ -23,16 +23,20 @@ namespace PowerOfFire.DrawToPlay.Editor
             style.alignItems = Align.Center;
             style.minHeight = 20f;
 
-            var name = new Label(label);
-            name.AddToClassList(BaseField<string>.labelUssClassName);
-            name.AddToClassList(BaseField<string>.alignedFieldUssClassName);
-            name.style.minWidth = 120f;
-            name.style.width = new Length(40f, LengthUnit.Percent);
-            name.style.maxWidth = 200f;
-            name.style.overflow = Overflow.Hidden;
-            name.style.textOverflow = TextOverflow.Ellipsis;
-            name.tooltip = tooltip;
-            Add(name);
+            // No label when the host row draws its own (Dev mode's override row: tick, name, value).
+            if (label != null)
+            {
+                var name = new Label(label);
+                name.AddToClassList(BaseField<string>.labelUssClassName);
+                name.AddToClassList(BaseField<string>.alignedFieldUssClassName);
+                name.style.minWidth = 120f;
+                name.style.width = new Length(40f, LengthUnit.Percent);
+                name.style.maxWidth = 200f;
+                name.style.overflow = Overflow.Hidden;
+                name.style.textOverflow = TextOverflow.Ellipsis;
+                name.tooltip = tooltip;
+                Add(name);
+            }
 
             button = new Button { text = (string.IsNullOrEmpty(shown) ? "(none)" : shown) + (missing ? "   ✕ not found" : "") + "  ▾" };
             button.style.flexGrow = 1f;

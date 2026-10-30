@@ -3829,6 +3829,24 @@ namespace PowerOfFire.DrawToPlay.Editor
             /// income-parameter connection: pick one of THIS tree's keys and the program reads
             /// that key. Null when the surface cannot know (a sub-tree).</summary>
             internal Predicate<string> isKey;
+
+            /// <summary>The sub-tree task, when the callee is a tree: its parameters bind into template
+            /// fields, and the field decides the picker — the same one Mission mode shows.</summary>
+            internal RunSubTreeTask subTree;
+
+            /// <summary>Each declaration with the template field it binds into; filled per build.</summary>
+            internal List<StateTreeStepParameter> steps;
+
+            /// <summary>Mission mode's pickers, writing into this state's override rows.</summary>
+            internal StateTreeStepParameterInputs inputs;
+
+            /// <summary>The callee asset — a declared row type's catalog may only be visible from it.</summary>
+            internal UnityEngine.Object callee;
+
+            internal StateTreeStepParameter StepOf(GraphTaskParameter parameter)
+            {
+                return steps != null ? steps.Find(step => step.declaration == parameter) : null;
+            }
         }
 
         /// <summary>The logic-graph surface: variables declared on the canvas, read by
@@ -3848,6 +3866,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     + "the graph itself uses, and follow it when the graph changes.",
                 staleMessage = name => $"'{name}' is overridden here, but the graph has no parameter "
                     + "by that name — it was probably renamed or deleted. The override does nothing.",
+                callee = graph,
                 unused = name => !IsParameterRead(graph, name),
                 unusedTooltip = "is declared but nothing in the graph reads it, so overriding it "
                     + "changes nothing. A variable wired only into a NON-KEY port of a library "
@@ -3888,7 +3907,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                     + "that name — it was probably renamed or removed from that tree's own "
                     + "Parameters list. The override does nothing.",
                 unused = null,
-                unusedTooltip = null
+                unusedTooltip = null,
+                subTree = composite,
+                callee = subTree
             };
         }
 
@@ -3913,6 +3934,16 @@ namespace PowerOfFire.DrawToPlay.Editor
         private VisualElement BuildParameterOverrides(ParameterSurface surface)
         {
             HealOverrideIds(surface);
+
+            if (surface.subTree != null)
+            {
+                RunSubTreeTask run = surface.subTree;
+                StateTreeSchema schema = StateTreeSchemas.For(m_Tree);
+                surface.steps = StateTreeSchemaRules.Parameters(run);
+                surface.inputs = new StateTreeStepParameterInputs(m_Tree, schema, m_Node, run.subTree,
+                    (declaration, text, number, entryId, keyId) =>
+                        WriteStepParameter(run, schema, declaration, text, number, entryId, keyId));
+            }
 
             var container = new VisualElement();
 
@@ -4103,14 +4134,18 @@ namespace PowerOfFire.DrawToPlay.Editor
             var input = BuildParameterInput(surface, parameter);
             input.AddToClassList("unity-base-field__input");
             input.style.flexGrow = 1f;
+            input.style.flexShrink = 1f;
             WriteParameterInput(input, surface, parameter);
+
+            // A PICKER re-picks a key in place, so a key wire locks only the free text (⚿ rows).
+            var picked = IsPickerInput(input);
 
             // Disabled for a STALE link too, not only a live one: the runtime drops an unresolvable
             // pass-through row rather than falling back to its literal
             // (StateTreeExecutor.ResolveSourceValues), so the number in the field is not what runs
             // either way, and an editable field that does nothing is the lie this control exists to
             // stop being told one level down.
-            ApplyOverrideStyle(input, overridden && !linked && !keyWired);
+            ApplyOverrideStyle(input, overridden && !linked && (!keyWired || picked));
             row.Add(input);
 
             // The INCOME-parameter connection: a key-semantic String parameter binds to one of
@@ -4173,13 +4208,28 @@ namespace PowerOfFire.DrawToPlay.Editor
                 container.Add(help);
             }
 
+            // A DERIVED parameter follows from the step — said where, as Mission mode says it. The
+            // override stays: Dev mode is where a run is pinned by hand.
+            var step = surface.StepOf(parameter);
+            if (step != null && step.isDerived && surface.inputs != null)
+            {
+                var value = surface.inputs.Derivation(surface.subTree, step, out var meaning);
+                var follows = Hint("Follows from the step: "
+                    + (value == null ? "cannot be derived" : string.IsNullOrEmpty(value) ? "(none)" : value)
+                    + (string.IsNullOrEmpty(meaning) ? "" : " — " + meaning));
+                follows.AddToClassList("dtp-derived");
+                follows.style.fontSize = 10;
+                container.Add(follows);
+            }
+
             toggle.RegisterValueChangedCallback(evt =>
             {
                 SetOverride(surface, parameter, evt.newValue);
 
                 // Un-ticking a linked row deletes the row and the link with it, so the "← name"
                 // beside it has just stopped being true — that one needs the pane, not a restyle.
-                if (linked)
+                // A picker shows what it was built with, so it is rebuilt rather than rewritten.
+                if (linked || picked)
                 {
                     RebuildPane();
                     return;
@@ -4285,6 +4335,19 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 case GraphTaskParameterKind.String:
                 {
+                    // A REFERENCE IS PICKED, never typed: the template field the parameter binds into
+                    // decides the picker, exactly as in Mission mode; a declared row type picks its
+                    // catalog. Only words, a literal, or a parameter bound into nothing stay text.
+                    var step = surface.StepOf(parameter);
+                    var picker = step != null && surface.inputs != null
+                        ? surface.inputs.Picker(step, null)
+                        : null;
+                    if (picker != null)
+                        return picker;
+                    var declared = parameter.TypeOf();
+                    if (!declared.IsPlain && declared.Storage == StateTreeKeyKind.String)
+                        return BuildDeclaredRowPick(surface, parameter, declared);
+
                     var field = new TextField { isDelayed = true };
                     field.RegisterValueChangedCallback(evt => CommitOverride(surface, parameter,
                         entry => entry.stringValue = evt.newValue ?? string.Empty));
@@ -4311,36 +4374,106 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>Push the EFFECTIVE value into the field: the override when there is one, the
         /// callee's default when there is not. Without notify — this is the tool writing to itself,
-        /// not the author writing to the asset.</summary>
+        /// not the author writing to the asset. A picker was built showing it already.</summary>
         private static void WriteParameterInput(VisualElement input, ParameterSurface surface,
             GraphTaskParameter parameter)
         {
             var entry = ActiveOverride(surface, parameter);
 
-            switch (parameter.kind)
+            switch (input)
             {
-                case GraphTaskParameterKind.String:
-                    ((TextField)input).SetValueWithoutNotify(entry != null
+                case TextField text:
+                    text.SetValueWithoutNotify(entry != null
                         ? entry.stringValue ?? string.Empty
                         : parameter.stringValue ?? string.Empty);
                     break;
 
-                case GraphTaskParameterKind.Bool:
-                    ((Toggle)input).SetValueWithoutNotify(
+                case Toggle toggle:
+                    toggle.SetValueWithoutNotify(
                         (entry != null ? entry.floatValue : parameter.floatValue) != 0f);
                     break;
 
-                default:
-                    ((FloatField)input).SetValueWithoutNotify(
+                case FloatField number:
+                    number.SetValueWithoutNotify(
                         entry != null ? entry.floatValue : parameter.floatValue);
                     break;
             }
         }
 
+        private static bool IsPickerInput(VisualElement input)
+        {
+            return !(input is TextField || input is Toggle || input is FloatField);
+        }
+
+        /// <summary>Off: the value is the callee's and not this state's to pick. A pick field's ◎ and
+        /// ▶ stay live — showing what a row names is not editing it.</summary>
         private static void ApplyOverrideStyle(VisualElement input, bool overridden)
         {
-            input.SetEnabled(overridden);
             input.style.opacity = overridden ? 1f : 0.55f;
+            if (input is StateTreePickField pick)
+            {
+                input.SetEnabled(true);
+                pick.button.SetEnabled(overridden);
+                return;
+            }
+            input.SetEnabled(overridden);
+        }
+
+        /// <summary>Write one picked value into this state's run of the sub-tree — ticking it, with
+        /// both halves of the reference — then let anything derived from it follow, as Mission mode
+        /// does.</summary>
+        private void WriteStepParameter(RunSubTreeTask run, StateTreeSchema schema,
+            GraphTaskParameter declaration, string text, float number, string entryId, string keyId)
+        {
+            var group = StateTreeEditorOps.BeginUndoGroup(k_EditOverrideUndo);
+            StateTreeSchemaRules.SetParameter(run, declaration, text, number, entryId, k_EditOverrideUndo,
+                keyId);
+            StateTreeSchemaRules.ApplyDerived(m_Tree, schema, m_Node);
+            StateTreeEditorOps.EndUndoGroup(group);
+            RebuildPane();
+        }
+
+        /// <summary>A parameter whose DECLARATION names a catalog (a row type or a contract) and whose
+        /// binding gives no picker: the rows the type offers, from this tree or else the callee.
+        /// </summary>
+        private VisualElement BuildDeclaredRowPick(ParameterSurface surface, GraphTaskParameter parameter,
+            StateTreeValueType type)
+        {
+            var rows = new List<StateTreeRegistryEntry>();
+            StateTreeOffers.RowsFor(type, m_Tree, rows);
+            if (rows.Count == 0 && surface.callee != null)
+                StateTreeOffers.RowsFor(type, surface.callee, rows);
+
+            var entry = ActiveOverride(surface, parameter);
+            var current = entry != null ? entry.stringValue ?? string.Empty : parameter.stringValue ?? string.Empty;
+            var found = rows.Find(row => row.name == current);
+            var field = new StateTreePickField(null, current, found == null && !string.IsNullOrEmpty(current),
+                found != null ? found.Describe() : type.rows != null ? "A row of " + type.rows.name + "."
+                    : StateTreeOffers.WhyEmpty(type, m_Tree),
+                at =>
+                {
+                    var menu = new StateTreePickMenu
+                    {
+                        title = type.Describe(),
+                        empty = rows.Count == 0 ? StateTreeOffers.WhyEmpty(type, m_Tree) : "Nothing to pick here"
+                    };
+                    foreach (var row in rows)
+                    {
+                        menu.items.Add(new StateTreePickItem(row.name, row.name, StateTreePickItems.Meaning(row),
+                            row.group ?? string.Empty) { payload = row });
+                    }
+                    menu.Show(at, current, picked =>
+                    {
+                        CommitOverride(surface, parameter, written =>
+                        {
+                            written.stringValue = picked.value ?? string.Empty;
+                            written.entryId = (picked.payload as StateTreeRegistryEntry)?.id ?? string.Empty;
+                        });
+                        RebuildPane();
+                    });
+                });
+            field.WithRowButtons(found, type.rows);
+            return field;
         }
 
         /// <summary>Turn an override on or off. On seeds the entry from the callee's current default,
