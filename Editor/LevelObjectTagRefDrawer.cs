@@ -25,14 +25,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return new PropertyField(property);
 
             // The rows live IN this registry, so the vocabulary list is one field away.
-            var manifest = property.serializedObject.targetObject as LevelObjectRegistry;
+            Object manifest = property.serializedObject.targetObject;
+            List<WorldTagRegistry> vocabularies = manifest is LevelObjectRegistry objects ? objects.tags
+                : manifest is LevelObjectPresetRegistry presets ? presets.tags
+                : null;
             var choices = new List<string> { k_Unset };
             var sources = new List<string>();
-            if (manifest != null)
+            if (vocabularies != null)
             {
-                for (int i = 0; i < manifest.tags.Count; i++)
+                for (int i = 0; i < vocabularies.Count; i++)
                 {
-                    WorldTagRegistry registry = manifest.tags[i];
+                    WorldTagRegistry registry = vocabularies[i];
                     if (registry == null)
                         continue;
                     sources.Add(registry.name);

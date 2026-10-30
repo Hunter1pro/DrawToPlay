@@ -118,7 +118,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var paletteScroll = new ScrollView(ScrollViewMode.Vertical);
             paletteScroll.style.minWidth = 72f;
-            m_Palette = new LevelKindPalette(kind => PlaceAtCentre(kind));
+            m_Palette = new LevelKindPalette((kind, preset) => PlaceAtCentre(kind, preset));
             paletteScroll.Add(m_Palette);
             split.Add(paletteScroll);
 
@@ -137,7 +137,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (kind == null || m_Level == null || m_Level.objects == null)
                     return;
                 DragAndDrop.AcceptDrag();
-                PlaceAtCentre(kind);
+                PlaceAtCentre(kind, LevelKindPalette.DraggedPreset());
             });
             split.Add(m_Scroll);
 
@@ -177,7 +177,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_SelectedLine = null;
 
             ResolveLevel();
-            m_Palette?.Show(m_Level != null && m_Level.objects != null ? Kinds() : null);
+            m_Palette?.Show(m_Level != null && m_Level.objects != null ? Kinds() : null, Presets());
             if (m_Level == null)
             {
                 m_Root.Add(Hint("No level owns the open scene. Open an area scene — the level "
@@ -451,6 +451,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                     select.style.flexGrow = 1f;
                     select.style.flexShrink = 1f;
                     select.style.unityTextAlign = TextAnchor.MiddleLeft;
+                    LevelObjectPresetDef linked = m_Level.objects.PresetOf(def);
+                    if (linked != null)
+                        select.tooltip += "\nMade from the preset " + linked.name;
+                    select.tooltip += "\nDrag onto a mission tree's zone or step to use it there.";
+                    DragsOut(select, def);
                     if (index == m_Selected)
                     {
                         select.style.unityFontStyleAndWeight = FontStyle.Bold;
@@ -583,15 +588,37 @@ namespace PowerOfFire.DrawToPlay.Editor
             // here was how a placement could only be specialised in code. Both sections draw
             // themselves against whatever the row picks — one checkbox per declared knob, per
             // declared attribute — so reusing a def and specialising one are the same gesture.
-            foreach (string field in new[]
-                { "name", "group", "kind", "entry", "attributes", "tree", "parameters",
-                    "position", "facing", "tags" })
+            LevelObjectDef row = rows[m_Selected];
+            LevelObjectPresetDef preset = m_Level.objects.PresetOf(row);
+            string prefix = LevelPresetEdits.NamePrefix(LevelKey(), kindName);
+            bool prefixed = !string.IsNullOrEmpty(kindName) && (row.name ?? "").StartsWith(prefix, StringComparison.Ordinal)
+                && row.name.Length > prefix.Length;
+            box.Add(BuildActions(row));
+            if (prefixed)
+                box.Add(BuildName(element, prefix));
+            if (Presets() != null || preset != null)
+                box.Add(Bound(element, "preset"));
+            Foldout more = null;
+            if (prefixed)
             {
-                SerializedProperty child = element.FindPropertyRelative(field);
-                if (child == null)
+                more = StateTreeInspectorLook.More(2, false, null);
+                more.text = "More";
+                more.tooltip = "The full name and the group.";
+            }
+            // A row made from a preset shows its core read-only, below: kind, tree, arguments and tags are the
+            // preset's, and an edit here would be an ad-hoc change to one object.
+            foreach (string field in preset != null
+                ? new[] { "name", "group", "entry", "attributes", "position", "facing" }
+                : new[] { "name", "group", "kind", "entry", "attributes", "tree", "parameters", "position", "facing", "tags" })
+            {
+                PropertyField propertyField = Bound(element, field);
+                if (propertyField == null)
                     continue;
-                var propertyField = new PropertyField(child);
-                propertyField.Bind(m_Objects);
+                if (more != null && (field == "name" || field == "group"))
+                {
+                    more.Add(propertyField);
+                    continue;
+                }
                 box.Add(propertyField);
                 if (field == "name" && m_FocusName)
                 {
@@ -599,6 +626,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                     FocusNameWhenBound(propertyField);
                 }
             }
+            if (more != null)
+                box.Add(more);
+
+            if (preset != null)
+                box.Add(BuildPreset(row, preset));
 
             SerializedProperty nameProperty = element.FindPropertyRelative("name");
             if (nameProperty != null)
@@ -645,26 +677,334 @@ namespace PowerOfFire.DrawToPlay.Editor
             }).Every(30).Until(() => done);
         }
 
+        public const string NameClass = "dtp-manifest-name";
+        public const string PresetClass = "dtp-manifest-preset";
+        public const string ForkClass = "dtp-manifest-fork";
+
+        private PropertyField Bound(SerializedProperty element, string field)
+        {
+            SerializedProperty child = element.FindPropertyRelative(field);
+            if (child == null)
+                return null;
+            var propertyField = new PropertyField(child);
+            propertyField.Bind(m_Objects);
+            return propertyField;
+        }
+
+        /// <summary>The name as a designer types it: <c>level.kind.</c> fixed, only the last part typed. Emptied,
+        /// it keeps the name it had (a fresh number when the row was placed).</summary>
+        private VisualElement BuildName(SerializedProperty element, string prefix)
+        {
+            SerializedProperty name = element.FindPropertyRelative("name");
+            var tail = new TextField("Name") { value = LevelPresetEdits.Tail(name.stringValue, prefix), isDelayed = true };
+            tail.AddToClassList(NameClass);
+            tail.tooltip = "The last part of the name; the start is the level's and the kind's. The full name is under More.";
+            var fixedPart = new Label(prefix) { tooltip = tail.tooltip };
+            fixedPart.style.opacity = 0.6f;
+            fixedPart.style.flexShrink = 0f;
+            fixedPart.style.unityTextAlign = TextAnchor.MiddleLeft;
+            tail.Insert(Mathf.Min(1, tail.childCount), fixedPart);
+            tail.RegisterValueChangedCallback(changed =>
+                tail.SetValueWithoutNotify(LevelPresetEdits.Tail(Rename(name, prefix, changed.newValue), prefix)));
+            tail.TrackPropertyValue(name, changed => tail.SetValueWithoutNotify(LevelPresetEdits.Tail(changed.stringValue, prefix)));
+            if (m_FocusName)
+            {
+                m_FocusName = false;
+                var done = false;
+                tail.schedule.Execute(() =>
+                {
+                    if (tail.panel == null)
+                        return;
+                    done = true;
+                    Focus();
+                    tail.Focus();
+                    tail.SelectAll();
+                }).Every(30).Until(() => done);
+            }
+            return tail;
+        }
+
+        private string Rename(SerializedProperty name, string prefix, string typed)
+        {
+            string renamed = LevelPresetEdits.Renamed(name.stringValue, prefix, typed);
+            if (renamed != name.stringValue)
+            {
+                m_Objects.Update();
+                name.stringValue = renamed;
+                m_Objects.ApplyModifiedProperties();
+            }
+            return renamed;
+        }
+
+        /// <summary>The selected row's name with <paramref name="typed"/> after its fixed prefix — what typing in
+        /// the name field does.</summary>
+        internal string RenameSelected(string typed)
+        {
+            LevelObjectDef row = m_Selected >= 0 && m_Selected < m_Level.objects.entries.Count ? m_Level.objects.entries[m_Selected] : null;
+            if (row == null)
+                return null;
+            SerializedProperty name = m_Objects.FindProperty("entries").GetArrayElementAtIndex(m_Selected).FindPropertyRelative("name");
+            return Rename(name, LevelPresetEdits.NamePrefix(LevelKey(), row.kind.entryName), typed);
+        }
+
+        /// <summary>What a selected row offers: a step about it in a mission, and a preset made from it.</summary>
+        private VisualElement BuildActions(LevelObjectDef row)
+        {
+            var box = new VisualElement { style = { marginTop = 2f, marginBottom = 4f } };
+            var line = new VisualElement { style = { flexDirection = FlexDirection.Row, flexWrap = Wrap.Wrap } };
+            box.Add(line);
+            Button use = null;
+            use = StateTreeInspectorLook.SmallButton("Use in mission…",
+                "Add a step about this object to a zone of a mission tree under this level — the first step its preset fits.",
+                () => UseInMission(row, use.worldBound));
+            line.Add(use);
+            if (Presets() == null)
+                return box;
+
+            var fork = new VisualElement { style = { flexDirection = FlexDirection.Row, display = DisplayStyle.None, marginTop = 2f } };
+            fork.AddToClassList(ForkClass);
+            LevelObjectPresetDef preset = m_Level.objects.PresetOf(row);
+            var name = new TextField("New preset") { value = preset != null ? preset.name : row.kind.entryName };
+            name.style.flexGrow = 1f;
+            name.style.flexShrink = 1f;
+            fork.Add(name);
+            fork.Add(StateTreeInspectorLook.SmallButton("Make", "Copy the preset with this object's settings as its "
+                + "defaults, and switch this object to it.", () => MakePreset(row, name.value)));
+            fork.Add(StateTreeInspectorLook.SmallButton("✕", "Cancel.", () => fork.style.display = DisplayStyle.None));
+            name.RegisterCallback<KeyDownEvent>(key =>
+            {
+                if (key.keyCode == KeyCode.Return || key.keyCode == KeyCode.KeypadEnter)
+                    MakePreset(row, name.value);
+            });
+
+            line.Add(StateTreeInspectorLook.SmallButton("New preset from this…", preset != null
+                    ? "A copy of " + preset.name + " with this object's settings as its defaults; this object switches to it."
+                    : "A preset from this object's kind, tree, arguments and tags; this object switches to it.",
+                () =>
+                {
+                    fork.style.display = DisplayStyle.Flex;
+                    name.Focus();
+                    name.SelectAll();
+                }));
+            box.Add(fork);
+            return box;
+        }
+
+        private void MakePreset(LevelObjectDef row, string name)
+        {
+            if (LevelPresetEdits.Fork(m_Level.objects, row, name) != null)
+                Rebuild();
+        }
+
+        /// <summary>The preset's core, read-only (edited in the catalogue, where it reaches every object made
+        /// from it), and its settings with this object's values — a reset puts one back on the preset's.</summary>
+        private VisualElement BuildPreset(LevelObjectDef row, LevelObjectPresetDef preset)
+        {
+            var box = new VisualElement { style = { marginTop = 6f } };
+            box.AddToClassList(PresetClass);
+            var head = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
+            Label title = StateTreeInspectorLook.Section("Preset: " + preset.name);
+            title.style.flexGrow = 1f;
+            head.Add(title);
+            head.Add(StateTreeInspectorLook.SmallButton("Edit preset", "Select the catalogue: an edit to the preset "
+                + "changes every object made from it.", () =>
+            {
+                Selection.activeObject = m_Level.objects.presets;
+                EditorGUIUtility.PingObject(m_Level.objects.presets);
+            }));
+            box.Add(head);
+
+            List<GraphTaskParameter> declared = preset.tree != null ? preset.tree.parameters : new List<GraphTaskParameter>();
+            var settings = 0;
+            foreach (string id in preset.settings)
+            {
+                GraphTaskParameter declaration = declared.Find(p => p != null && p.id == id && !string.IsNullOrEmpty(p.name));
+                if (declaration == null)
+                    continue;
+                box.Add(SettingField(row, preset, declaration));
+                settings++;
+            }
+            if (settings == 0)
+                box.Add(Hint("No settings: every object of " + preset.name + " is the same."));
+
+            var core = new VisualElement();
+            core.SetEnabled(false);
+            core.Add(new TextField("Kind") { value = preset.kind.entryName });
+            core.Add(new ObjectField("Tree") { objectType = typeof(StateTreeAsset), value = preset.tree });
+            foreach (GraphTaskParameterOverride value in preset.parameters.values)
+            {
+                if (value != null && value.enabled && !preset.IsSetting(value.id))
+                    core.Add(new TextField(value.name) { value = Shown(value, declared) });
+            }
+            var tags = new List<string>();
+            foreach (LevelObjectTagRef tag in preset.tags)
+            {
+                if (tag != null && !string.IsNullOrEmpty(tag.tag))
+                    tags.Add(tag.tag);
+            }
+            if (tags.Count > 0)
+                core.Add(new TextField("Tags") { value = string.Join(", ", tags) });
+            var facts = new List<string>();
+            foreach (LevelObjectPresetFact fact in preset.facts)
+            {
+                if (fact != null)
+                    facts.Add(fact.Label);
+            }
+            if (facts.Count > 0)
+                core.Add(new TextField("Writes") { value = string.Join(", ", facts) });
+            var steps = new List<string>();
+            foreach (string step in preset.steps)
+            {
+                StateTreeSchemaKind kind = StepKindDrawer.Find(step);
+                steps.Add(kind != null ? kind.Label : step);
+            }
+            if (steps.Count > 0)
+                core.Add(new TextField("Fits") { value = string.Join(", ", steps) });
+            box.Add(core);
+            return box;
+        }
+
+        private static string Shown(GraphTaskParameterOverride value, List<GraphTaskParameter> declared)
+        {
+            GraphTaskParameter declaration = value.Declaration(declared);
+            if (declaration == null || declaration.kind == GraphTaskParameterKind.String)
+                return value.stringValue ?? "";
+            if (declaration.kind == GraphTaskParameterKind.Bool)
+                return value.floatValue != 0f ? "on" : "off";
+            return value.floatValue.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>One setting: this object's value (bold) or the preset's, and ↺ to follow the preset again.</summary>
+        private VisualElement SettingField(LevelObjectDef row, LevelObjectPresetDef preset, GraphTaskParameter declaration)
+        {
+            GraphTaskParameterOverride value = LevelPresetEdits.Setting(preset, row, declaration,
+                out GraphTaskParameterOverride own);
+            var line = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
+            string label = StateTreeSchemaRules.Pretty(declaration.name);
+            VisualElement field;
+            switch (declaration.kind)
+            {
+                case GraphTaskParameterKind.Bool:
+                    var toggle = new Toggle(label) { value = value.floatValue != 0f };
+                    toggle.RegisterValueChangedCallback(changed => SetSetting(row, declaration, "", changed.newValue ? 1f : 0f, "", ""));
+                    field = toggle;
+                    break;
+                case GraphTaskParameterKind.Float:
+                    var number = new FloatField(label) { value = value.floatValue, isDelayed = true };
+                    number.RegisterValueChangedCallback(changed => SetSetting(row, declaration, "", changed.newValue, "", ""));
+                    field = number;
+                    break;
+                default:
+                    var parameter = new StateTreeStepParameter
+                    {
+                        declaration = declaration,
+                        field = StateTreeSchemaRules.BoundField(preset.tree, declaration.id),
+                        overrideRow = value
+                    };
+                    var inputs = new StateTreeStepParameterInputs(preset.tree, null, null, preset.tree,
+                        (_, text, numberValue, entryId, keyId) => SetSetting(row, declaration, text, numberValue, entryId, keyId));
+                    field = inputs.Picker(parameter, label)
+                        ?? (StateTreeStepParameterInputs.IsText(parameter) ? inputs.Text(parameter, label) : inputs.NoPicker(parameter, label));
+                    break;
+            }
+            field.style.flexGrow = 1f;
+            field.style.flexShrink = 1f;
+            field.tooltip = own != null ? "This object's own value." : "The preset's value — set one to make it this object's own.";
+            if (own != null)
+                field.style.unityFontStyleAndWeight = FontStyle.Bold;
+            line.Add(field);
+            if (own != null)
+                line.Add(StateTreeInspectorLook.SmallButton("↺", "Follow the preset's value again.", () =>
+                {
+                    LevelPresetEdits.ResetSetting(m_Level.objects, row, declaration);
+                    Rebuild();
+                }));
+            return line;
+        }
+
+        private void SetSetting(LevelObjectDef row, GraphTaskParameter declaration, string text, float number,
+            string entryId, string keyId)
+        {
+            LevelPresetEdits.SetSetting(m_Level.objects, row, declaration, text, number, entryId, keyId);
+            Rebuild();
+        }
+
+        /// <summary>A row's line drags out — onto a mission tree in the State Tree window, where it becomes a step.</summary>
+        private void DragsOut(VisualElement line, LevelObjectDef row)
+        {
+            Vector2 pressedAt = default;
+            var pressed = false;
+            line.RegisterCallback<PointerDownEvent>(down =>
+            {
+                if (down.button != 0)
+                    return;
+                pressed = true;
+                pressedAt = down.position;
+            }, TrickleDown.TrickleDown);
+            line.RegisterCallback<PointerMoveEvent>(move =>
+            {
+                if (!pressed || ((Vector2)move.position - pressedAt).sqrMagnitude < 36f)
+                    return;
+                pressed = false;
+                LevelObjectDrag.Start(m_Level.objects, row);
+            });
+            line.RegisterCallback<PointerUpEvent>(_ => pressed = false, TrickleDown.TrickleDown);
+        }
+
+        /// <summary>Every place a step about the row may go, as a menu: the mission trees whose Level is this one,
+        /// their zones, and the steps its preset fits there.</summary>
+        private void UseInMission(LevelObjectDef row, Rect at)
+        {
+            List<StateTreeObjectSteps.Use> uses = StateTreeObjectSteps.Uses(StateTreeObjectSteps.MissionTrees(),
+                m_Level.objects, row);
+            var menu = new GenericMenu();
+            if (uses.Count == 0)
+                menu.AddDisabledItem(new GUIContent(m_Level.objects.PresetOf(row) == null
+                    ? "No preset: only an object made from a preset knows its steps"
+                    : "No mission tree has a zone of this level that holds its steps"));
+            foreach (StateTreeObjectSteps.Use use in uses)
+            {
+                StateTreeObjectSteps.Use picked = use;
+                menu.AddItem(new GUIContent(use.path), false, () =>
+                {
+                    StateTreeNodeAsset node = StateTreeObjectSteps.Add(picked.tree, picked.schema, picked.place, -1,
+                        picked.kind.kind, m_Level.objects, row);
+                    if (node != null)
+                        StateTreeEditorWindow.ShowAdded(picked.tree, node);
+                });
+            }
+            menu.DropDown(at);
+        }
+
+        private LevelObjectPresetRegistry Presets()
+        {
+            return m_Level != null && m_Level.objects != null ? m_Level.objects.presets : null;
+        }
+
         // ---- edits -----------------------------------------------------------------------
 
         /// <summary>A row of <paramref name="kindName"/> at the Scene view's centre — a palette click,
         /// or a kind dropped on the list.</summary>
-        internal LevelObjectDef PlaceAtCentre(string kindName)
+        internal LevelObjectDef PlaceAtCentre(string kindName, string presetId = null)
         {
             if (m_Level == null || m_Level.objects == null)
                 return null;
             Vector2 centre = StateTreeRowCreate.SceneCentre(m_Level.objects);
-            return Place(kindName, m_Level.objects.ToWorld(centre), false);
+            return Place(kindName, m_Level.objects.ToWorld(centre), false, presetId);
         }
 
-        /// <summary>A row of <paramref name="kindName"/> standing at <paramref name="world"/>: appended
-        /// in one undo step, selected, its group opened and its name ready to type.</summary>
-        internal LevelObjectDef Place(string kindName, Vector3 world, bool onSurface)
+        /// <summary>A row of <paramref name="kindName"/> (made from the preset <paramref name="presetId"/>, when
+        /// one is given) standing at <paramref name="world"/>: appended in one undo step, selected, its group
+        /// opened and its name ready to type.</summary>
+        internal LevelObjectDef Place(string kindName, Vector3 world, bool onSurface, string presetId = null)
         {
             if (m_Level == null || m_Level.objects == null || string.IsNullOrEmpty(kindName))
                 return null;
+            LevelObjectPresetDef preset = Presets() != null && !string.IsNullOrEmpty(presetId)
+                ? Presets().FindById(presetId) as LevelObjectPresetDef
+                : null;
             LevelObjectDef row = LevelManifestEdits.CreateRow(m_Level.objects, Kinds(), kindName,
-                LevelKey(), world, onSurface);
+                LevelKey(), world, onSurface, preset);
             if (row == null)
                 return null;
             m_Selected = m_Level.objects.entries.Count - 1;
@@ -954,7 +1294,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     {
                         DragAndDrop.AcceptDrag();
                         m_DropPreview = null;
-                        Place(kind, world, onSurface);
+                        Place(kind, world, onSurface, LevelKindPalette.DraggedPreset());
                     }
                     current.Use();
                     view.Repaint();

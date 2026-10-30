@@ -16,7 +16,7 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     [CreateAssetMenu(menuName = "Draw To Play/Levels/Level Objects",
         fileName = "LevelObjects")]
-    public sealed class LevelObjectRegistry : StateTreeRegistry<LevelObjectDef>
+    public sealed class LevelObjectRegistry : StateTreeRegistry<LevelObjectDef>, IStateTreeNeighbourhood
     {
         /// <summary>
         /// The tag vocabularies these placements may use — the project's global registry and
@@ -31,6 +31,31 @@ namespace PowerOfFire.DrawToPlay
         /// <see cref="LevelGroundPlane"/>. On the manifest rather than on the level header
         /// because the manifest IS the positions, and this says what they mean.</summary>
         public LevelGroundPlane plane = LevelGroundPlane.XY;
+
+        /// <summary>The game's preset catalogue — what this level's palette offers under each kind, and where
+        /// a row's <see cref="LevelObjectDef.preset"/> is found. Listed here, like <see cref="tags"/>: the level
+        /// says what it speaks.</summary>
+        [Tooltip("The game's catalogue of level object presets: offered in the palette, and what a row's preset names.")]
+        public LevelObjectPresetRegistry presets;
+
+        IReadOnlyList<StateTreeRegistryAsset> IStateTreeNeighbourhood.DeclaredCatalogs =>
+            presets != null ? new StateTreeRegistryAsset[] { presets } : System.Array.Empty<StateTreeRegistryAsset>();
+
+        /// <summary>The preset a row is made from, or null — by id, else by name.</summary>
+        public LevelObjectPresetDef PresetOf(LevelObjectDef row)
+        {
+            if (row == null || row.preset == null || presets == null)
+                return null;
+            return (presets.FindById(row.preset.entryId) ?? presets.FindByName(row.preset.entryName))
+                as LevelObjectPresetDef;
+        }
+
+        /// <summary>The row as it runs: dressed in its preset's core, or the row itself when it has none.</summary>
+        public LevelObjectDef Resolve(LevelObjectDef row)
+        {
+            LevelObjectPresetDef preset = PresetOf(row);
+            return preset != null ? preset.Apply(row) : row;
+        }
 
         /// <summary>A placement's ground plan as a world position.</summary>
         /// <param name="position">The row's position.</param>

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.7 - 2026-10-30
+- Level object presets: `LevelObjectPresetDef` rows in one `LevelObjectPresetRegistry` per game, listed by
+  each manifest (`LevelObjectRegistry.presets`). A preset is a core (kind, tree, arguments, tags, the facts
+  its object writes, the steps that fit it) and a few settings; a row names it (`LevelObjectDef.preset`)
+  and runs as `LevelObjectRegistry.Resolve(row)` — the core, then its own settings. Rows without a preset
+  are unchanged. The palette lists presets under their kinds; a linked row shows its core read-only, its
+  settings, and "New preset from this…".
+- A new row's name: `level.kind.` fixed, the last part typed; the full name under More.
+- Fact pickers (Mission and Dev mode) offer only the facts the target's preset declares, by meaning;
+  validation flags another. "Use in mission…" and a row dragged onto the State Tree window add a fitting
+  step about the object, filled in (`StateTreeObjectSteps`).
+
 ## 0.6.6 - 2026-10-30
 - Dev mode: a sub-tree task's parameter rows pick, as Mission mode does — the picker comes from the
   template field the parameter binds into (row with ◎/▶, placement, key, tag, enum), through the shared

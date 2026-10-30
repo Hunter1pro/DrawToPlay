@@ -85,13 +85,39 @@ focused; one undo takes it back. The list groups the rows by kind — a fold per
 count, rows by name — and each fold remembers whether it was open (per user). Selecting a row opens
 its group; the search hides rows without rebuilding the panel.
 
+A new row's name is shown as its fixed `level.kind.` and the last part, which is all that is typed
+(focused on create; emptied, it keeps its number). The full name and the group are under **More**.
+The id never follows a rename: it is what steps name.
+
+### Presets
+
+A **preset** (`LevelObjectPresetDef`, in the game's one `LevelObjectPresetRegistry`) is a placement's
+*core* — kind, tree, the tree's arguments, tags — plus the **facts** an object of it writes (a key and
+what it means: the first is its primary fact) and the **mission steps** that fit it (schema kind names,
+picked). A few of the tree's parameters are its **settings**: each object keeps its own value for those,
+and one it never set follows the preset's.
+
+- Every level's manifest lists the catalogue (`LevelObjectRegistry.presets`); the palette shows each
+  preset under its kind, placed the same way (drag, or double-click).
+- A row names its preset (`LevelObjectDef.preset`). What runs is `LevelObjectRegistry.Resolve(row)`: a
+  copy wearing the preset's core, then the row's settings. An edit to the core reaches every object made
+  from it. A row with no preset is its own core, exactly as before.
+- The window shows a linked row's core read-only, its settings editable (↺ follows the preset again),
+  and **New preset from this…**: the preset copied under a new name with this object's settings as its
+  defaults, the object switched to it — what runs does not change. One undo step.
+- **Use in mission…** lists the zones of the mission trees under this level, and the preset's steps that
+  fit each; the step is added last, its object and the preset's primary fact filled in, and selected in
+  the State Tree window. A row dragged from the list onto a zone or a step does the same there.
+
 The test that a level is well-formed is that you can delete the scene and rebuild it from the
 manifest with no difference. If that is not true, something was placed by hand.
 
 ## Rules
 
 - **A placement names a kind; it does not embed one.** Two placements of the same kind share one
-  template, so fixing the template fixes both.
+  template, so fixing the template fixes both. A preset is the same rule one level up.
+- **Read a row through `Resolve`.** A reader of `entries` that wants what runs (its tree, tags,
+  arguments) asks the manifest, or it misses a preset's core.
 - **Level-scoped services die with the level.** Do not cache one across travel.
 - **Nothing self-injects.** A component that finds its service by scanning will find the
   previous level's service after the first switch.

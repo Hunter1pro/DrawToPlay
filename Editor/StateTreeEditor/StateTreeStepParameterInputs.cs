@@ -130,6 +130,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// the tree the step lives in.</summary>
         private VisualElement KeyPick(StateTreeStepParameter parameter, string label)
         {
+            VisualElement fact = FactPick(parameter, label);
+            if (fact != null)
+                return fact;
             List<StateTreeKeyOffer> offers = StateTreeKeyOffers.For(m_Tree, m_Tree);
             foreach (StateTreeKeyOffer extra in StateTreeKeyOffers.For(m_Template, m_Template))
             {
@@ -142,6 +145,49 @@ namespace PowerOfFire.DrawToPlay.Editor
                 StateTreeKeyPick.Tooltip(known, offer),
                 at => StateTreeKeyPick.Menu(at, offers, m_Tree, StateTreeKeyKind.String, current, true,
                     picked => m_Write(parameter.declaration, picked.name, 0f, "", picked.id)));
+        }
+
+        /// <summary>A fact of the object the step is about, when that object's preset says what it writes:
+        /// only those facts, each named by what it means. Null when the key is about no such object.</summary>
+        private VisualElement FactPick(StateTreeStepParameter parameter, string label)
+        {
+            RunSubTreeTask run = Run();
+            List<LevelObjectPresetFact> facts = StateTreeSchemaRules.TargetFacts(m_Tree, m_Schema, m_Node, run, parameter,
+                out LevelObjectDef target, out LevelObjectPresetDef preset);
+            if (facts == null)
+                return null;
+            string current = parameter.stringValue;
+            LevelObjectPresetFact held = facts.Find(f => f != null && f.key.text == current);
+            string about = (string.IsNullOrEmpty(target.name) ? target.id : target.name) + " (" + preset.name + ")";
+            return new StateTreePickField(label, held != null ? held.Label : current,
+                held == null && !string.IsNullOrEmpty(current),
+                held != null ? held.Label + " — " + held.key.text + ", written by " + about
+                    : "What " + about + " writes.",
+                at =>
+                {
+                    var menu = new StateTreePickMenu { title = "What " + target.name + " writes", none = null };
+                    foreach (LevelObjectPresetFact fact in facts)
+                    {
+                        if (fact != null && !string.IsNullOrEmpty(fact.key.text))
+                            menu.items.Add(new StateTreePickItem(fact.key.text, fact.Label, fact.key.text) { payload = fact });
+                    }
+                    menu.Show(at, current, picked =>
+                    {
+                        if (picked.payload is LevelObjectPresetFact chosen)
+                            m_Write(parameter.declaration, chosen.key.text, 0f, "", chosen.key.keyId);
+                    });
+                });
+        }
+
+        /// <summary>The sub-tree task of the calling state that runs the template.</summary>
+        private RunSubTreeTask Run()
+        {
+            for (int i = 0; m_Node != null && i < m_Node.tasks.Count; i++)
+            {
+                if (m_Node.tasks[i] is RunSubTreeTask run && run.subTree == m_Template)
+                    return run;
+            }
+            return null;
         }
 
         private VisualElement TagPick(StateTreeStepParameter parameter, string label)

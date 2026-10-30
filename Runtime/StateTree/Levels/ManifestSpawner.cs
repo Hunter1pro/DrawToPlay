@@ -51,9 +51,11 @@ namespace PowerOfFire.DrawToPlay
             List<LevelObjectDef> rows = level.objects.entries;
             for (int i = 0; i < rows.Count; i++)
             {
-                if (rows[i] != null && !ShouldSpawn(rows[i]))
+                // A row made from a preset runs as the preset's core with its own settings.
+                LevelObjectDef row = level.objects.Resolve(rows[i]);
+                if (row != null && !ShouldSpawn(row))
                     continue;
-                Spawn(rows[i]);
+                Spawn(row);
             }
             OnRowsSpawned();
             HoldOwnHost();
