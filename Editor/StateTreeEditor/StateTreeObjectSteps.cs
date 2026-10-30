@@ -38,8 +38,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             public StateTreeNodeAsset place;
             public StateTreeSchemaKind kind;
 
-            /// <summary>"Episode/Hall › corridor/Open Door" — the menu item; the tree's name only when there are
-            /// several trees, the kind's label only when the place fits several.</summary>
+            /// <summary>"Episode/Hall › corridor (Zone)/Open Door" — the menu item: the place with its kind (a Level
+            /// and its zone are often named alike), then the step, always. The tree's name only when there are several
+            /// trees.</summary>
             public string path;
         }
 
@@ -63,12 +64,14 @@ namespace PowerOfFire.DrawToPlay.Editor
                 foreach (StateTreeNodeAsset place in Places(tree, schema, manifest))
                 {
                     List<StateTreeSchemaKind> fits = Fitting(schema, place, preset);
-                    string where = PlaceName(tree, schema, place);
+                    StateTreeSchemaKind placeKind = StateTreeSchemaRules.KindOf(schema, place);
+                    string where = PlaceName(tree, schema, place)
+                        + (placeKind != null ? " (" + placeKind.Label + ")" : "");
                     foreach (StateTreeSchemaKind kind in fits)
                         uses.Add(new Use
                         {
                             tree = tree, schema = schema, place = place, kind = kind,
-                            path = fits.Count > 1 ? where + "/" + kind.Label : where
+                            path = where + "/" + kind.Label
                         });
                 }
                 if (uses.Count > before)
