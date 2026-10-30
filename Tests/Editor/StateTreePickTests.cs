@@ -301,6 +301,57 @@ namespace PowerOfFire.DrawToPlay.Tests
             }
         }
 
+        [Test]
+        public void AStepAddedWithPlus_TakesARowAndAKey_ChosenInTheDropdown_AndKeepsThemOnTheNextLook()
+        {
+            Fixture fixture = Build();
+            StateTreeKeyOffers.Declare(fixture.host, "room.knocked", StateTreeKeyKind.String, "t");
+            Assert.IsFalse(StateTreeSchemaRules.Parameters(fixture.kind, fixture.step).Any(p => p.overridden),
+                "a step fresh from + overrides nothing");
+            StateTreePickMenu.headless = true;
+            try
+            {
+                var root = new ScrollView();
+                var inspector = new StateTreeMissionInspector(root, null, null, null, null);
+                foreach ((string label, string value) in new[] { ("Choice", "yes-no"), ("Fact", "room.knocked") })
+                {
+                    inspector.Rebuild(fixture.host, fixture.schema, fixture.step,
+                        StateTreeSchemaRules.Validate(fixture.host, fixture.schema));
+                    root.Query<StateTreePickField>().ToList().First(p => p.Q<Label>().text == label).Open();
+                    StateTreePickDropdown dropdown = StateTreePickMenu.lastShown.Dropdown();
+                    StateTreePickDropdown.Leaf line = Leaves(dropdown.Root()).First(l => l.item != null && l.item.value == value);
+                    dropdown.Choose(line);
+                }
+
+                inspector.Rebuild(fixture.host, fixture.schema, fixture.step,
+                    StateTreeSchemaRules.Validate(fixture.host, fixture.schema));
+                List<StateTreeStepParameter> parameters = StateTreeSchemaRules.Parameters(fixture.kind, fixture.step);
+                Assert.AreEqual("yes-no", parameters.Single(p => p.declaration.name == "talk.choice").stringValue);
+                Assert.AreEqual("row.yes-no", parameters.Single(p => p.declaration.name == "talk.choice").overrideRow.entryId);
+                Assert.AreEqual("room.knocked", parameters.Single(p => p.declaration.name == "talk.fact").stringValue);
+                Assert.AreEqual("room.answered", parameters.Single(p => p.declaration.name == "talk.answer").stringValue,
+                    "what follows from the row follows");
+                List<string> shown = root.Query<StateTreePickField>().ToList().Select(p => p.button.text).ToList();
+                Assert.IsTrue(shown.Any(t => t.StartsWith("yes-no")), string.Join(" | ", shown));
+                Assert.IsTrue(shown.Any(t => t.StartsWith("room.knocked")), string.Join(" | ", shown));
+            }
+            finally
+            {
+                StateTreePickMenu.headless = false;
+            }
+        }
+
+        private static IEnumerable<StateTreePickDropdown.Leaf> Leaves(UnityEditor.IMGUI.Controls.AdvancedDropdownItem at)
+        {
+            foreach (UnityEditor.IMGUI.Controls.AdvancedDropdownItem child in at.children)
+            {
+                if (child is StateTreePickDropdown.Leaf leaf)
+                    yield return leaf;
+                foreach (StateTreePickDropdown.Leaf below in Leaves(child))
+                    yield return below;
+            }
+        }
+
         // ---- helpers ------------------------------------------------------------------------
 
         private sealed class Fixture

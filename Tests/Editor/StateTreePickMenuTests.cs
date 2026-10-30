@@ -95,6 +95,54 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void ChoosingALine_OfTheDropdown_PicksItsItem_OrRunsItsCommand()
+        {
+            var menu = new StateTreePickMenu();
+            var used = new StateTreePickItem("hall.help", null, "Meeting Nadine", "Episode 1") { inTree = true };
+            var grouped = new StateTreePickItem("hall.knock", null, "", "Episode 1");
+            var other = new StateTreePickItem("riverside.end", null, "", "Riverside") { fits = false };
+            menu.items.Add(used);
+            menu.items.Add(grouped);
+            menu.items.Add(other);
+            bool commanded = false;
+            menu.Command("Declare…", () => commanded = true);
+            menu.Create("+ New Video…", "Name", name => new StateTreePickItem(name));
+
+            var picked = new List<StateTreePickItem>();
+            var dropdown = new StateTreePickDropdown(menu, "", picked.Add);
+            List<UnityEditor.IMGUI.Controls.AdvancedDropdownItem> lines = Lines(dropdown.Root()).ToList();
+            List<StateTreePickDropdown.Leaf> leaves = lines.OfType<StateTreePickDropdown.Leaf>().ToList();
+
+            // Unity re-numbers an item's id as it is added to its parent: chosen by id, a line picked nothing.
+            foreach (StateTreePickItem item in new[] { used, grouped, other })
+            {
+                dropdown.Choose(leaves.First(l => l.item == item));
+                Assert.AreSame(item, picked.LastOrDefault(), item.value + " is what its line picks");
+            }
+            dropdown.Choose(leaves.Single(l => l.item != null && l.item.value == ""));
+            Assert.AreEqual("", picked.Last().value, "(none) picks empty");
+            Assert.AreEqual(4, picked.Count);
+
+            dropdown.Choose(leaves.Single(l => l.command != null));
+            Assert.IsTrue(commanded, "a command line runs it");
+            Assert.AreEqual(0, leaves.Single(l => l.create >= 0).create, "+ New is its create");
+
+            foreach (UnityEditor.IMGUI.Controls.AdvancedDropdownItem line in lines.Where(l => !(l is StateTreePickDropdown.Leaf)))
+                dropdown.Choose(line);
+            Assert.AreEqual(4, picked.Count, "a header, a group or a separator picks nothing");
+        }
+
+        private static IEnumerable<UnityEditor.IMGUI.Controls.AdvancedDropdownItem> Lines(UnityEditor.IMGUI.Controls.AdvancedDropdownItem at)
+        {
+            foreach (UnityEditor.IMGUI.Controls.AdvancedDropdownItem child in at.children)
+            {
+                yield return child;
+                foreach (UnityEditor.IMGUI.Controls.AdvancedDropdownItem below in Lines(child))
+                    yield return below;
+            }
+        }
+
+        [Test]
         public void AKeysGroup_IsItsPrefix()
         {
             Assert.AreEqual("room204/door", StateTreePickMenu.PrefixGroup("room204.door.opened"));

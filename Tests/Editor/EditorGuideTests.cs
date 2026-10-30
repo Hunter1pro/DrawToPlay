@@ -149,6 +149,25 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void EveryTextTheWindowShows_TakesTheRunsOwnNames()
+        {
+            m_Guide.chapters[0].title = "{door}s";
+            m_Guide.chapters[0].steps[0].text = "Drag the {door} in.";
+            m_Guide.chapters[0].steps[0].waitingFor = "Waiting for the {door}.";
+            m_Guide.words = (run, text) => text.Replace("{door}", "Gate");
+            m_Window = ScriptableObject.CreateInstance<EditorGuideWindow>();
+            m_Window.Play(m_Guide, ProgressPath);
+            VisualElement root = m_Window.rootVisualElement;
+
+            string[] shown = root.Query<Label>().ToList().Select(l => l.text).ToArray();
+            Assert.IsFalse(shown.Any(t => t.Contains("{door}")), string.Join(" | ", shown));
+            Assert.IsTrue(shown.Contains("Drag the Gate in."));
+            Assert.IsTrue(shown.Any(t => t.Contains("Waiting for the Gate.")));
+            Assert.IsTrue(shown.Any(t => t.Contains("Gates")), "the chapter's title too");
+            Assert.AreEqual("Drag the {door} in.", m_Guide.chapters[0].steps[0].text, "the guide's own text is not rewritten");
+        }
+
+        [Test]
         public void TheLevelManifest_ShowsTheGuidesQuestionMark_WhileOneIsRegistered()
         {
             EditorGuides.Register(m_Guide);

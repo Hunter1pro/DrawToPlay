@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.11 - 2026-10-31
+- Every pick in the searchable dropdown works again: Unity 6000.5 re-numbers an `AdvancedDropdownItem`'s id when it is
+  added to its parent, and the dropdown found its items by the ids it had given them — choosing a line did
+  nothing (a Film step's video stayed "(none)"). A line now carries its item, command or "+ New" itself.
+- The Level Manifest finds a level's tree its scene does not run (made, then the scene closed unsaved):
+  "not run by its scene: <tree>" and **+ Run it in the scene**, which wires it and makes nothing new.
+  `ILevelSetup.SessionMadeOf` (defaults to `SessionOf`), `LevelLinks.sessionMade`.
+- `EditorGuide.words`: a guide puts the run's own names into its texts (the level the designer named) — every
+  title, card, tip and check line the Guide window shows.
+
 ## 0.6.10 - 2026-10-31
 - The Level Manifest shows the open scene's level, always: it is checked against the open scene on every
   redraw, on a new, saved or switched scene and before anything is placed. Before, a level once found was

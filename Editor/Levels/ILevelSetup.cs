@@ -34,6 +34,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>The tree the level itself runs; null while it has none.</summary>
         StateTreeAsset SessionOf(LevelContent level);
 
+        /// <summary>The tree made for the level, run by its scene or not (a wire lost with an unsaved scene); null
+        /// while none is made. <see cref="Connect"/> wires it rather than making another.</summary>
+        StateTreeAsset SessionMadeOf(LevelContent level) => SessionOf(level);
+
         /// <summary>Makes what is missing of the level's episode entry and its tree, and nothing that exists; a line
         /// per thing made.</summary>
         List<string> Connect(LevelContent level);
@@ -54,6 +58,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>The level's own tree, or null while missing.</summary>
         public StateTreeAsset session;
 
+        /// <summary>The tree made for the level even while its scene does not run it; null while none is made.</summary>
+        public StateTreeAsset sessionMade;
+
         public bool inEpisode => episode != null;
 
         /// <summary>Nothing to make: in no episode, or both connections there.</summary>
@@ -70,6 +77,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             links.episode = setup.EpisodeOf(level);
             links.episodeNode = LevelNode(links.episode, level, links.row != null ? links.row.name : null);
             links.session = setup.SessionOf(level);
+            links.sessionMade = links.session != null ? links.session : setup.SessionMadeOf(level);
             return links;
         }
 

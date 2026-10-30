@@ -253,7 +253,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     m_PageScroll.scrollOffset = Vector2.zero;
                 });
 
-                var title = new Label((complete ? "✓  " : "") + chapter.title)
+                var title = new Label((complete ? "✓  " : "") + Say(chapter.title))
                 {
                     style = { whiteSpace = WhiteSpace.Normal, unityFontStyleAndWeight = open ? FontStyle.Bold : FontStyle.Normal }
                 };
@@ -270,13 +270,13 @@ namespace PowerOfFire.DrawToPlay.Editor
             GuideChapter chapter = m_Run.chapter;
             if (chapter == null)
                 return;
-            var title = new Label(chapter.title)
+            var title = new Label(Say(chapter.title))
             {
                 style = { fontSize = 15, unityFontStyleAndWeight = FontStyle.Bold, whiteSpace = WhiteSpace.Normal, marginBottom = 2f }
             };
             m_Page.Add(title);
             if (!string.IsNullOrEmpty(chapter.intro))
-                m_Page.Add(StateTreeInspectorLook.Note(chapter.intro));
+                m_Page.Add(StateTreeInspectorLook.Note(Say(chapter.intro)));
             int passed = m_Run.Passed(chapter);
             VisualElement bar = Bar(passed, chapter.steps.Count, 6f);
             bar.style.marginTop = 4f;
@@ -297,7 +297,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             bool skipped = m_Run.IsSkipped(chapter, step);
             bool behind = index < m_Run.stepIndex;
             string glyph = done ? "✓" : skipped ? "↷" : "○";
-            var line = new Label(glyph + "  " + step.title + (skipped ? "  (skipped)" : ""));
+            var line = new Label(glyph + "  " + Say(step.title) + (skipped ? "  (skipped)" : ""));
             line.AddToClassList(LineClass);
             line.userData = step;
             line.style.paddingLeft = 6f;
@@ -328,12 +328,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             card.style.paddingBottom = 8f;
             card.style.marginTop = 2f;
             card.style.marginBottom = 6f;
-            card.Add(StateTreeInspectorLook.CardHeader(done ? "✓" : "●", done ? Good : Accent, step.title, out Label title));
+            card.Add(StateTreeInspectorLook.CardHeader(done ? "✓" : "●", done ? Good : Accent, Say(step.title), out Label title));
             title.style.fontSize = 13;
             title.style.whiteSpace = WhiteSpace.Normal;
 
             if (!string.IsNullOrEmpty(step.text))
-                card.Add(Text(step.text));
+                card.Add(Text(Say(step.text)));
             foreach (GuideTerm term in step.terms)
                 card.Add(Term(term));
             if (!string.IsNullOrEmpty(m_Run.status))
@@ -345,7 +345,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (!string.IsNullOrEmpty(step.why))
             {
                 var why = new Foldout { text = "Why", value = false, style = { marginTop = 4f } };
-                why.Add(StateTreeInspectorLook.Note(step.why));
+                why.Add(StateTreeInspectorLook.Note(Say(step.why)));
                 card.Add(why);
             }
 
@@ -353,17 +353,17 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 var actions = new VisualElement { style = { flexDirection = FlexDirection.Row, flexWrap = Wrap.Wrap, marginTop = 6f } };
                 if (step.show != null)
-                    actions.Add(ActionButton("Show me", step.showTip, ShowClass, () => step.show(m_Run)));
+                    actions.Add(ActionButton("Show me", Say(step.showTip), ShowClass, () => step.show(m_Run)));
                 if (step.doIt != null)
-                    actions.Add(ActionButton(step.doItLabel, step.doItTip, DoClass, () => step.doIt(m_Run)));
+                    actions.Add(ActionButton(Say(step.doItLabel), Say(step.doItTip), DoClass, () => step.doIt(m_Run)));
                 card.Add(actions);
             }
 
             if (step.isTask)
             {
                 var check = new Label(done
-                    ? "✓  " + (string.IsNullOrEmpty(step.praise) ? "Done." : step.praise)
-                    : "○  " + (string.IsNullOrEmpty(step.waitingFor) ? "Waiting for you to do it." : step.waitingFor));
+                    ? "✓  " + (string.IsNullOrEmpty(step.praise) ? "Done." : Say(step.praise))
+                    : "○  " + (string.IsNullOrEmpty(step.waitingFor) ? "Waiting for you to do it." : Say(step.waitingFor)));
                 check.AddToClassList(CheckClass);
                 check.style.whiteSpace = WhiteSpace.Normal;
                 check.style.marginTop = 6f;
@@ -417,7 +417,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (at + 1 < m_Run.guide.chapters.Count)
             {
                 GuideChapter next = m_Run.guide.chapters[at + 1];
-                nav.Add(Nav("Next: " + next.title + " ▶", NextClass, () => m_Run.OpenChapter(at + 1)));
+                nav.Add(Nav("Next: " + Say(next.title) + " ▶", NextClass, () => m_Run.OpenChapter(at + 1)));
             }
             else
                 card.Add(Text("That is the whole guide. Nice work."));
@@ -457,6 +457,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             return button;
         }
 
+        /// <summary>A text with the run's own names in it.</summary>
+        private string Say(string text) => m_Run != null ? m_Run.guide.Say(m_Run, text) : text;
+
         private static Label Text(string text)
         {
             var label = new Label(text) { style = { whiteSpace = WhiteSpace.Normal, marginTop = 4f } };
@@ -472,7 +475,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             return label;
         }
 
-        private static VisualElement Term(GuideTerm term)
+        private VisualElement Term(GuideTerm term)
         {
             var row = new VisualElement();
             row.AddToClassList(TermClass);
@@ -482,8 +485,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             row.style.paddingBottom = 3f;
             row.style.borderLeftWidth = 2f;
             row.style.borderLeftColor = Accent;
-            row.Add(new Label(term.word) { style = { unityFontStyleAndWeight = FontStyle.Bold } });
-            row.Add(new Label(term.meaning) { style = { whiteSpace = WhiteSpace.Normal, opacity = 0.85f } });
+            row.Add(new Label(Say(term.word)) { style = { unityFontStyleAndWeight = FontStyle.Bold } });
+            row.Add(new Label(Say(term.meaning)) { style = { whiteSpace = WhiteSpace.Normal, opacity = 0.85f } });
             return row;
         }
 
