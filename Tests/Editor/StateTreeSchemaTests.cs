@@ -408,14 +408,15 @@ namespace PowerOfFire.DrawToPlay.Tests
             m_Schema.Kind("zone").children.Add("ask");
             m_Schema.Kind("level").rests = true;
             StateTreeAsset tree = HostTree(k_Folder + "/Host.asset");
-            nodes = new Dictionary<string, StateTreeNodeAsset>();
+            var made = new Dictionary<string, StateTreeNodeAsset>();
+            nodes = made;
             StateTreeNodeAsset Add(StateTreeNodeAsset parent, string kind, string id)
             {
                 StateTreeNodeAsset node = StateTreeSchemaRules.AddNode(tree, m_Schema, parent, kind);
                 if (kind == "ask")
                     StateTreeSchemaRules.SetParameter((RunSubTreeTask)node.tasks[0], ask.parameters.Single(p => p.name == "ask.answer"),
                         "k", 0f, "", "t");
-                nodes[id] = node;
+                made[id] = node;
                 return node;
             }
             StateTreeNodeAsset level = Add(tree.root, "level", "level");
