@@ -23,6 +23,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// only suggested. Null: every text shows as written.</summary>
         public Func<GuideRun, string, string> words;
 
+        /// <summary>What the designer is working on — a level — when the guide keeps its progress per that thing: the
+        /// run keeps one state per answer in the same file and follows the answer as it changes; a first answer starts
+        /// caught up (<see cref="GuideRun.CatchUp"/>). Asked when something changed and before every check, so keep it to
+        /// lookups. Null or empty: the guide's one progress.</summary>
+        public Func<string> scope;
+
         /// <summary>A text (a title, a card, a tip) as <paramref name="run"/> shows it.</summary>
         public string Say(GuideRun run, string text)
         {
@@ -59,6 +65,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         public string title;
         public string intro = "";
         public readonly List<GuideStep> steps = new List<GuideStep>();
+
+        /// <summary>A list of how things stand, not of things to learn: while the chapter is open every task is asked
+        /// again and reads ✓ or ○ as it is now — a ✓ goes back to ○ when its check stops passing.</summary>
+        public bool checklist;
 
         public GuideStep Step(string stepId, string stepTitle, string text)
         {

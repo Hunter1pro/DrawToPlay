@@ -9,7 +9,8 @@ namespace PowerOfFire.DrawToPlay.Tests
 {
     /// <summary>
     /// The Guide: a task's Next opens only once its check has passed and stays open; Skip moves on and remembers;
-    /// a note's Next is always open; the progress file round-trips, in a throwaway folder. The window is a UI Toolkit
+    /// a note's Next is always open; the progress file round-trips, in a throwaway folder, one state per scope; a scope
+    /// met for the first time catches up; a checklist chapter reads how things stand. The window is a UI Toolkit
     /// host that draws the chapters and the open card, and the Level Manifest shows its "?" while a guide is
     /// registered.
     /// </summary>
@@ -118,6 +119,110 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.IsFalse(fresh.IsDone(one, one.steps[0]));
             Assert.IsTrue(EditorGuides.ProgressPath("g").StartsWith("UserSettings/", System.StringComparison.Ordinal),
                 "per user, never under Assets");
+        }
+
+        [Test]
+        public void AScopedGuide_KeepsAStatePerScope_InOneFile_AndAFileFromBeforeScopesIsTheUnscopedState()
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(ProgressPath));
+            File.WriteAllText(ProgressPath, "{\"chapter\":1,\"done\":[\"one/door\"],\"notes\":[{\"key\":\"practice.level\",\"value\":\"practice\"}]}");
+            string level = "";
+            m_Guide.scope = () => level;
+
+            var run = new GuideRun(m_Guide, ProgressPath);
+            GuideChapter one = m_Guide.chapters[0];
+            Assert.AreEqual("", run.scope);
+            Assert.AreEqual(1, run.chapterIndex, "the old file reads as the unscoped state");
+            Assert.IsTrue(run.IsDone(one, one.steps[0]));
+            Assert.AreEqual("practice", run.Note("practice.level"));
+
+            level = "cove";
+            Assert.IsTrue(run.Refresh(), "the scope moved");
+            Assert.AreEqual("cove", run.scope);
+            Assert.IsFalse(run.IsDone(one, one.steps[0]), "a new scope starts fresh");
+            Assert.IsNull(run.Note("practice.level"));
+            m_Door = true;
+            run.Refresh();
+            run.Next();
+            run.SetNote("made", "cove.x");
+
+            m_Door = false;
+            level = "reef";
+            run.Refresh();
+            Assert.AreEqual(0, run.chapterIndex);
+            Assert.AreEqual("door", run.step.id, "the second scope starts at its first unmet step");
+            Assert.IsNull(run.Note("made"));
+
+            level = "cove";
+            var again = new GuideRun(m_Guide, ProgressPath);
+            Assert.AreEqual("cove", again.scope);
+            Assert.IsTrue(again.IsDone(one, one.steps[0]));
+            Assert.AreEqual("note", again.step.id, "cove stands where it was left");
+            Assert.AreEqual("cove.x", again.Note("made"));
+            level = "";
+            again.Refresh();
+            Assert.AreEqual("practice", again.Note("practice.level"), "the unscoped state is kept as it was");
+            CollectionAssert.AreEquivalent(new[] { "cove", "reef" }, again.file.scopes.Select(s => s.key));
+
+            level = "reef";
+            again.Refresh();
+            again.SetNote("made", "reef.y");
+            m_Door = true;
+            again.StartOver();
+            Assert.IsNull(again.Note("made"), "Start over clears the scope it is in");
+            Assert.IsTrue(again.IsDone(one, one.steps[0]), "and catches it up at once");
+            Assert.AreEqual("cove.x", again.file.Scope("cove").Note("made"), "other scopes are kept");
+        }
+
+        [Test]
+        public void AScopeMetForTheFirstTime_CatchesUp_ToItsFirstUnmetTask()
+        {
+            bool named = false;
+            GuideChapter one = m_Guide.chapters[0];
+            one.Step("name", "Name it", "Type a name.").Checks(_ => named, "Waiting for a name.", "Named.");
+            GuideChapter notes = m_Guide.chapters[1];
+            GuideChapter three = m_Guide.Chapter("three", "Three");
+            three.Step("read", "Read first", "A note.");
+            three.Step("paint", "Paint it", "Paint.").Checks(_ => true, "Waiting for paint.", "Painted.");
+            m_Door = true;
+            m_Guide.scope = () => "cove";
+
+            var run = new GuideRun(m_Guide, ProgressPath);
+            Assert.IsTrue(run.IsDone(one, one.steps[0]), "the door was there before the guide opened");
+            Assert.IsTrue(run.IsDone(one, one.steps[1]), "the note ahead of the first unmet task is passed");
+            Assert.IsFalse(run.IsDone(one, one.steps[2]));
+            Assert.AreEqual(0, run.chapterIndex);
+            Assert.AreEqual("name", run.step.id, "it opens at the first unmet task");
+            Assert.IsFalse(run.IsComplete(notes), "a chapter of notes only is left as it is");
+            Assert.IsTrue(run.IsComplete(three), "a later chapter whose tasks all pass reads ✓, its notes too");
+
+            named = true;
+            run.Refresh();
+            Assert.IsTrue(run.IsComplete(one));
+        }
+
+        [Test]
+        public void AChecklistChapter_ReadsHowThingsStandNow()
+        {
+            bool baked = false;
+            GuideChapter list = m_Guide.Chapter("ship", "Ship it");
+            list.checklist = true;
+            list.Step("bake", "Baked", "Bake it.").Checks(_ => baked, "Not baked.", "Baked.");
+            list.Step("door", "A door", "Place one.").Checks(_ => m_Door, "No door.", "A door.");
+            var run = new GuideRun(m_Guide, ProgressPath);
+            run.OpenChapter(2);
+
+            m_Door = true;
+            Assert.IsTrue(run.Refresh());
+            Assert.IsTrue(run.IsDone(list, list.steps[1]), "every item is asked, not only the open one");
+            Assert.IsFalse(run.IsDone(list, list.steps[0]));
+            Assert.IsFalse(run.IsDone(m_Guide.chapters[0], m_Guide.chapters[0].steps[0]), "only the open chapter is a list");
+            m_Door = false;
+            Assert.IsTrue(run.Refresh());
+            Assert.IsFalse(run.IsDone(list, list.steps[1]), "a ✓ goes back to ○ when it stops passing");
+            baked = true;
+            run.Refresh();
+            Assert.IsTrue(run.IsDone(list, list.steps[0]));
         }
 
         [Test]
