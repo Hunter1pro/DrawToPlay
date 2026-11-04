@@ -72,6 +72,18 @@ A field that names a placement by id carries `[PlacementId]`: it is picked from 
 the asset declares (a tree's `registries`, a registry's `dependsOn`), the way `[WorldTag]` picks
 a tag from declared vocabularies.
 
+A manifest row's **parameters** (the arguments of its `tree`) are picked, never typed. A row-typed
+parameter offers its catalog from the tree that declares it (its Data), the row's kind's def and the
+manifest — a manifest lists its tag vocabularies, not every catalog its trees name — and a value that names
+no row is shown red. A parameter declared as **a placement in the level of** a sibling level-row parameter
+(`GraphTaskParameter.placementInLevelOf`; the tree's parameter type menu offers it) is a place in *another*
+level: its picker lists the placements of the level the sibling names (from the level row's content's
+manifest), rows of the edited row's own kind first, writes the placement's id, ◎ shows that manifest, and
+says "Pick the destination first" while the sibling is empty. It follows the sibling: pick another level and
+the list is that level's, an old value that is no place there turns red. A preset's setting picks the same way.
+This is how two levels are linked by hand: a portal row in each, each naming the other as its destination and
+the other's portal as its arrival.
+
 Step 4 before step 5 is not incidental. A character whose tasks bind through the world must be a
 citizen before its tree runs, or its first tick asks about a world that has never heard of it.
 

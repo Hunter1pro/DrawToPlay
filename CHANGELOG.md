@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.16 - 2026-11-05
+- A manifest row's parameter pickers read the catalogs of the row's tree (and its kind's def), not only the manifest's:
+  a row-typed value such as a portal's destination lists its catalog's rows and resolves (no "not a row"); a pick
+  writes the name and the id, and "+ New" is offered in the one catalog the type names. `GraphTaskParameterPicks`.
+- `GraphTaskParameter.placementInLevelOf`: a String parameter that is a placement in the level a sibling level-row
+  parameter names (a portal's arrival). Its picker lists that level's placements (the row's own kind first), writes
+  the id, follows the sibling, and says to pick the level first when it is empty. The tree's parameter type menu
+  offers "placement in the level of"; a preset's setting and Dev mode pick it too.
+
 ## 0.6.15 - 2026-11-04
 - The one-per-level test names its row's entry through `entry` (0.6.14's tests did not compile).
 
