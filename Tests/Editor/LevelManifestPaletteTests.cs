@@ -214,7 +214,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             OnePerLevelPlayer();
             Row("Emma", "player", "player");
             LevelObjectDef emma = m_Manifest.entries[m_Manifest.entries.Count - 1];
-            emma.entryName = "emma";
+            emma.entry.entryName = "emma";
             int before = m_Manifest.entries.Count;
 
             LevelObjectDef placed = LevelManifestEdits.PlaceRow(m_Manifest, m_Kinds, "player", "hall",

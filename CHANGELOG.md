@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.15 - 2026-11-04
+- The one-per-level test names its row's entry through `entry` (0.6.14's tests did not compile).
+
 ## 0.6.14 - 2026-11-04
 - One per level: `LevelObjectKindDef.onePerLevel`. The Level Manifest's tile for such a kind moves the level's one row
   of it to the drop point (or the view's centre) instead of adding a second — one undo, its entry and tree kept — and
