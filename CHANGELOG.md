@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.13 - 2026-11-04
+- A guide can keep its progress per thing worked on: `EditorGuide.scope` (a level, say). The run keeps one state per
+  scope in the same per-user file and follows the scope as it changes; a file from before is the unscoped state.
+  A scope met for the first time catches up (`GuideRun.CatchUp`): every task that already passes is ✓, the notes
+  ahead of a chapter's first unmet task are passed, and the run opens at the first unmet task. Start over clears
+  only the scope the run is in.
+- `GuideChapter.checklist`: while the chapter is open every task is asked again and reads ✓ or ○ as things stand
+  now — a ✓ goes back to ○ when its check stops passing.
+
 ## 0.6.11 - 2026-10-31
 - Every pick in the searchable dropdown works again: Unity 6000.5 re-numbers an `AdvancedDropdownItem`'s id when it is
   added to its parent, and the dropdown found its items by the ids it had given them — choosing a line did
