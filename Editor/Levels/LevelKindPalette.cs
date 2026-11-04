@@ -12,7 +12,8 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// prefab's preview (or its initial on the kind's colour) and its name — and under it a tile per preset of
     /// that kind from the catalogue the level lists. Drag a tile into the Scene view or onto the list to place
     /// one; double-click it to place one at the view's centre (a single click places nothing: tapping tiles made
-    /// duplicates). A preset's tile places an object made from the preset.
+    /// duplicates). A preset's tile places an object made from the preset. A one-per-level kind's tile moves the
+    /// level's one when it has it.
     /// </summary>
     internal sealed class LevelKindPalette : VisualElement
     {
@@ -155,7 +156,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             string what = preset != null
                 ? (string.IsNullOrEmpty(preset.description) ? "A " + kind.name + " preset." : preset.description)
                 : string.IsNullOrEmpty(kind.description) ? kind.name : kind.description;
-            tile.tooltip = what + "\n\nDrag into the Scene view to place one there, or double-click to place one at the view's centre.";
+            tile.tooltip = what + (kind.onePerLevel
+                ? "\n\nOne per level: drag into the Scene view to put the level's " + kind.name + " there (the one it has "
+                    + "moves, nothing is added), or double-click to put it at the view's centre."
+                : "\n\nDrag into the Scene view to place one there, or double-click to place one at the view's centre.");
             if (preset != null)
                 tile.style.marginLeft = 14f;
 
