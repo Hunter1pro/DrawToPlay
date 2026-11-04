@@ -219,6 +219,16 @@ namespace PowerOfFire.DrawToPlay
 
         public bool IsDerived => derived != null && derived.source != GraphTaskParameterDerivation.Source.None;
 
+        /// <summary>
+        /// A PLACEMENT IN ANOTHER LEVEL: the <see cref="id"/> of the sibling parameter — a row of a level catalog —
+        /// whose level's manifest this String parameter names a placement of, by the placement's id. A portal's
+        /// arrival, chosen by its destination. The caller picks it from that level's placements, never types it;
+        /// empty, the parameter is not one.
+        /// </summary>
+        public string placementInLevelOf = "";
+
+        public bool IsPlacementInLevel => !string.IsNullOrEmpty(placementInLevelOf);
+
         /// <summary>This parameter's type — the declared one, or the plain primitive every
         /// parameter authored before M30.1 means.</summary>
         public StateTreeValueType TypeOf()

@@ -768,7 +768,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             // parameter had; now it is a type — and the richer ones are offered from what this
             // tree DECLARES in its Data, so "an item row" is available exactly where the item
             // catalog is, and nowhere else.
-            var kind = new Button { text = parameter.TypeOf().Describe() };
+            var kind = new Button { text = DescribeType(parameter) };
             kind.style.width = 108f;
             kind.style.flexShrink = 0f;
             kind.style.unityTextAlign = TextAnchor.MiddleLeft;
@@ -803,6 +803,13 @@ namespace PowerOfFire.DrawToPlay.Editor
             // A NAMED-THING PARAMETER IS PICKED, not typed: the default is one of the offered
             // rows — the catalog's, or whatever keeps the promised contract — so a misspelt name
             // stops being possible at the place it used to happen.
+            if (parameter.IsPlacementInLevel)
+            {
+                // No default: a place in a level only exists once a caller has picked the level.
+                var each = new Button { text = "set by each caller" };
+                each.SetEnabled(false);
+                return each;
+            }
             StateTreeValueType declared = parameter.TypeOf();
             if (!declared.IsPlain && declared.Storage == StateTreeKeyKind.String)
             {
@@ -1068,11 +1075,37 @@ namespace PowerOfFire.DrawToPlay.Editor
                             // Storage stays a string — the row's NAME is what the tree reads.
                             entry.kind = GraphTaskParameterKind.String;
                             entry.type = StateTreeValueType.RowsOf(registry);
+                            entry.placementInLevelOf = string.Empty;
                         });
                         m_Root.schedule.Execute(() => ReplaceDeclarationRow(index, row))
                             .ExecuteLater(0);
                     });
                 }
+            }
+
+            // A PLACEMENT IN ANOTHER LEVEL: the level is what a sibling parameter names (a portal's arrival is
+            // a place in its destination's level), so the caller picks from that level's manifest.
+            var levelParameters = m_Tree.parameters.FindAll(p => p != null && p != parameter
+                && !string.IsNullOrEmpty(p.id) && p.TypeOf().kind == StateTreeValueKind.Row
+                && p.TypeOf().rows != null && typeof(LevelDef).IsAssignableFrom(p.TypeOf().rows.entryType));
+            if (levelParameters.Count > 0)
+                menu.AddSeparator("");
+            foreach (GraphTaskParameter source in levelParameters)
+            {
+                string sourceId = source.id;
+                menu.AddItem(new GUIContent("placement in the level of/" + source.name),
+                    parameter.placementInLevelOf == sourceId, () =>
+                    {
+                        CommitDeclaration(index, entry =>
+                        {
+                            // Storage stays a string: the placement's id is what the tree reads.
+                            entry.kind = GraphTaskParameterKind.String;
+                            entry.type = StateTreeValueType.Of(StateTreeKeyKind.String);
+                            entry.placementInLevelOf = sourceId;
+                            entry.stringValue = string.Empty;
+                        });
+                        m_Root.schedule.Execute(() => ReplaceDeclarationRow(index, row)).ExecuteLater(0);
+                    });
             }
 
             // AND THE PROMISES (M30.2b). A parameter can mean "anything damageable" instead of
@@ -1095,6 +1128,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                         // a name, and the name is what the tree reads.
                         entry.kind = GraphTaskParameterKind.String;
                         entry.type = StateTreeValueType.Keeping(contract.name);
+                        entry.placementInLevelOf = string.Empty;
                     });
                     m_Root.schedule.Execute(() => ReplaceDeclarationRow(index, row))
                         .ExecuteLater(0);
@@ -1103,17 +1137,27 @@ namespace PowerOfFire.DrawToPlay.Editor
             menu.DropDown(anchor.worldBound);
         }
 
+        /// <summary>What a declaration's type button reads: the type, or which parameter's level it is a place in.</summary>
+        private string DescribeType(GraphTaskParameter parameter)
+        {
+            if (!parameter.IsPlacementInLevel)
+                return parameter.TypeOf().Describe();
+            GraphTaskParameter source = GraphTaskParameterPicks.LevelSource(parameter, m_Tree.parameters);
+            return source != null ? "place in " + source.name : "place (its level is gone)";
+        }
+
         private void AddPrimitive(GenericMenu menu, int index, VisualElement row,
             GraphTaskParameter parameter, string label, GraphTaskParameterKind storage,
             StateTreeKeyKind primitive)
         {
-            bool chosen = parameter.TypeOf().IsPlain && parameter.kind == storage;
+            bool chosen = parameter.TypeOf().IsPlain && parameter.kind == storage && !parameter.IsPlacementInLevel;
             menu.AddItem(new GUIContent(label), chosen, () =>
             {
                 CommitDeclaration(index, entry =>
                 {
                     entry.kind = storage;
                     entry.type = StateTreeValueType.Of(primitive);
+                    entry.placementInLevelOf = string.Empty;
                 });
                 m_Root.schedule.Execute(() => ReplaceDeclarationRow(index, row)).ExecuteLater(0);
             });
@@ -4344,6 +4388,22 @@ namespace PowerOfFire.DrawToPlay.Editor
                         : null;
                     if (picker != null)
                         return picker;
+                    if (parameter.IsPlacementInLevel)
+                        return GraphTaskParameterPicks.For(null, parameter, surface.declared, new UnityEngine.Object[] { m_Tree },
+                            declaration =>
+                            {
+                                var active = ActiveOverride(surface, declaration);
+                                return active != null ? (active.stringValue ?? string.Empty, active.entryId ?? string.Empty)
+                                    : (declaration.stringValue ?? string.Empty, string.Empty);
+                            }, "", (text, entryId) =>
+                            {
+                                CommitOverride(surface, parameter, written =>
+                                {
+                                    written.stringValue = text;
+                                    written.entryId = entryId;
+                                });
+                                RebuildPane();
+                            });
                     var declared = parameter.TypeOf();
                     if (!declared.IsPlain && declared.Storage == StateTreeKeyKind.String)
                         return BuildDeclaredRowPick(surface, parameter, declared);

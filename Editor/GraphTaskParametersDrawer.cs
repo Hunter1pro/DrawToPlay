@@ -101,6 +101,17 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (count == 0 && stale.Count == 0)
                 return;
 
+            // WHAT A PICK MAY NAME comes from the program that declared the parameter — its Data is where a
+            // row type's catalog came from — and from the row's kind and the asset being edited, never from
+            // the edited asset alone: a manifest declares its tag vocabularies, not every catalog its trees name.
+            var picks = new Picks
+            {
+                declared = declared,
+                owners = Owners(setProperty, programProperty.objectReferenceValue),
+                preferKind = SiblingProperty(setProperty, "kind")?.FindPropertyRelative("entryName")?.stringValue ?? "",
+                refresh = () => Rebuild(body, setProperty, values, programProperty)
+            };
+
             var title = new Label("Parameters (" + count + ")");
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
             title.style.marginTop = 4f;
@@ -124,7 +135,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                         continue;
                     body.Add(string.IsNullOrEmpty(parameter.id)
                         ? IdlessRow(parameter)
-                        : Row(setProperty, values, parameter));
+                        : Row(setProperty, values, parameter, picks));
                 }
             }
 
@@ -140,7 +151,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <param name="parameter">The declaration this row stands for.</param>
         /// <returns>The row.</returns>
         private static VisualElement Row(SerializedProperty setProperty, SerializedProperty values,
-            GraphTaskParameter parameter)
+            GraphTaskParameter parameter, Picks picks)
         {
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
@@ -163,135 +174,102 @@ namespace PowerOfFire.DrawToPlay.Editor
             label.tooltip = parameter.kind + " parameter of " + parameter.name + ".";
             row.Add(label);
 
-            VisualElement field = ValueField(setProperty, values, parameter, () => IndexOf(values, parameter));
+            VisualElement field = ValueField(setProperty, values, parameter, () => IndexOf(values, parameter), picks);
             field.style.flexGrow = 1f;
-            field.SetEnabled(overridden);
-            field.style.opacity = overridden ? 1f : 0.55f;
+            Enable(field, overridden);
             row.Add(field);
 
             toggle.RegisterValueChangedCallback(changed =>
             {
                 SetOverridden(setProperty, values, parameter, changed.newValue);
-                field.SetEnabled(changed.newValue);
-                field.style.opacity = changed.newValue ? 1f : 0.55f;
+                // A sibling's pick may follow this one (a placement in the level it names).
+                picks.refresh();
             });
 
             return row;
         }
 
-        /// <summary>
-        /// A row-typed override: the catalog's rows, offered from what the OWNER declares.
-        ///
-        /// The owner is the asset being inspected — the tree whose state runs this graph — so a
-        /// state can only override "which item" with an item its own tree can name. That is the
-        /// same rule the declaration followed, applied at the other end, and it is why a typo
-        /// cannot enter here either.
-        /// </summary>
-        private static VisualElement RowField(SerializedProperty setProperty,
-            SerializedProperty values, GraphTaskParameter parameter, Func<int> indexOf,
-            StateTreeValueType type)
+        /// <summary>What a pick may name and how the section redraws — built once per rebuild.</summary>
+        private sealed class Picks
         {
-            int index = indexOf();
-            string current = index >= 0
-                ? Element(values, index).FindPropertyRelative("stringValue").stringValue
-                : parameter.stringValue;
+            public List<GraphTaskParameter> declared;
+            public List<UnityEngine.Object> owners;
+            public string preferKind;
+            public Action refresh;
+        }
 
-            var pick = new Button { text = string.IsNullOrEmpty(current) ? "(none)" : current };
-            pick.style.unityTextAlign = TextAnchor.MiddleLeft;
-            pick.style.flexGrow = 1f;
-
-            // A NAME THAT IS NO ROW IS AN ERROR, SHOWN AS ONE: a row-typed value that matches
-            // nothing in its catalog (a row renamed or deleted under it, a value written by hand)
-            // used to look exactly like a good pick.
-            Action<string> mark = chosen =>
+        /// <summary>Whose declared catalogs a row-typed value may name: the program first, the kind's def of
+        /// the row the set sits on (when it has one), then the asset being edited.</summary>
+        private static List<UnityEngine.Object> Owners(SerializedProperty setProperty, UnityEngine.Object program)
+        {
+            var owners = new List<UnityEngine.Object>();
+            if (program != null)
+                owners.Add(program);
+            UnityEngine.Object target = setProperty.serializedObject.targetObject;
+            string kindId = SiblingProperty(setProperty, "kind")?.FindPropertyRelative("entryId")?.stringValue;
+            if (!string.IsNullOrEmpty(kindId))
             {
-                var offered = new List<StateTreeRegistryEntry>();
-                StateTreeOffers.RowsFor(type, setProperty.serializedObject.targetObject, offered);
-                bool found = string.IsNullOrEmpty(chosen);
-                for (int i = 0; i < offered.Count && !found; i++)
-                    found = offered[i].name == chosen;
-                pick.text = string.IsNullOrEmpty(chosen) ? "(none)" : found ? chosen : chosen + "   ✕ not a row";
-                pick.style.color = found ? new StyleColor(StyleKeyword.Null) : new StyleColor(new Color(1f, 0.42f, 0.35f));
-                pick.tooltip = found
-                    ? (type.rows != null ? "A row of " + type.rows.name + "." : "")
-                    : offered.Count == 0
-                        ? StateTreeOffers.WhyEmpty(type, setProperty.serializedObject.targetObject)
-                        : "'" + chosen + "' is not a row of " + (type.rows != null ? type.rows.name : "its catalog") + ".";
-            };
-            mark(current);
-
-            pick.clicked += () =>
-            {
-                var rows = new List<StateTreeRegistryEntry>();
-                StateTreeOffers.RowsFor(type, setProperty.serializedObject.targetObject, rows);
-                int at = indexOf();
-                string now = at >= 0
-                    ? Element(values, at).FindPropertyRelative("stringValue").stringValue
-                    : parameter.stringValue;
-
-                var menu = new GenericMenu();
-                menu.AddItem(new GUIContent("(none)"), false, () =>
+                foreach (StateTreeRegistryAsset catalog in StateTreeRowOffers.For(target, typeof(LevelObjectKindDef), out _))
                 {
-                    Write(setProperty, values, parameter, indexOf, "stringValue", string.Empty);
-                    Write(setProperty, values, parameter, indexOf, "entryId", string.Empty);
-                    mark(string.Empty);
-                });
-                if (rows.Count == 0)
-                {
-                    menu.AddDisabledItem(new GUIContent(StateTreeOffers.WhyEmpty(type,
-                        setProperty.serializedObject.targetObject)));
-                }
-                for (int i = 0; i < rows.Count; i++)
-                {
-                    string chosen = rows[i].name;
-                    string chosenId = rows[i].id;
-                    string label = string.IsNullOrEmpty(rows[i].group)
-                        ? chosen : rows[i].group + "/" + chosen;
-                    menu.AddItem(new GUIContent(label), chosen == now, () =>
+                    if (catalog != null && catalog.FindById(kindId) is IServiceDefCarrier kind && kind.ServiceDef != null)
                     {
-                        // BOTH HALVES of the reference: the name is what runs, the id is what
-                        // survives the row being renamed.
-                        Write(setProperty, values, parameter, indexOf, "stringValue", chosen);
-                        Write(setProperty, values, parameter, indexOf, "entryId", chosenId ?? string.Empty);
-                        mark(chosen);
-                    });
+                        owners.Add(kind.ServiceDef);
+                        break;
+                    }
                 }
-                menu.DropDown(pick.worldBound);
-            };
+            }
+            if (target != null && !owners.Contains(target))
+                owners.Add(target);
+            return owners;
+        }
 
-            // AND THE WAY TO IT: the catalog the row lives in, one click away.
-            var go = new Button(() =>
+        /// <summary>A declaration's value here: the stored one for the field itself (shown even unticked), the
+        /// effective one for a sibling it depends on.</summary>
+        private static (string text, string entryId) ValueOf(SerializedProperty values, GraphTaskParameter declaration,
+            bool effective)
+        {
+            int index = IndexOf(values, declaration);
+            if (index < 0 || effective && !Element(values, index).FindPropertyRelative("enabled").boolValue)
+                return (declaration.stringValue ?? string.Empty, string.Empty);
+            SerializedProperty element = Element(values, index);
+            return (element.FindPropertyRelative("stringValue").stringValue,
+                element.FindPropertyRelative("entryId")?.stringValue ?? string.Empty);
+        }
+
+        /// <summary>Off: the program's value, not this row's. A pick's ◎ stays live — showing is not editing.</summary>
+        private static void Enable(VisualElement field, bool overridden)
+        {
+            field.style.opacity = overridden ? 1f : 0.55f;
+            if (field is StateTreePickField pick)
             {
-                if (type.rows == null)
-                    return;
-                Selection.activeObject = type.rows;
-                EditorGUIUtility.PingObject(type.rows);
-            }) { text = "◎", tooltip = type.rows != null ? "Show " + type.rows.name : "" };
-            go.style.width = 22f;
-
-            var line = new VisualElement();
-            line.style.flexDirection = FlexDirection.Row;
-            line.style.flexGrow = 1f;
-            line.Add(pick);
-            line.Add(go);
-            return line;
+                field.SetEnabled(true);
+                pick.button.SetEnabled(overridden);
+                return;
+            }
+            field.SetEnabled(overridden);
         }
 
         /// <summary>The editor for one kind, seeded from the stored row when there is one and from
         /// the program's default when there is not — so ticking a row starts from what was already
         /// running rather than from zero.</summary>
         private static VisualElement ValueField(SerializedProperty setProperty,
-            SerializedProperty values, GraphTaskParameter parameter, Func<int> indexOf)
+            SerializedProperty values, GraphTaskParameter parameter, Func<int> indexOf, Picks picks)
         {
             int index = indexOf();
 
-            // A ROW-TYPED PARAMETER IS TUNED BY PICKING (M30.1): the state overriding "which item"
-            // gets the catalog, not a text box — the same offer the declaration itself got, from
-            // the same declared neighbourhood, so the two halves cannot disagree about what is
-            // nameable.
-            StateTreeValueType declared = parameter.TypeOf();
-            if (!declared.IsPlain && declared.Storage == StateTreeKeyKind.String)
-                return RowField(setProperty, values, parameter, indexOf, declared);
+            // A PARAMETER THAT NAMES SOMETHING IS TUNED BY PICKING (M30.1): a row type gets its catalog
+            // (both halves written: the name runs, the id survives a rename), a placement in another level
+            // gets that level's placements — never a text box.
+            StateTreePickField picked = GraphTaskParameterPicks.For(null, parameter, picks.declared, picks.owners,
+                declaration => ValueOf(values, declaration, declaration != parameter), picks.preferKind,
+                (text, entryId) =>
+                {
+                    Write(setProperty, values, parameter, indexOf, "stringValue", text);
+                    Write(setProperty, values, parameter, indexOf, "entryId", entryId);
+                    picks.refresh();
+                });
+            if (picked != null)
+                return picked;
 
             switch (parameter.kind)
             {

@@ -1123,6 +1123,14 @@ namespace PowerOfFire.DrawToPlay.Editor
                     field = number;
                     break;
                 default:
+                    // A declaration that says what it names is picked even when the tree binds it into nothing
+                    // (a row of a catalog its Data lists, a placement in the level a sibling setting names).
+                    VisualElement declared = GraphTaskParameterPicks.For(label, declaration,
+                        preset.tree != null ? preset.tree.parameters : null,
+                        new UnityEngine.Object[] { preset.tree, m_Level.objects },
+                        d => { GraphTaskParameterOverride v = LevelPresetEdits.Setting(preset, row, d, out _); return (v.stringValue ?? "", v.entryId ?? ""); },
+                        preset.kind != null ? preset.kind.entryName : "",
+                        (text, entryId) => SetSetting(row, declaration, text, 0f, entryId, ""));
                     var parameter = new StateTreeStepParameter
                     {
                         declaration = declaration,
@@ -1131,7 +1139,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                     };
                     var inputs = new StateTreeStepParameterInputs(preset.tree, null, null, preset.tree,
                         (_, text, numberValue, entryId, keyId) => SetSetting(row, declaration, text, numberValue, entryId, keyId));
-                    field = inputs.Picker(parameter, label)
+                    field = (declaration.IsPlacementInLevel ? declared : null)
+                        ?? inputs.Picker(parameter, label)
+                        ?? declared
                         ?? (StateTreeStepParameterInputs.IsText(parameter) ? inputs.Text(parameter, label) : inputs.NoPicker(parameter, label));
                     break;
             }
