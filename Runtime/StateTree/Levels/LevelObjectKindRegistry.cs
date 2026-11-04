@@ -44,6 +44,15 @@ namespace PowerOfFire.DrawToPlay
         /// its result resembles. Empty draws a dot, which is what every placement did before.
         /// </summary>
         public GameObject prefab;
+
+        [Tooltip("A level holds one of these (the player's start, the level's eye). Placing it again in "
+            + "the Level Manifest moves the one there is; the spawner builds only the first row and warns "
+            + "about the rest.")]
+        public bool onePerLevel;
+
+        [Tooltip("A row of this kind must stand on the level's walkable area (the open scene's NavMesh): "
+            + "the Level Manifest warns about one that does not.")]
+        public bool onWalkableArea;
     }
 
     /// <summary>

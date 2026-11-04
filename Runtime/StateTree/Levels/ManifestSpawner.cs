@@ -49,11 +49,12 @@ namespace PowerOfFire.DrawToPlay
             }
             OnBeforeRows();
             List<LevelObjectDef> rows = level.objects.entries;
+            var built = new HashSet<string>();
             for (int i = 0; i < rows.Count; i++)
             {
                 // A row made from a preset runs as the preset's core with its own settings.
                 LevelObjectDef row = level.objects.Resolve(rows[i]);
-                if (row != null && !ShouldSpawn(row))
+                if (row != null && (!ShouldSpawn(row) || !FirstOfItsKind(row, built)))
                     continue;
                 Spawn(row);
             }
@@ -68,6 +69,18 @@ namespace PowerOfFire.DrawToPlay
             var own = GetComponent<StateTreeContextHost>();
             if (own != null && !own.autoStart && own.tree != null && !own.isRunning)
                 m_Hosts.Add(own);
+        }
+
+        /// <summary>False for a second row of a one-per-level kind: two player starts must never be two
+        /// players. Counted among the rows that spawn, so a start a game retires leaves room for the next.</summary>
+        private bool FirstOfItsKind(LevelObjectDef row, HashSet<string> built)
+        {
+            LevelObjectKindDef kind = kinds != null ? kinds.FindByName(row.kind.entryName) as LevelObjectKindDef : null;
+            if (kind == null || !kind.onePerLevel || built.Add(kind.name))
+                return true;
+            Debug.LogWarning($"[ManifestSpawner] row '{row.name}' is another '{kind.name}', and a level holds one: "
+                + "it is not built. Remove it in the Level Manifest.", this);
+            return false;
         }
 
         /// <summary>Once, before the rows — a place to find the services the answers need.</summary>

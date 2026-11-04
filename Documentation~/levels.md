@@ -90,6 +90,14 @@ focused; one undo takes it back. The list groups the rows by kind — a fold per
 count, rows by name — and each fold remembers whether it was open (per user). Selecting a row opens
 its group; the search hides rows without rebuilding the panel.
 
+**One per level.** A kind marked `onePerLevel` (the player's start, the level's eye) is never added
+twice: dragging or double-clicking its tile when the level has a row of it moves that row there
+instead — its entry, tree and settings kept, one undo. `ManifestSpawner` builds only the first such
+row and logs a warning for the rest, so a level never makes two players. A kind marked
+`onWalkableArea` must stand on the open scene's NavMesh (within a metre across, `LevelWalkable`). The
+window warns above the list: more than one row of a one-per-level kind (naming the one Play builds),
+a row off the walkable area, or no NavMesh to check it against.
+
 A new row's name is shown as its fixed `level.kind.` and the last part, which is all that is typed
 (focused on create; emptied, it keeps its number). The full name and the group are under **More**.
 The id never follows a rename: it is what steps name.

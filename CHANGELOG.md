@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.14 - 2026-11-04
+- One per level: `LevelObjectKindDef.onePerLevel`. The Level Manifest's tile for such a kind moves the level's one row
+  of it to the drop point (or the view's centre) instead of adding a second — one undo, its entry and tree kept — and
+  says so in its tooltip. `ManifestSpawner` builds only the first such row and warns about the rest.
+- `LevelObjectKindDef.onWalkableArea` and `LevelWalkable` (the open scene's NavMesh, a metre across): the Level
+  Manifest warns above the list about a second row of a one-per-level kind (naming the one Play builds), a row off the
+  walkable area, or no NavMesh to check it against. The package now depends on `com.unity.modules.ai`.
+
 ## 0.6.13 - 2026-11-04
 - A guide can keep its progress per thing worked on: `EditorGuide.scope` (a level, say). The run keeps one state per
   scope in the same per-user file and follows the scope as it changes; a file from before is the unscoped state.

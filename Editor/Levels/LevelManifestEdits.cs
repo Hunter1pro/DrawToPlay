@@ -59,6 +59,99 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>
+        /// A palette drop: a new row (<see cref="CreateRow"/>) — or, for a one-per-level kind the level already holds,
+        /// that row moved to <paramref name="world"/> (<paramref name="moved"/>), one undo step, keeping everything else.
+        /// </summary>
+        internal static LevelObjectDef PlaceRow(LevelObjectRegistry manifest, LevelObjectKindRegistry kinds,
+            string kindName, string levelKey, Vector3 world, bool onSurface, LevelObjectPresetDef preset, out bool moved)
+        {
+            moved = false;
+            LevelObjectKindDef kind = KindOf(kinds, kindName);
+            int first = kind != null && kind.onePerLevel ? FirstOfKind(manifest, kindName) : -1;
+            if (first < 0)
+                return CreateRow(manifest, kinds, kindName, levelKey, world, onSurface, preset);
+            moved = true;
+            return MoveRow(manifest, manifest.entries[first], world, onSurface);
+        }
+
+        /// <summary><paramref name="row"/> standing at <paramref name="world"/> instead, in one undo step.</summary>
+        internal static LevelObjectDef MoveRow(LevelObjectRegistry manifest, LevelObjectDef row, Vector3 world, bool onSurface)
+        {
+            Undo.IncrementCurrentGroup();
+            int undo = Undo.GetCurrentGroup();
+            Undo.RecordObject(manifest, "Move " + row.name);
+            // The drop decides its height again: a start moved off a desk stands on the floor.
+            row.overrideHeight = false;
+            Stand(manifest, row, world, onSurface);
+            EditorUtility.SetDirty(manifest);
+            Undo.SetCurrentGroupName("Move " + row.name);
+            Undo.CollapseUndoOperations(undo);
+            return row;
+        }
+
+        internal static LevelObjectKindDef KindOf(LevelObjectKindRegistry kinds, string kindName) =>
+            kinds != null && !string.IsNullOrEmpty(kindName) ? kinds.FindByName(kindName) as LevelObjectKindDef : null;
+
+        /// <summary>The index of the manifest's first row of <paramref name="kindName"/> — the one the spawner builds
+        /// of a one-per-level kind; -1 when there is none.</summary>
+        internal static int FirstOfKind(LevelObjectRegistry manifest, string kindName)
+        {
+            if (manifest == null)
+                return -1;
+            for (int i = 0; i < manifest.entries.Count; i++)
+            {
+                if (manifest.entries[i] != null && manifest.entries[i].kind.entryName == kindName)
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// What is wrong with where the level's rows stand: more than one row of a one-per-level kind (Play builds the
+        /// first), and a row of an on-the-walkable-area kind that <paramref name="walk"/> says is off it, or that there
+        /// is no walkable area to check it against.
+        /// </summary>
+        internal static List<string> Warnings(LevelObjectRegistry manifest, LevelObjectKindRegistry kinds,
+            Func<Vector3, LevelWalkable.Standing> walk)
+        {
+            var warnings = new List<string>();
+            if (manifest == null || kinds == null)
+                return warnings;
+            var noWalk = false;
+            foreach (LevelObjectKindDef kind in kinds.entries)
+            {
+                if (kind == null || string.IsNullOrEmpty(kind.name) || !(kind.onePerLevel || kind.onWalkableArea))
+                    continue;
+                var rows = new List<LevelObjectDef>();
+                foreach (LevelObjectDef row in manifest.entries)
+                {
+                    if (row != null && row.kind.entryName == kind.name)
+                        rows.Add(row);
+                }
+                if (kind.onePerLevel && rows.Count > 1)
+                    warnings.Add($"{rows.Count} '{kind.name}' rows, and a level holds one: Play builds only the first, "
+                        + $"'{rows[0].name}'. Remove the other{(rows.Count > 2 ? "s" : "")}, or drag the {kind.name} "
+                        + "tile to move the first.");
+                if (!kind.onWalkableArea || walk == null)
+                    continue;
+                foreach (LevelObjectDef row in kind.onePerLevel && rows.Count > 0 ? rows.GetRange(0, 1) : rows)
+                {
+                    LevelWalkable.Standing standing = walk(manifest.ToWorld(row.position, row.HeightOr(0f)));
+                    if (standing == LevelWalkable.Standing.OffIt)
+                        warnings.Add($"'{row.name}' ({kind.name}) stands off the walkable area (the open scene's NavMesh): "
+                            + $"drag it onto the floor, or drag the {kind.name} tile there.");
+                    else if (standing == LevelWalkable.Standing.NoWalkableArea && !noWalk)
+                    {
+                        noWalk = true;
+                        warnings.Add($"The open scene has no walkable area (NavMesh) to check '{row.name}' against: "
+                            + $"place it on the floor, and bake the scene's NavMesh.");
+                    }
+                }
+            }
+            return warnings;
+        }
+
+        /// <summary>
         /// Writes where a dropped row stands: the plan from the point, and — when it landed on a surface
         /// raised off the ground plane (a desk, a landing) — that surface's height as the row's own.
         /// On the floor, or at the view's centre, it keeps standing at its kind's height.

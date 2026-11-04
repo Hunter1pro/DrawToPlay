@@ -270,6 +270,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
 
             m_Objects = new SerializedObject(m_Level.objects);
+            m_Warnings = new VisualElement();
+            m_WarningsShown = null;
+            m_Root.Add(m_Warnings);
+            RefreshWarnings();
+            m_Warnings.TrackSerializedObjectValue(m_Objects, _ => RefreshWarnings());
             m_Root.Add(BuildStyleRow());
             m_Root.Add(BuildList());
             m_Root.Add(BuildSelected());
@@ -347,6 +352,42 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         public const string ConnectClass = "dtp-manifest-connect";
+
+        public const string WarningClass = "dtp-manifest-warning";
+
+        /// <summary>Where a point stands on the open scene's walkable area; a test answers for the scene.</summary>
+        internal Func<Vector3, LevelWalkable.Standing> walkable = LevelWalkable.Of;
+
+        private VisualElement m_Warnings;
+        private string m_WarningsShown;
+
+        /// <summary>The rows' standing problems (<see cref="LevelManifestEdits.Warnings"/>), redrawn only when they change:
+        /// asked on every rebuild, edit and handle drag.</summary>
+        private void RefreshWarnings()
+        {
+            if (m_Warnings == null || m_Level == null || m_Level.objects == null)
+                return;
+            List<string> warnings = LevelManifestEdits.Warnings(m_Level.objects, Kinds(), walkable);
+            string shown = string.Join("\n", warnings);
+            if (shown == m_WarningsShown)
+                return;
+            m_WarningsShown = shown;
+            m_Warnings.Clear();
+            foreach (string warning in warnings)
+            {
+                var box = new HelpBox(warning, HelpBoxMessageType.Warning);
+                box.AddToClassList(WarningClass);
+                m_Warnings.Add(box);
+            }
+        }
+
+        /// <summary>The warnings shown, for tests.</summary>
+        internal List<string> ShownWarnings()
+        {
+            var shown = new List<string>();
+            m_Warnings?.Query<HelpBox>(className: WarningClass).ForEach(box => shown.Add(box.text));
+            return shown;
+        }
 
         /// <summary>The level's missing episode entry and tree, made now — the first object's connect, in one undo
         /// step; nothing when the level is in no episode or has both. The lines say what was made.</summary>
@@ -1243,7 +1284,8 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>A row of <paramref name="kindName"/> (made from the preset <paramref name="presetId"/>, when
         /// one is given) standing at <paramref name="world"/>: appended in one undo step, selected, its group
-        /// opened and its name ready to type.</summary>
+        /// opened and its name ready to type. A one-per-level kind the level holds already moves that row
+        /// there instead.</summary>
         internal LevelObjectDef Place(string kindName, Vector3 world, bool onSurface, string presetId = null)
         {
             // Never into a level whose scene is not the open one: a drop lands in the level it is dropped on.
@@ -1254,22 +1296,22 @@ namespace PowerOfFire.DrawToPlay.Editor
                 ? Presets().FindById(presetId) as LevelObjectPresetDef
                 : null;
             int group = StateTreeEditorOps.BeginUndoGroup("Place " + kindName);
-            LevelObjectDef row = LevelManifestEdits.CreateRow(m_Level.objects, Kinds(), kindName,
-                LevelKey(), world, onSurface, preset);
+            LevelObjectDef row = LevelManifestEdits.PlaceRow(m_Level.objects, Kinds(), kindName,
+                LevelKey(), world, onSurface, preset, out bool moved);
             if (row == null)
                 return null;
             // The first object of a level its story does not know yet: its episode entry and its tree are made
             // now, in the same undo step, so "Use in mission…" has a zone to offer at once.
-            List<string> made = LevelSetups.ConnectIfMissing(m_Level);
+            List<string> made = moved ? new List<string>() : LevelSetups.ConnectIfMissing(m_Level);
             StateTreeEditorOps.EndUndoGroup(group);
             if (made.Count > 0)
             {
                 m_Links = null;
                 Debug.Log("[Level Manifest] " + m_Level.name + ": " + string.Join("; ", made));
             }
-            m_Selected = m_Level.objects.entries.Count - 1;
+            m_Selected = m_Level.objects.entries.IndexOf(row);
             SetFolded(kindName, false);
-            m_FocusName = true;
+            m_FocusName = !moved;
             Rebuild();
             return row;
         }
@@ -1526,6 +1568,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     Undo.RecordObject(manifest, "Move Level Object");
                     manifest.Place(def, moved, kindHeight);
                     EditorUtility.SetDirty(manifest);
+                    RefreshWarnings();
                     // No Rebuild here: tearing down and rebinding the whole panel per drag
                     // frame is what made dragging stutter. The bound fields refresh
                     // themselves from the SerializedObject.
