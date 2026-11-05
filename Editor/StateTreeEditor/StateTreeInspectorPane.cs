@@ -2871,6 +2871,16 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             m_Root.Add(SectionLabel("Completion"));
 
+            var offField = new Toggle("Disabled") { value = m_Node.disabled };
+            offField.tooltip = "Switched off: a run enters it done and goes on past it — none of its tasks "
+                + "or children run.";
+            offField.RegisterValueChangedCallback(evt =>
+            {
+                StateTreeSchemaRules.SetDisabled(m_Node, evt.newValue);
+                m_StructuralChanged?.Invoke();
+            });
+            m_Root.Add(offField);
+
             // THE M22 COMPLETION KNOBS, beside the identity because they are what the state
             // MEANS: when it counts as done, and where done goes when no edge says.
             var completeField = new EnumField("Complete When", m_Node.completeWhen);

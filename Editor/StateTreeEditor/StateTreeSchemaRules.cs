@@ -107,6 +107,43 @@ namespace PowerOfFire.DrawToPlay.Editor
             return KindOf(schema, node) != null;
         }
 
+        // --- switched off ------------------------------------------------------------------
+
+        /// <summary>Whether a node may be switched off: any domain node but one of the schema's top kinds
+        /// (an episode, a level).</summary>
+        public static bool MayDisable(StateTreeSchema schema, StateTreeNodeAsset node)
+        {
+            StateTreeSchemaKind kind = KindOf(schema, node);
+            return kind != null && !schema.topKinds.Contains(kind.kind);
+        }
+
+        public static void SetDisabled(StateTreeNodeAsset node, bool disabled)
+        {
+            if (node == null || node.disabled == disabled)
+                return;
+            Undo.RecordObject(node, disabled ? "Disable" : "Enable");
+            node.disabled = disabled;
+            EditorUtility.SetDirty(node);
+        }
+
+        /// <summary>Every switched-off node at or under <paramref name="node"/>, in tree order.</summary>
+        public static List<StateTreeNodeAsset> SwitchedOff(StateTreeNodeAsset node)
+        {
+            var found = new List<StateTreeNodeAsset>();
+            CollectOff(node, found, 0);
+            return found;
+        }
+
+        private static void CollectOff(StateTreeNodeAsset node, List<StateTreeNodeAsset> found, int depth)
+        {
+            if (node == null || depth > StateTreeEditorOps.DepthGuard)
+                return;
+            if (node.disabled)
+                found.Add(node);
+            for (int i = 0; i < node.children.Count; i++)
+                CollectOff(node.children[i], found, depth + 1);
+        }
+
         /// <summary>The domain nodes whose parent is not one — the tops of the mode's tree.</summary>
         public static List<StateTreeNodeAsset> DomainRoots(StateTreeAsset tree, StateTreeSchema schema)
         {

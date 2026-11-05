@@ -158,6 +158,13 @@ the schema's mode, on the same asset. The toolbar's **Dev** toggle is today's wi
   has a preset that declares facts, the fact picker (Mission and Dev mode) offers only those, by
   meaning, and validation flags another. `StateTreeObjectSteps` adds a step about an object from its
   preset's fitting steps — the Level Manifest's "Use in mission…" and a row dropped on the tree.
+- **Switched off** — a row's ⋮ **Disable** (any kind but a top kind) sets `StateTreeNodeAsset.disabled`,
+  undoable. The executor enters it done: none of its tasks run, nothing under it runs (a move or a
+  resume into its child lands on it), its own transitions are not asked, and it goes on as a completed
+  state would — the next sibling, or after its question for a branch; never Hold. What it would have
+  written is not written. The row is greyed with an *off* tag, the inspector says so, and
+  `StateTreeSchemaRules.SwitchedOff` lists them for a game's ship checks. It is not a problem: Play
+  is not blocked.
 
 ## Episode trees: one story above the levels
 

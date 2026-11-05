@@ -596,7 +596,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                     }
                 }
                 m_HiddenNote.text = $"{nodes.Count - shown} dev state(s) hidden — Dev "
-                    + "shows them." + (m_Problems.Count > 0 ? $"  ⚠ {m_Problems.Count} problem(s)." : "");
+                    + "shows them." + (m_Problems.Count > 0 ? $"  ⚠ {m_Problems.Count} problem(s)." : "")
+                    + Off(StateTreeSchemaRules.SwitchedOff(m_Tree.root).Count);
                 m_HiddenNote.style.display = DisplayStyle.Flex;
             }
             else
@@ -731,6 +732,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             title.style.unityFontStyleAndWeight = FontStyle.Bold;
             title.style.marginRight = 6f;
             row.Add(title);
+
+            AddOffTag(row, node);
+            if (IsOff(node))
+                row.style.opacity = 0.45f;
 
             string kindName = kind != null ? kind.Label : node.roleKind;
             var id = new Label(string.IsNullOrEmpty(kindName) ? node.nodeId : kindName + " · " + node.nodeId);
@@ -929,6 +934,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             title.style.marginRight = 6f;
             row.Add(title);
 
+            AddOffTag(row, node);
+            if (IsOff(node))
+                row.style.opacity = 0.45f;
+
             var kindLabel = new Label(kind != null ? kind.Label : node.roleKind);
             kindLabel.style.opacity = 0.55f;
             kindLabel.style.marginRight = 6f;
@@ -965,6 +974,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             element.Add(row);
         }
 
+        private static string Off(int count) => count > 0 ? $"  ⊘ {count} switched off." : "";
+
         private string ProblemsOf(StateTreeNodeAsset node)
         {
             var lines = new List<string>();
@@ -983,10 +994,50 @@ namespace PowerOfFire.DrawToPlay.Editor
             menu.AddItem(new GUIContent("Move Up"), false, () => MoveState(node, -1));
             menu.AddItem(new GUIContent("Move Down"), false, () => MoveState(node, 1));
             menu.AddSeparator(string.Empty);
+            if (StateTreeSchemaRules.MayDisable(m_Schema, node))
+                menu.AddItem(new GUIContent(node.disabled ? "Enable" : "Disable"), false, () => ToggleDisabled(node));
             menu.AddItem(new GUIContent("Show in Dev mode"), false, () => ShowInDevMode(node));
             menu.AddSeparator(string.Empty);
             menu.AddItem(new GUIContent("Remove"), false, () => RemoveState(node));
             menu.ShowAsContext();
+        }
+
+        internal void ToggleDisabled(StateTreeNodeAsset node)
+        {
+            if (m_Tree == null || node == null)
+                return;
+            StateTreeSchemaRules.SetDisabled(node, !node.disabled);
+            OnStructuralChanged();
+        }
+
+        /// <summary>Whether a run skips <paramref name="node"/>: it, or a state holding it, is switched off.</summary>
+        private bool IsOff(StateTreeNodeAsset node)
+        {
+            int guard = 0;
+            for (StateTreeNodeAsset at = node; at != null && guard++ < StateTreeEditorOps.DepthGuard;
+                 at = StateTreeEditorOps.FindParent(m_Tree, at))
+            {
+                if (at.disabled)
+                    return true;
+            }
+            return false;
+        }
+
+        private static void AddOffTag(VisualElement row, StateTreeNodeAsset node)
+        {
+            if (!node.disabled)
+                return;
+            var off = new Label("off");
+            off.tooltip = "Switched off: skipped when played — none of its tasks or children run. ⋮ → Enable.";
+            off.style.marginRight = 6f;
+            off.style.paddingLeft = 4f;
+            off.style.paddingRight = 4f;
+            off.style.borderTopLeftRadius = 3f;
+            off.style.borderTopRightRadius = 3f;
+            off.style.borderBottomLeftRadius = 3f;
+            off.style.borderBottomRightRadius = 3f;
+            off.style.backgroundColor = new Color(0.5f, 0.5f, 0.5f, 0.35f);
+            row.Add(off);
         }
 
         /// <summary>The FILTERED PALETTE: the kinds the rules allow under <paramref name="parent"/>
