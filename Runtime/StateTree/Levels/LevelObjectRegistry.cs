@@ -50,6 +50,31 @@ namespace PowerOfFire.DrawToPlay
                 as LevelObjectPresetDef;
         }
 
+        /// <summary>
+        /// What a row offers the mission tools — the facts it writes and the steps it fits: its own preset's, else
+        /// the catalogue's preset that speaks for the row's kind (<see cref="LevelObjectPresetDef.forItsKind"/>).
+        /// Never what the row runs: <see cref="Resolve"/> reads its own preset only.
+        /// </summary>
+        public LevelObjectPresetDef OffersOf(LevelObjectDef row)
+        {
+            LevelObjectPresetDef own = PresetOf(row);
+            if (own != null || row == null || row.kind == null || presets == null)
+                return own;
+            foreach (LevelObjectPresetDef preset in presets.entries)
+            {
+                if (preset != null && preset.forItsKind && preset.kind != null && SameKind(preset.kind, row.kind))
+                    return preset;
+            }
+            return null;
+        }
+
+        private static bool SameKind(StateTreeEntryRef<LevelObjectKindDef> a, StateTreeEntryRef<LevelObjectKindDef> b)
+        {
+            if (!string.IsNullOrEmpty(a.entryId) && !string.IsNullOrEmpty(b.entryId))
+                return a.entryId == b.entryId;
+            return !string.IsNullOrEmpty(a.entryName) && a.entryName == b.entryName;
+        }
+
         /// <summary>The row as it runs: dressed in its preset's core, or the row itself when it has none.</summary>
         public LevelObjectDef Resolve(LevelObjectDef row)
         {

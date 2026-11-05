@@ -61,6 +61,10 @@ namespace PowerOfFire.DrawToPlay
         [StepKind]
         public List<string> steps = new List<string>();
 
+        [Tooltip("Speaks for its kind: an object of this kind that names no preset writes these facts and fits these "
+            + "steps too, in the mission tools. It still runs as its own row. One preset per kind; a copy does not.")]
+        public bool forItsKind;
+
         public override string Describe() => description;
 
         /// <summary>Whether the parameter with this id is a setting — a value each object gives itself.</summary>

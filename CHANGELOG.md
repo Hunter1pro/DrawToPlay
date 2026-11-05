@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.17 - 2026-11-05
+- `LevelObjectPresetDef.forItsKind`: a preset that speaks for its kind. A row of that kind naming no preset offers
+  its facts and steps to the mission tools — "Use in mission…", a row dropped on the tree, the fact picker and its
+  validation (`LevelObjectRegistry.OffersOf`) — and still runs as its own row (`Resolve` is unchanged).
+
 ## 0.6.16 - 2026-11-05
 - A manifest row's parameter pickers read the catalogs of the row's tree (and its kind's def), not only the manifest's:
   a row-typed value such as a portal's destination lists its catalog's rows and resolves (no "not a row"); a pick

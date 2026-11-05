@@ -133,6 +133,10 @@ and one it never set follows the preset's.
 - **Use in mission…** lists the zones of the mission trees under this level, and the preset's steps that
   fit each; the step is added last, its object and the preset's primary fact filled in, and selected in
   the State Tree window. A row dragged from the list onto a zone or a step does the same there.
+- A preset may **speak for its kind** (`forItsKind`): a row of that kind naming no preset offers its facts and
+  steps to the mission tools too — "Use in mission…", the fact picker, validation — while it still runs as its
+  own row (`LevelObjectRegistry.OffersOf`). Rows placed before the preset (a portal's) get its steps without
+  being linked. One per kind; **New preset from this…** does not copy it.
 
 ### A new level, and its connections
 

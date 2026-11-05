@@ -1089,7 +1089,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             index = -1;
             fits = new List<StateTreeSchemaKind>();
             LevelObjectDef row = drag != null ? drag.row : null;
-            LevelObjectPresetDef preset = row != null ? drag.manifest.PresetOf(row) : null;
+            LevelObjectPresetDef preset = row != null ? drag.manifest.OffersOf(row) : null;
             if (!missionMode || onto == null || preset == null)
                 return false;
             StateTreeSchemaKind ontoKind = StateTreeSchemaRules.KindOf(m_Schema, onto);
