@@ -66,6 +66,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Edited?.Invoke();
 
             BuildHeader(kind);
+            BuildOff();
             BuildActions();
             BuildProblems(node);
             if (kind.isTemplate)
@@ -101,6 +102,18 @@ namespace PowerOfFire.DrawToPlay.Editor
                 List<StateTreeSchemaKind> under = m_Schema.AllowedUnder(kind.kind);
                 m_Root.Add(Note($"{kind.icon} {kind.Label} → " + (under.Count == 0 ? "(leaf)" : Names(under))
                     + (kind.childLimit > 0 ? $"  (at most {kind.childLimit})" : "")));
+            }
+
+            List<StateTreeNodeAsset> off = StateTreeSchemaRules.SwitchedOff(m_Tree.root);
+            if (off.Count > 0)
+            {
+                var heading = new Label($"Switched off ({off.Count})");
+                heading.style.unityFontStyleAndWeight = FontStyle.Bold;
+                heading.style.marginTop = 8f;
+                m_Root.Add(heading);
+                foreach (StateTreeNodeAsset node in off)
+                    m_Root.Add(new HelpBox((string.IsNullOrEmpty(node.displayName) ? node.nodeId : node.displayName)
+                        + ": skipped when played.", HelpBoxMessageType.Warning));
             }
 
             if (m_Problems.Count > 0)
@@ -146,6 +159,37 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             if (!string.IsNullOrEmpty(kind.help))
                 m_Root.Add(Note(kind.help));
+        }
+
+        /// <summary>Switched off — this node, or one holding it: what a run does with it, and the way back on.</summary>
+        private void BuildOff()
+        {
+            StateTreeNodeAsset off = null;
+            int guard = 0;
+            for (StateTreeNodeAsset at = m_Node; at != null && off == null && guard++ < StateTreeEditorOps.DepthGuard;
+                 at = StateTreeEditorOps.FindParent(m_Tree, at))
+            {
+                if (at.disabled)
+                    off = at;
+            }
+            if (off == null)
+                return;
+            string name = string.IsNullOrEmpty(off.displayName) ? off.nodeId : off.displayName;
+            var box = new HelpBox(off == m_Node
+                ? "Off — skipped when played: none of its tasks or children run, and the story goes on past it. "
+                + "What it would have written is not written."
+                : $"Off — {name}, which holds it, is switched off: it is skipped when played.", HelpBoxMessageType.Warning);
+            box.AddToClassList("dtp-mission-off");
+            if (off == m_Node && StateTreeSchemaRules.MayDisable(m_Schema, m_Node))
+            {
+                var enable = new Button(() =>
+                {
+                    StateTreeSchemaRules.SetDisabled(m_Node, false);
+                    m_Changed?.Invoke();
+                }) { text = "Enable" };
+                box.Add(enable);
+            }
+            m_Root.Add(box);
         }
 
         /// <summary>The game's buttons on this node (open its level, play from it); none when no action offers one.</summary>

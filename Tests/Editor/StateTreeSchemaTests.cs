@@ -355,6 +355,44 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void DisableInTheRowMenu_FlipsTheFlag_WithUndo_GreysWhatItHolds_AndIsListed()
+        {
+            StateTreeAsset tree = HostTree(k_Folder + "/Host.asset");
+            StateTreeNodeAsset level = StateTreeSchemaRules.AddNode(tree, m_Schema, tree.root, "level");
+            StateTreeNodeAsset zone = StateTreeSchemaRules.AddNode(tree, m_Schema, level, "zone");
+            StateTreeNodeAsset walk = StateTreeSchemaRules.AddNode(tree, m_Schema, zone, "walk");
+            StateTreeNodeAsset talk = StateTreeSchemaRules.AddNode(tree, m_Schema, zone, "talk");
+            StateTreeNodeAsset branch = StateTreeSchemaRules.AddNode(tree, m_Schema, talk, "branch");
+
+            Assert.IsFalse(StateTreeSchemaRules.MayDisable(m_Schema, level), "a level is not switched off");
+            Assert.IsFalse(StateTreeSchemaRules.MayDisable(m_Schema, tree.root));
+            Assert.IsTrue(StateTreeSchemaRules.MayDisable(m_Schema, zone));
+            Assert.IsTrue(StateTreeSchemaRules.MayDisable(m_Schema, walk));
+            Assert.IsTrue(StateTreeSchemaRules.MayDisable(m_Schema, branch));
+
+            StateTreeEditorWindow window = StateTreeEditorWindow.Open(tree);
+            Undo.IncrementCurrentGroup();
+            window.ToggleDisabled(zone);
+            Assert.IsTrue(zone.disabled);
+            CollectionAssert.AreEqual(new[] { zone }, StateTreeSchemaRules.SwitchedOff(tree.root));
+
+            var root = new ScrollView();
+            var inspector = new StateTreeMissionInspector(root, null, null, null, null);
+            inspector.Rebuild(tree, m_Schema, zone, StateTreeSchemaRules.Validate(tree, m_Schema));
+            Assert.IsNotNull(root.Q(className: "dtp-mission-off"), "the inspector says it is off");
+            inspector.Rebuild(tree, m_Schema, walk, StateTreeSchemaRules.Validate(tree, m_Schema));
+            Assert.IsNotNull(root.Q(className: "dtp-mission-off"), "and so does a step it holds");
+            Assert.IsEmpty(StateTreeSchemaRules.Validate(tree, m_Schema), "off is no problem: Play is not blocked");
+
+            Undo.PerformUndo();
+            Assert.IsFalse(zone.disabled, "undo switches it back on");
+            window.ToggleDisabled(branch);
+            window.ToggleDisabled(branch);
+            Assert.IsFalse(branch.disabled, "Enable is the same item");
+            Assert.IsEmpty(StateTreeSchemaRules.SwitchedOff(tree.root));
+        }
+
+        [Test]
         public void TheGizmos_DrawTheZonesCircle_AndALineToTheRowAStepTargets()
         {
             StateTreeAsset tree = HostTree(k_Folder + "/Host.asset");

@@ -34,6 +34,10 @@ namespace PowerOfFire.DrawToPlay
         /// sibling by default — children in order are a sequence — or Hold to stay put.</summary>
         public StateTreeCompletionFlow completionFlow = StateTreeCompletionFlow.NextSibling;
 
+        /// <summary>Switched off: a run that reaches it enters it done, runs none of its tasks and none of
+        /// its children, and goes on as a completed state (Hold aside) without asking its own transitions.</summary>
+        public bool disabled;
+
         /// <summary>
         /// This state's wires from the TREE's declared parameters into the serialized fields of the
         /// tasks and transition conditions above (M7i). A parameter otherwise only reaches a task

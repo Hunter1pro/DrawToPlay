@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.18 - 2026-11-06
+- A state can be switched off: `StateTreeNodeAsset.disabled` (default off, existing assets unchanged). The executor
+  enters it done, runs none of its tasks or children (a move or resume into a child lands on it), skips its own
+  transitions and goes on as completed (next sibling; a branch ends its question; Hold does not hold).
+- Mission mode: the row ⋮ menu has **Disable** / **Enable** for every kind but the schema's top kinds, with undo; the
+  row is greyed with an *off* tag, the inspector says so (and offers Enable), the overview lists them, the status line
+  counts them. Dev mode's inspector has a Disabled toggle. `StateTreeSchemaRules.MayDisable`, `SetDisabled`,
+  `SwitchedOff` for games' ship checks.
+
 ## 0.6.17 - 2026-11-05
 - `LevelObjectPresetDef.forItsKind`: a preset that speaks for its kind. A row of that kind naming no preset offers
   its facts and steps to the mission tools — "Use in mission…", a row dropped on the tree, the fact picker and its

@@ -262,11 +262,12 @@ namespace PowerOfFire.DrawToPlay
                 m_NodeIndex.TryGetValue(entryNodeId, out entry);
             if (entry != null && complete)
             {
+                entry = OffAbove(entry);
                 EnterComplete(entry);
                 activeNodeChanged?.Invoke("", entry.nodeId);
                 return;
             }
-            entry = ResolveEntryNode(entry != null ? entry : m_ActiveData.root);
+            entry = EntryOf(entry != null ? entry : m_ActiveData.root);
             EnterNode(entry);
             activeNodeChanged?.Invoke("", entry.nodeId);
         }
@@ -350,7 +351,7 @@ namespace PowerOfFire.DrawToPlay
             for (var node = m_CurrentNode; node != null; node = ParentOf(node))
             {
                 var interrupts = node.transitions;
-                for (int i = 0; i < interrupts.Count; i++)
+                for (int i = 0; !node.disabled && i < interrupts.Count; i++)
                 {
                     var tr = interrupts[i];
                     if (tr == null || !tr.checkWhileRunning)
@@ -362,7 +363,7 @@ namespace PowerOfFire.DrawToPlay
                     // its tasks forever. Skipped, so a film state can consume the fact that
                     // called it without racing the condition.
                     if (m_NodeIndex.TryGetValue(tr.targetNodeId ?? "", out var where)
-                        && ResolveEntryNode(where) == m_CurrentNode)
+                        && EntryOf(where) == m_CurrentNode)
                         continue;
                     TransitionTo(tr);
                     return;
@@ -407,6 +408,11 @@ namespace PowerOfFire.DrawToPlay
             // 3. Completion — when the state's policy says it is done (M22): declared
             // on-completion transitions first, exactly as before; when none fires, the
             // implicit flow (next sibling / bubble) unless the state Holds.
+            if (m_CurrentNode.disabled)
+            {
+                ImplicitAdvance();
+                return;
+            }
             if (IsComplete(m_CurrentNode))
             {
                 var transitions = m_CurrentNode.transitions;
@@ -432,6 +438,8 @@ namespace PowerOfFire.DrawToPlay
         /// an empty state that never completed would be a trap wearing a default.</summary>
         private bool IsComplete(StateTreeNodeAsset node)
         {
+            if (node.disabled)
+                return true;
             switch (node.completeWhen)
             {
                 case StateTreeCompleteWhen.Never:
@@ -532,7 +540,7 @@ namespace PowerOfFire.DrawToPlay
         private void AdvanceTo(StateTreeNodeAsset target)
         {
             string previousId = m_CurrentNode != null ? m_CurrentNode.nodeId : "";
-            target = ResolveEntryNode(target);
+            target = EntryOf(target);
             if (Refused(target))
                 return;
             nodeLeft?.Invoke(previousId);
@@ -563,6 +571,11 @@ namespace PowerOfFire.DrawToPlay
             // is not what this one is returning, and a route firing on stale values would be worse
             // than one firing on none.
             m_TaskOutputs.Clear();
+            if (node.disabled)
+            {
+                nodeEntered?.Invoke(node.nodeId);
+                return;
+            }
             // BEFORE the OnEnter loop, and that is the whole contract of a blackboard-sourced
             // binding: a task that acts in OnEnter — which is most of them — must act on the value
             // the transition just routed, not on the one the previous activation left in the field.
@@ -596,7 +609,7 @@ namespace PowerOfFire.DrawToPlay
                 || !m_NodeIndex.TryGetValue(targetNodeId, out var target))
                 return false;
             string previousId = m_CurrentNode != null ? m_CurrentNode.nodeId : "";
-            target = ResolveEntryNode(target);
+            target = EntryOf(target);
             if (Refused(target))
                 return false;
             nodeLeft?.Invoke(previousId);
@@ -615,7 +628,7 @@ namespace PowerOfFire.DrawToPlay
                 return;
             }
             string previousId = m_CurrentNode != null ? m_CurrentNode.nodeId : "";
-            target = ResolveEntryNode(target);
+            target = EntryOf(target);
             if (Refused(target))
                 return;
             // Routed BEFORE anything observes the state change: a nodeLeft listener, the tasks being
@@ -681,10 +694,29 @@ namespace PowerOfFire.DrawToPlay
         {
             var current = node;
             int guard = 0;
-            while (current != null && !RunsTasks(current) && current.children.Count > 0
+            while (current != null && !current.disabled && !RunsTasks(current) && current.children.Count > 0
                 && !HasCompletionTransition(current) && guard++ < 256)
                 current = current.children[0];
             return current;
+        }
+
+        /// <summary>The entry of <paramref name="node"/>, or the highest switched-off state holding it: what lies
+        /// under a disabled state never runs, however the run got there.</summary>
+        private StateTreeNodeAsset EntryOf(StateTreeNodeAsset node)
+        {
+            return OffAbove(ResolveEntryNode(node));
+        }
+
+        private StateTreeNodeAsset OffAbove(StateTreeNodeAsset node)
+        {
+            StateTreeNodeAsset found = node;
+            int guard = 0;
+            for (StateTreeNodeAsset at = node; at != null && guard++ < 256; at = ParentOf(at))
+            {
+                if (at.disabled)
+                    found = at;
+            }
+            return found;
         }
 
         /// <summary>Whether a state has a task to run — a group's data (<see cref="IStateTreeNodeContext"/>)
