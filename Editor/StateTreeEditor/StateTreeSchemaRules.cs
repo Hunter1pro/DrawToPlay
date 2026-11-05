@@ -360,7 +360,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>
         /// The facts a key parameter may name: those the preset of the object the step's matching placement
         /// parameter picks declares. Null — every key may be named, as before presets — when the key is about no
-        /// object, no object is picked, the object has no preset, or its preset declares no facts.
+        /// object, no object is picked, the object has no preset (and none speaks for its kind), or its preset declares
+        /// no facts.
         /// </summary>
         public static List<LevelObjectPresetFact> TargetFacts(StateTreeAsset tree, StateTreeSchema schema,
             StateTreeNodeAsset node, RunSubTreeTask run, StateTreeStepParameter keyParameter, out LevelObjectDef target,
@@ -377,7 +378,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (about == null || string.IsNullOrEmpty(about.stringValue))
                 return null;
             target = Placement(tree, schema, node, about.stringValue, out LevelObjectRegistry manifest);
-            preset = manifest != null ? manifest.PresetOf(target) : null;
+            preset = manifest != null ? manifest.OffersOf(target) : null;
             return preset != null && preset.facts.Count > 0 ? preset.facts : null;
         }
 

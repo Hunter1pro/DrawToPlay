@@ -12,7 +12,8 @@ namespace PowerOfFire.DrawToPlay.Tests
     /// placement it is a fact of; the fact picker offers only what the target's preset writes, named by meaning,
     /// and validation flags a fact it does not write (no preset: as before); "Use in mission" lists the places
     /// under the object's level and the steps that fit, and adds one filled in, as one undo step; a row dropped
-    /// on the State Tree window lands in or after what it is dropped on.
+    /// on the State Tree window lands in or after what it is dropped on. A row of a kind a preset speaks for, naming
+    /// no preset, offers that preset's facts and steps and runs as itself.
     /// </summary>
     [TestFixture]
     public sealed class StateTreeObjectStepsTests
@@ -237,6 +238,45 @@ namespace PowerOfFire.DrawToPlay.Tests
             StateTreeNodeAsset added = window.DropObject(m_Zone, 0, "walk", m_Manifest, Row("p.door"));
             Assert.AreSame(added, m_Zone.children[0]);
             Assert.AreEqual(added.nodeId, window.selectedNodeId);
+        }
+
+        // ---- a preset that speaks for its kind ---------------------------------------------
+
+        [Test]
+        public void ARowOfAKindAPresetSpeaksFor_OffersItsFactsAndSteps_ButRunsAsItself()
+        {
+            StateTreePickMenu.headless = true;
+            var portal = new LevelObjectPresetDef { id = "preset.portal", name = "Portal", forItsKind = true };
+            portal.kind.entryName = "portal";
+            portal.facts.Add(new LevelObjectPresetFact { key = new StateTreeKeyField("portal.used"), meaning = "Used" });
+            portal.steps.Add("use");
+            m_Presets.entries.Add(portal);
+            var way = new LevelObjectDef { id = "p.way", name = "hall.portal.lift" };
+            way.kind.entryName = "portal";
+            m_Manifest.entries.Add(way);
+            var oldDoor = new LevelObjectDef { id = "p.olddoor", name = "hall.door.back" };
+            oldDoor.kind.entryName = "door";
+            m_Manifest.entries.Add(oldDoor);
+
+            Assert.AreSame(portal, m_Manifest.OffersOf(way));
+            Assert.IsNull(m_Manifest.PresetOf(way), "it names no preset");
+            Assert.AreSame(way, m_Manifest.Resolve(way), "and runs as its own row");
+            Assert.IsNull(m_Manifest.OffersOf(oldDoor), "the door preset does not speak for its kind");
+            Assert.AreSame(m_Presets.entries[0], m_Manifest.OffersOf(Row("p.door")), "a row's own preset first");
+
+            var trees = new List<StateTreeAsset> { m_Tree };
+            CollectionAssert.AreEqual(new[] { "use" }, StateTreeObjectSteps.Uses(trees, m_Manifest, way)
+                .Where(use => use.place == m_Zone).Select(use => use.kind.kind).ToArray());
+            StateTreeNodeAsset step = StateTreeObjectSteps.Add(m_Tree, m_Schema, m_Zone, -1, "use", m_Manifest, way);
+            Assert.AreEqual("p.way", Parameter(step, "target").stringValue);
+            Assert.AreEqual("portal.used", Parameter(step, "fact").stringValue, "its kind's primary fact");
+
+            StateTreePickMenu menu = OpenFactPicker(step);
+            CollectionAssert.AreEqual(new[] { "portal.used" }, menu.items.Select(i => i.value).ToArray());
+            Set(step, "fact", "door.opened");
+            Assert.IsTrue(FactProblems().Any(problem => problem.Contains("Used (portal.used)")), "it does not write that");
+
+            Assert.IsFalse(portal.Copy("preset.portal.2", "Portal 2").forItsKind, "a copy does not speak for the kind too");
         }
 
         // ---- helpers ----------------------------------------------------------------------

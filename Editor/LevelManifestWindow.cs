@@ -1197,8 +1197,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Level.objects, row);
             var menu = new GenericMenu();
             if (uses.Count == 0)
-                menu.AddDisabledItem(new GUIContent(m_Level.objects.PresetOf(row) == null
-                    ? "No preset: only an object made from a preset knows its steps"
+                menu.AddDisabledItem(new GUIContent(m_Level.objects.OffersOf(row) == null
+                    ? "No preset: only an object made from a preset, or of a kind one speaks for, knows its steps"
                     : "No mission tree has a zone of this level that holds its steps"));
             foreach (StateTreeObjectSteps.Use use in uses)
             {

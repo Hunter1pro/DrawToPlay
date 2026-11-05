@@ -46,12 +46,12 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>
         /// Every step about <paramref name="row"/> its preset fits, in every place of <paramref name="trees"/> under
-        /// the row's level — the "Use in mission…" menu. Empty when the row has no preset.
+        /// the row's level — the "Use in mission…" menu. Empty when the row has no preset and none speaks for its kind.
         /// </summary>
         public static List<Use> Uses(IReadOnlyList<StateTreeAsset> trees, LevelObjectRegistry manifest, LevelObjectDef row)
         {
             var uses = new List<Use>();
-            LevelObjectPresetDef preset = manifest != null ? manifest.PresetOf(row) : null;
+            LevelObjectPresetDef preset = manifest != null ? manifest.OffersOf(row) : null;
             if (preset == null || trees == null)
                 return uses;
             var reaching = new List<StateTreeAsset>();
@@ -181,7 +181,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (about == null)
                 return;
             StateTreeSchemaRules.SetParameter(run, about.declaration, row.id, 0f, row.id, undo);
-            LevelObjectPresetFact fact = manifest != null ? manifest.PresetOf(row)?.primaryFact : null;
+            LevelObjectPresetFact fact = manifest != null ? manifest.OffersOf(row)?.primaryFact : null;
             if (fact != null)
             {
                 foreach (StateTreeStepParameter key in parameters)
