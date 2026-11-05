@@ -370,6 +370,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.IsTrue(StateTreeSchemaRules.MayDisable(m_Schema, walk));
             Assert.IsTrue(StateTreeSchemaRules.MayDisable(m_Schema, branch));
 
+            int problems = StateTreeSchemaRules.Validate(tree, m_Schema).Count;
             StateTreeEditorWindow window = StateTreeEditorWindow.Open(tree);
             Undo.IncrementCurrentGroup();
             window.ToggleDisabled(zone);
@@ -382,7 +383,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.IsNotNull(root.Q(className: "dtp-mission-off"), "the inspector says it is off");
             inspector.Rebuild(tree, m_Schema, walk, StateTreeSchemaRules.Validate(tree, m_Schema));
             Assert.IsNotNull(root.Q(className: "dtp-mission-off"), "and so does a step it holds");
-            Assert.IsEmpty(StateTreeSchemaRules.Validate(tree, m_Schema), "off is no problem: Play is not blocked");
+            Assert.AreEqual(problems, StateTreeSchemaRules.Validate(tree, m_Schema).Count, "off is no problem: Play is not blocked");
 
             Undo.PerformUndo();
             Assert.IsFalse(zone.disabled, "undo switches it back on");

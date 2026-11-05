@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.19 - 2026-11-06
+- The switch-off test compares the tree's problems before and after instead of asking for none (its unset walk is one).
+
 ## 0.6.18 - 2026-11-06
 - A state can be switched off: `StateTreeNodeAsset.disabled` (default off, existing assets unchanged). The executor
   enters it done, runs none of its tasks or children (a move or resume into a child lands on it), skips its own
