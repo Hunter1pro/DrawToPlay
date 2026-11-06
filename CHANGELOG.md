@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.21 - 2026-11-06
+- The State Tree window remembers, per user and per tree asset, which States rows are folded and which row is
+  selected — through a domain reload, a reopened window and an Editor restart, in Mission and Dev mode alike. Kept in
+  EditorPrefs under the tree's GUID (`StateTreeFolds`), never in the asset. A row never folded opens as before; a row
+  selected on purpose (added, opened from elsewhere) opens the rows holding it.
+
 ## 0.6.20 - 2026-11-06
 - Level visits: several Level nodes of an episode may name the same level. A level joins its first visit not
   finished, in tree order (`StateTreeContextHost.VisitToJoin`, `episodeVisit`, `CursorOfVisit`); where the run stood
