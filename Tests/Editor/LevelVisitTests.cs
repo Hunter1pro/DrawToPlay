@@ -110,6 +110,18 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void AVisitWithEverythingSwitchedOff_IsPassed_UntilItsTheLast()
+        {
+            StateTreeAsset tree = Story();
+            StateTreeContextHost episode = Host("Episode", StateTreeContextKind.Episode, tree);
+            Assert.AreEqual("hall", episode.VisitToJoin("Hall"));
+            tree.root.children[0].children[0].disabled = true;
+            Assert.AreEqual("hall2", episode.VisitToJoin("Hall"), "nothing on in the first visit: the story is at the second");
+            tree.root.children[2].children[0].disabled = true;
+            Assert.AreEqual("hall2", episode.VisitToJoin("Hall"), "nothing on anywhere: the last");
+        }
+
+        [Test]
         public void ASaveFromBeforeVisits_LoadsAsTheFirstVisit_AndAFinishedFirstVisitGoesOnToTheSecond()
         {
             StateTreeContextHost episode = Host("Episode", StateTreeContextKind.Episode, Story());

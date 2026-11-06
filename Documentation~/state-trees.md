@@ -186,7 +186,8 @@ tree can step aside for it and come back when it is gone.
 
 Several Level nodes may name the same level: each is a **visit**, its own part of the story in
 that scene. A level joins its first visit that is not finished, in tree order — finished when its
-part is over (it left, or rests at its end: `LevelVisits.IsOver`) or when a later visit has begun.
+part is over (it left, or rests at its end: `LevelVisits.IsOver`), when a later visit has begun, or —
+not begun — when nothing in it is switched on.
 Where the run stood is kept per visit; the save still carries one cursor per level, the latest
 visit's, whose node says which visit it is — so a save from before visits loads as the first
 visit. The level's board is the level's: facts carry over between visits.

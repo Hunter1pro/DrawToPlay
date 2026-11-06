@@ -138,6 +138,24 @@ namespace PowerOfFire.DrawToPlay
             return true;
         }
 
+        /// <summary>Whether the visit <paramref name="visitNode"/> holds nothing switched on: no child, or every child
+        /// switched off. Entered, its run would rest at once.</summary>
+        public static bool RunsNothing(StateTreeAsset episode, string visitNode)
+        {
+            var path = new List<StateTreeNodeAsset>();
+            if (episode == null || !PathTo(episode.root, visitNode, path, 0))
+                return false;
+            StateTreeNodeAsset visit = path[path.Count - 1];
+            if (visit.disabled)
+                return true;
+            foreach (StateTreeNodeAsset child in visit.children)
+            {
+                if (child != null && !child.disabled)
+                    return false;
+            }
+            return true;
+        }
+
         private static bool HasEdge(StateTreeNodeAsset node)
         {
             foreach (StateTreeTransition transition in node.transitions)

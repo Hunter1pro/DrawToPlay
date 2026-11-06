@@ -4,7 +4,8 @@
 - Level visits: several Level nodes of an episode may name the same level. A level joins its first visit not
   finished, in tree order (`StateTreeContextHost.VisitToJoin`, `episodeVisit`, `CursorOfVisit`); where the run stood
   is kept per visit; `CursorOf` / `RestoreCursor` still carry one cursor per level — the latest visit's — so a save
-  from before visits loads as the first visit. `LevelVisits.IsOver`: a visit that left, or rests at its end.
+  from before visits loads as the first visit. `LevelVisits.IsOver`: a visit that left, or rests at its end; a visit
+  not begun with nothing switched on in it is passed (`LevelVisits.RunsNothing`).
 - A visit's manifest: `LevelObjectRegistry.visitOf` and `hidden` — the visit's own rows on top of the level's, less
   the hidden ones (`CollectRows`, `Row`, `OwnerOf`). `IStateTreeLevelVisit` carries it on a Level context.
   `ManifestSpawner.Visit()` builds that set; `StateTreeContextHost.VisitManifest(level, restoring)` answers it.
