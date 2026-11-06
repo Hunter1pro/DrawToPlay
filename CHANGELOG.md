@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.24 - 2026-11-06
+- Level Manifest: a game's own section on a selected row (`ILevelRowSection`, registered with
+  `LevelRowSections.Register`) — a plain choice in place of the raw arguments it stands for. The arguments it owns
+  leave the row's Parameters list, and its warnings join the manifest's.
+
 ## 0.6.23 - 2026-11-06
 - Level Manifest, on a visit: "Replace in this visit" on a row under "From <level>" — the row is hidden on the visit
   and a copy of it pasted into the visit's manifest at the same pose with a fresh id, in one undo step, the copy

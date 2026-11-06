@@ -96,8 +96,15 @@ namespace PowerOfFire.DrawToPlay.Editor
                 // a warning here would shout at every new entry.
                 return;
             }
-            int count = declared != null ? declared.Count : 0;
+            // A game's section on a manifest row draws these itself, as a plain choice (LevelRowSections).
+            HashSet<string> owned = LevelRowSections.Owned(setProperty);
             List<int> stale = StaleRows(values, declared);
+            if (owned.Count > 0)
+            {
+                declared = declared.FindAll(p => p == null || !owned.Contains(p.id ?? ""));
+                stale.RemoveAll(i => owned.Contains(Element(values, i).FindPropertyRelative("id").stringValue));
+            }
+            int count = declared.Count;
             if (count == 0 && stale.Count == 0)
                 return;
 

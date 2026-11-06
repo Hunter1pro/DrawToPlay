@@ -367,6 +367,8 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         public const string WarningClass = "dtp-manifest-warning";
 
+        public const string RowSectionClass = "dtp-manifest-row-section";
+
         /// <summary>Where a point stands on the open scene's walkable area; a test answers for the scene.</summary>
         internal Func<Vector3, LevelWalkable.Standing> walkable = LevelWalkable.Of;
 
@@ -380,6 +382,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (m_Warnings == null || m_Level == null || Objects == null)
                 return;
             List<string> warnings = LevelManifestEdits.Warnings(Objects, Kinds(), walkable);
+            warnings.AddRange(LevelRowSections.Warnings(Objects));
             string shown = string.Join("\n", warnings);
             if (shown == m_WarningsShown)
                 return;
@@ -885,6 +888,14 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             if (preset != null)
                 box.Add(BuildPreset(row, preset));
+            foreach (ILevelRowSection section in LevelRowSections.Offered(Objects, row))
+            {
+                VisualElement drawn = section.Build(Objects, row, Rebuild);
+                if (drawn == null)
+                    continue;
+                drawn.AddToClassList(RowSectionClass);
+                box.Add(drawn);
+            }
 
             SerializedProperty nameProperty = element.FindPropertyRelative("name");
             if (nameProperty != null)
