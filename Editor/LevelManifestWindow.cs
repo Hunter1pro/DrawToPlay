@@ -25,7 +25,7 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// tags) is taller than a scene view can host, and any window can draw handles through
     /// <see cref="SceneView.duringSceneGui"/> — drag to move a row, click to select it.
     /// </summary>
-    internal sealed class LevelManifestWindow : EditorWindow
+    internal sealed partial class LevelManifestWindow : EditorWindow
     {
         [MenuItem("Tools/Draw To Play/Level Manifest")]
         public static void Open()
@@ -100,6 +100,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private void OnUndoRedo()
         {
             m_Links = null;
+            m_Visits = null;
             Rebuild();
         }
 
@@ -150,13 +151,13 @@ namespace PowerOfFire.DrawToPlay.Editor
             // A kind dropped anywhere on the list side is placed at the Scene view's centre.
             m_Scroll.RegisterCallback<DragUpdatedEvent>(_ =>
             {
-                if (LevelKindPalette.DraggedKind() != null && m_Level != null && m_Level.objects != null)
+                if (LevelKindPalette.DraggedKind() != null && m_Level != null && Objects != null)
                     DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
             });
             m_Scroll.RegisterCallback<DragPerformEvent>(_ =>
             {
                 string kind = LevelKindPalette.DraggedKind();
-                if (kind == null || m_Level == null || m_Level.objects == null)
+                if (kind == null || m_Level == null || Objects == null)
                     return;
                 DragAndDrop.AcceptDrag();
                 PlaceAtCentre(kind, LevelKindPalette.DraggedPreset());
@@ -232,7 +233,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_SelectedLine = null;
 
             ResolveLevel();
-            m_Palette?.Show(m_Level != null && m_Level.objects != null ? Kinds() : null, Presets());
+            m_Palette?.Show(m_Level != null && Objects != null && !VisitLacksManifest(out _) ? Kinds() : null, Presets());
             if (m_Level == null)
             {
                 var top = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.FlexStart } };
@@ -261,6 +262,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             header.Add(EditorGuides.HelpButton(false));
             m_Root.Add(header);
             m_Root.Add(BuildLinks());
+            m_Root.Add(BuildVisitRow());
 
             if (m_Level.objects == null)
             {
@@ -269,7 +271,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             }
 
-            m_Objects = new SerializedObject(m_Level.objects);
+            if (VisitLacksManifest(out VisualElement lacking))
+            {
+                m_Root.Add(lacking);
+                return;
+            }
+
+            m_Objects = new SerializedObject(Objects);
             m_Warnings = new VisualElement();
             m_WarningsShown = null;
             m_Root.Add(m_Warnings);
@@ -344,7 +352,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// connect.</summary>
         private Button MakeButton(string text, string tooltip)
         {
-            if (m_Level == null || m_Level.objects == null)
+            if (m_Level == null || Objects == null)
                 return null;
             var make = new Button(() => Connect()) { text = text, tooltip = tooltip };
             make.AddToClassList(ConnectClass);
@@ -365,9 +373,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// asked on every rebuild, edit and handle drag.</summary>
         private void RefreshWarnings()
         {
-            if (m_Warnings == null || m_Level == null || m_Level.objects == null)
+            if (m_Warnings == null || m_Level == null || Objects == null)
                 return;
-            List<string> warnings = LevelManifestEdits.Warnings(m_Level.objects, Kinds(), walkable);
+            List<string> warnings = LevelManifestEdits.Warnings(Objects, Kinds(), walkable);
             string shown = string.Join("\n", warnings);
             if (shown == m_WarningsShown)
                 return;
@@ -525,12 +533,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         private List<string> PlacementIds()
         {
             var ids = new List<string>();
-            if (m_Level == null || m_Level.objects == null)
+            if (m_Level == null || Objects == null)
                 return ids;
-            for (int i = 0; i < m_Level.objects.entries.Count; i++)
+            var rows = new List<LevelObjectDef>();
+            Objects.CollectRows(rows);
+            foreach (LevelObjectDef row in rows)
             {
-                LevelObjectDef row = m_Level.objects.entries[i];
-                if (row != null && !string.IsNullOrEmpty(row.id))
+                if (!string.IsNullOrEmpty(row.id))
                     ids.Add(row.id);
             }
             return ids;
@@ -627,11 +636,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             var list = new VisualElement { style = { marginTop = 6f, marginBottom = 6f } };
             list.Add(StateTreeInspectorLook.Section("Placements"));
-            List<LevelObjectDef> rows = m_Level.objects.entries;
+            List<LevelObjectDef> rows = Objects.entries;
             if (rows.Count == 0)
             {
                 list.Add(Hint("No placements yet. Drag a kind from the left into the Scene view, "
                     + "or click it to place one at the view's centre."));
+                AddVisitBase(list);
                 return list;
             }
 
@@ -679,7 +689,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     select.style.flexGrow = 1f;
                     select.style.flexShrink = 1f;
                     select.style.unityTextAlign = TextAnchor.MiddleLeft;
-                    LevelObjectPresetDef linked = m_Level.objects.PresetOf(def);
+                    LevelObjectPresetDef linked = Objects.PresetOf(def);
                     if (linked != null)
                         select.tooltip += "\nMade from the preset " + linked.name;
                     select.tooltip += "\nDrag onto a mission tree's zone or step to use it there.";
@@ -701,6 +711,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Groups.Add((fold, kind, lines));
                 list.Add(fold);
             }
+            AddVisitBase(list);
             ApplyFilter();
 
             if (m_SelectedLine != null)
@@ -734,9 +745,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// every group with a match shows open (its remembered fold is left alone).</summary>
         private void ApplyFilter()
         {
-            if (m_Level == null || m_Level.objects == null)
+            if (m_Level == null || Objects == null)
                 return;
-            List<LevelObjectDef> rows = m_Level.objects.entries;
+            List<LevelObjectDef> rows = Objects.entries;
             bool searching = !string.IsNullOrWhiteSpace(m_RowFilter);
             foreach ((Foldout fold, string kind, List<(VisualElement line, int index)> lines) in m_Groups)
             {
@@ -752,6 +763,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 fold.style.display = shown > 0 ? DisplayStyle.Flex : DisplayStyle.None;
                 fold.SetValueWithoutNotify(searching ? shown > 0 : !IsFolded(kind));
             }
+            FilterVisitBase();
         }
 
         /// <summary>Whether a kind's group is folded shut in this level — per user, in EditorPrefs,
@@ -795,7 +807,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// dropdowns come free, so this panel never duplicates them.</summary>
         private VisualElement BuildSelected()
         {
-            List<LevelObjectDef> rows = m_Level.objects.entries;
+            List<LevelObjectDef> rows = Objects.entries;
             if (m_Selected < 0 || m_Selected >= rows.Count || rows[m_Selected] == null)
             {
                 var none = new VisualElement();
@@ -817,7 +829,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             // themselves against whatever the row picks — one checkbox per declared knob, per
             // declared attribute — so reusing a def and specialising one are the same gesture.
             LevelObjectDef row = rows[m_Selected];
-            LevelObjectPresetDef preset = m_Level.objects.PresetOf(row);
+            LevelObjectPresetDef preset = Objects.PresetOf(row);
             string prefix = LevelPresetEdits.NamePrefix(LevelKey(), kindName);
             bool prefixed = !string.IsNullOrEmpty(kindName) && (row.name ?? "").StartsWith(prefix, StringComparison.Ordinal)
                 && row.name.Length > prefix.Length;
@@ -968,7 +980,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// the name field does.</summary>
         internal string RenameSelected(string typed)
         {
-            LevelObjectDef row = m_Selected >= 0 && m_Selected < m_Level.objects.entries.Count ? m_Level.objects.entries[m_Selected] : null;
+            LevelObjectDef row = m_Selected >= 0 && m_Selected < Objects.entries.Count ? Objects.entries[m_Selected] : null;
             if (row == null)
                 return null;
             SerializedProperty name = m_Objects.FindProperty("entries").GetArrayElementAtIndex(m_Selected).FindPropertyRelative("name");
@@ -991,7 +1003,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             var fork = new VisualElement { style = { flexDirection = FlexDirection.Row, display = DisplayStyle.None, marginTop = 2f } };
             fork.AddToClassList(ForkClass);
-            LevelObjectPresetDef preset = m_Level.objects.PresetOf(row);
+            LevelObjectPresetDef preset = Objects.PresetOf(row);
             var name = new TextField("New preset") { value = preset != null ? preset.name : row.kind.entryName };
             name.style.flexGrow = 1f;
             name.style.flexShrink = 1f;
@@ -1020,7 +1032,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void MakePreset(LevelObjectDef row, string name)
         {
-            if (LevelPresetEdits.Fork(m_Level.objects, row, name) != null)
+            if (LevelPresetEdits.Fork(Objects, row, name) != null)
                 Rebuild();
         }
 
@@ -1037,8 +1049,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             head.Add(StateTreeInspectorLook.SmallButton("Edit preset", "Select the catalogue: an edit to the preset "
                 + "changes every object made from it.", () =>
             {
-                Selection.activeObject = m_Level.objects.presets;
-                EditorGUIUtility.PingObject(m_Level.objects.presets);
+                Selection.activeObject = Objects.presets;
+                EditorGUIUtility.PingObject(Objects.presets);
             }));
             box.Add(head);
 
@@ -1127,7 +1139,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     // (a row of a catalog its Data lists, a placement in the level a sibling setting names).
                     VisualElement declared = GraphTaskParameterPicks.For(label, declaration,
                         preset.tree != null ? preset.tree.parameters : null,
-                        new UnityEngine.Object[] { preset.tree, m_Level.objects },
+                        new UnityEngine.Object[] { preset.tree, Objects },
                         d => { GraphTaskParameterOverride v = LevelPresetEdits.Setting(preset, row, d, out _); return (v.stringValue ?? "", v.entryId ?? ""); },
                         preset.kind != null ? preset.kind.entryName : "",
                         (text, entryId) => SetSetting(row, declaration, text, 0f, entryId, ""));
@@ -1154,7 +1166,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (own != null)
                 line.Add(StateTreeInspectorLook.SmallButton("↺", "Follow the preset's value again.", () =>
                 {
-                    LevelPresetEdits.ResetSetting(m_Level.objects, row, declaration);
+                    LevelPresetEdits.ResetSetting(Objects, row, declaration);
                     Rebuild();
                 }));
             return line;
@@ -1163,7 +1175,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private void SetSetting(LevelObjectDef row, GraphTaskParameter declaration, string text, float number,
             string entryId, string keyId)
         {
-            LevelPresetEdits.SetSetting(m_Level.objects, row, declaration, text, number, entryId, keyId);
+            LevelPresetEdits.SetSetting(Objects, row, declaration, text, number, entryId, keyId);
             Rebuild();
         }
 
@@ -1184,7 +1196,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (!pressed || ((Vector2)move.position - pressedAt).sqrMagnitude < 36f)
                     return;
                 pressed = false;
-                LevelObjectDrag.Start(m_Level.objects, row);
+                LevelObjectDrag.Start(Objects, row);
             });
             line.RegisterCallback<PointerUpEvent>(_ => pressed = false, TrickleDown.TrickleDown);
         }
@@ -1194,10 +1206,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         private void UseInMission(LevelObjectDef row, Rect at)
         {
             List<StateTreeObjectSteps.Use> uses = StateTreeObjectSteps.Uses(StateTreeObjectSteps.MissionTrees(),
-                m_Level.objects, row);
+                Objects, row);
             var menu = new GenericMenu();
             if (uses.Count == 0)
-                menu.AddDisabledItem(new GUIContent(m_Level.objects.OffersOf(row) == null
+                menu.AddDisabledItem(new GUIContent(Objects.OffersOf(row) == null
                     ? "No preset: only an object made from a preset, or of a kind one speaks for, knows its steps"
                     : "No mission tree has a zone of this level that holds its steps"));
             foreach (StateTreeObjectSteps.Use use in uses)
@@ -1206,7 +1218,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 menu.AddItem(new GUIContent(use.path), false, () =>
                 {
                     StateTreeNodeAsset node = StateTreeObjectSteps.Add(picked.tree, picked.schema, picked.place, -1,
-                        picked.kind.kind, m_Level.objects, row);
+                        picked.kind.kind, Objects, row);
                     if (node != null)
                         StateTreeEditorWindow.ShowAdded(picked.tree, node);
                 });
@@ -1216,7 +1228,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private LevelObjectPresetRegistry Presets()
         {
-            return m_Level != null && m_Level.objects != null ? m_Level.objects.presets : null;
+            return m_Level != null && Objects != null ? Objects.presets : null;
         }
 
         // ---- edits -----------------------------------------------------------------------
@@ -1226,10 +1238,10 @@ namespace PowerOfFire.DrawToPlay.Editor
         internal LevelObjectDef PlaceAtCentre(string kindName, string presetId = null)
         {
             Follow();
-            if (m_Level == null || m_Level.objects == null)
+            if (m_Level == null || Objects == null)
                 return null;
-            Vector2 centre = StateTreeRowCreate.SceneCentre(m_Level.objects);
-            return Place(kindName, m_Level.objects.ToWorld(centre), false, presetId);
+            Vector2 centre = StateTreeRowCreate.SceneCentre(Objects);
+            return Place(kindName, Objects.ToWorld(centre), false, presetId);
         }
 
         /// <summary>A row of <paramref name="kindName"/> (made from the preset <paramref name="presetId"/>, when
@@ -1240,13 +1252,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             // Never into a level whose scene is not the open one: a drop lands in the level it is dropped on.
             Follow();
-            if (m_Level == null || m_Level.objects == null || string.IsNullOrEmpty(kindName))
+            if (m_Level == null || Objects == null || string.IsNullOrEmpty(kindName) || VisitLacksManifest(out _))
                 return null;
             LevelObjectPresetDef preset = Presets() != null && !string.IsNullOrEmpty(presetId)
                 ? Presets().FindById(presetId) as LevelObjectPresetDef
                 : null;
             int group = StateTreeEditorOps.BeginUndoGroup("Place " + kindName);
-            LevelObjectDef row = LevelManifestEdits.PlaceRow(m_Level.objects, Kinds(), kindName,
+            LevelObjectDef row = LevelManifestEdits.PlaceRow(Objects, Kinds(), kindName,
                 LevelKey(), world, onSurface, preset, out bool moved);
             if (row == null)
                 return null;
@@ -1259,7 +1271,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 m_Links = null;
                 Debug.Log("[Level Manifest] " + m_Level.name + ": " + string.Join("; ", made));
             }
-            m_Selected = m_Level.objects.entries.IndexOf(row);
+            m_Selected = Objects.entries.IndexOf(row);
             SetFolded(kindName, false);
             m_FocusName = !moved;
             Rebuild();
@@ -1268,9 +1280,9 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void RemoveRow(int index)
         {
-            Undo.RecordObject(m_Level.objects, "Remove Level Object");
-            m_Level.objects.entries.RemoveAt(index);
-            EditorUtility.SetDirty(m_Level.objects);
+            Undo.RecordObject(Objects, "Remove Level Object");
+            Objects.entries.RemoveAt(index);
+            EditorUtility.SetDirty(Objects);
             if (index == m_Selected)
                 m_Selected = -1;
             else if (index < m_Selected)
@@ -1467,16 +1479,17 @@ namespace PowerOfFire.DrawToPlay.Editor
             EventType type = Event.current.type;
             if (type == EventType.Layout || type == EventType.DragUpdated || type == EventType.DragPerform)
                 Follow();
-            if (m_Level == null || m_Level.objects == null)
+            if (m_Level == null || Objects == null)
                 return;
 
-            LevelObjectRegistry manifest = m_Level.objects;
+            LevelObjectRegistry manifest = Objects;
             if (HandleKindDrop(view, manifest))
                 return;
             List<LevelObjectDef> rows = manifest.entries;
             Plane[] frustum = Event.current.type == EventType.Repaint && view.camera != null
                 ? GeometryUtility.CalculateFrustumPlanes(view.camera)
                 : null;
+            DrawVisitBase(frustum);
             for (int i = 0; i < rows.Count; i++)
             {
                 LevelObjectDef def = rows[i];
@@ -1657,6 +1670,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             m_ResolvedFor = null;
             m_Links = null;
+            m_Visits = null;
             m_Kinds = null;
             m_KindsSearched = false;
             m_LevelKey = null;

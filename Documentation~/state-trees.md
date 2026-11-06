@@ -182,6 +182,27 @@ that had finished is entered without running its tasks again (`StartTree(node, c
 While a step runs, the level's board holds `episode:step` = the step's kind, so a level's own
 tree can step aside for it and come back when it is gone.
 
+### Visiting a level again
+
+Several Level nodes may name the same level: each is a **visit**, its own part of the story in
+that scene. A level joins its first visit that is not finished, in tree order — finished when its
+part is over (it left, or rests at its end: `LevelVisits.IsOver`) or when a later visit has begun.
+Where the run stood is kept per visit; the save still carries one cursor per level, the latest
+visit's, whose node says which visit it is — so a save from before visits loads as the first
+visit. The level's board is the level's: facts carry over between visits.
+
+A visit's Level context may carry its own manifest (`IStateTreeLevelVisit.visitManifest`): a
+`LevelObjectRegistry` whose `visitOf` is the level's manifest, holding only what the visit adds,
+and `hidden` — the level's rows gone on this visit. None is the plain level. What stands on the
+visit is the level's rows less the hidden, then its own (`CollectRows`, `Row`): the spawner builds
+that (`ManifestSpawner.Visit`, which a game answers from its episode —
+`StateTreeContextHost.VisitManifest(level, restoring)` names the visit before the level's restore
+has run), and a step under the visit picks from it. A step about a row its visit hides is on the
+problem list. The Level Manifest picks the visit beside the level's name (and the Scene view's
+**Level Visit** overlay): the visit's own rows as usual, the level's dimmed, the hidden crossed
+out — right-click one to hide or show it on this visit — and **+ New visit** makes a visit's
+manifest and asks the game (`ILevelSetup.AddVisit`) for its Level node.
+
 ## A parameter is a reference — never a string
 
 A string field of a task or condition names something, so it is picked: `[PlacementId]`,

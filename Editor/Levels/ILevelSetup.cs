@@ -41,6 +41,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>Makes what is missing of the level's episode entry and its tree, and nothing that exists; a line
         /// per thing made.</summary>
         List<string> Connect(LevelContent level);
+
+        /// <summary>A Level node for a new VISIT of the level, named <paramref name="label"/> and carrying
+        /// <paramref name="visit"/> (<see cref="IStateTreeLevelVisit"/>), in its episode after what is there; one undo
+        /// step. Null when the game makes no visits.</summary>
+        StateTreeNodeAsset AddVisit(LevelContent level, LevelObjectRegistry visit, string label) => null;
     }
 
     /// <summary>A level's two connections: its Level node in the episode, and the tree it runs.</summary>

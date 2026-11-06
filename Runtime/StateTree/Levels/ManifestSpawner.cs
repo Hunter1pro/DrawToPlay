@@ -16,6 +16,9 @@ namespace PowerOfFire.DrawToPlay
     /// THE LEVEL'S OWN TREE IS HELD THE SAME WAY. A level host on this object with
     /// <c>autoStart</c> off is started with the bodies, on frame two — its first state asks
     /// about the citizens the rows just became, and cannot before they are adopted.
+    ///
+    /// A level VISITED again builds what stands on that visit (<see cref="Visit"/>): its rows less the
+    /// ones the visit hides, then the visit's own.
     /// </summary>
     [AddComponentMenu("Draw To Play/Levels/Manifest Spawner")]
     public class ManifestSpawner : MonoBehaviour
@@ -48,12 +51,14 @@ namespace PowerOfFire.DrawToPlay
                 return;
             }
             OnBeforeRows();
-            List<LevelObjectDef> rows = level.objects.entries;
+            visit = Visit();
+            var rows = new List<LevelObjectDef>();
+            LevelVisits.Rows(level.objects, visit, rows);
             var built = new HashSet<string>();
             for (int i = 0; i < rows.Count; i++)
             {
                 // A row made from a preset runs as the preset's core with its own settings.
-                LevelObjectDef row = level.objects.Resolve(rows[i]);
+                LevelObjectDef row = (visit != null && visit.isVisit ? visit.OwnerOf(rows[i]) : level.objects).Resolve(rows[i]);
                 if (row != null && (!ShouldSpawn(row) || !FirstOfItsKind(row, built)))
                     continue;
                 Spawn(row);
@@ -82,6 +87,13 @@ namespace PowerOfFire.DrawToPlay
                 + "it is not built. Remove it in the Level Manifest.", this);
             return false;
         }
+
+        /// <summary>The visit being built — what it adds and hides — or null for the plain level.</summary>
+        protected LevelObjectRegistry visit { get; private set; }
+
+        /// <summary>Once, after <see cref="OnBeforeRows"/>: the visit of this level the story is on, or null for the
+        /// plain level.</summary>
+        protected virtual LevelObjectRegistry Visit() => null;
 
         /// <summary>Once, before the rows — a place to find the services the answers need.</summary>
         protected virtual void OnBeforeRows()

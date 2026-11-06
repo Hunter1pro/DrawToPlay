@@ -16,7 +16,7 @@ namespace PowerOfFire.DrawToPlay
     /// </summary>
     [CreateAssetMenu(menuName = "Draw To Play/Levels/Level Objects",
         fileName = "LevelObjects")]
-    public sealed class LevelObjectRegistry : StateTreeRegistry<LevelObjectDef>, IStateTreeNeighbourhood
+    public sealed partial class LevelObjectRegistry : StateTreeRegistry<LevelObjectDef>, IStateTreeNeighbourhood
     {
         /// <summary>
         /// The tag vocabularies these placements may use — the project's global registry and

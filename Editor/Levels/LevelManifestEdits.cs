@@ -169,6 +169,14 @@ namespace PowerOfFire.DrawToPlay.Editor
                     taken.Add(row.id ?? "");
                     taken.Add(row.name ?? "");
                 }
+                // A visit's row must not shadow one of the level's, hidden or not.
+                foreach (LevelObjectDef row in manifest.isVisit ? manifest.visitOf.entries : new List<LevelObjectDef>())
+                {
+                    if (row == null)
+                        continue;
+                    taken.Add(row.id ?? "");
+                    taken.Add(row.name ?? "");
+                }
             }
             int n = 1;
             while (taken.Contains(prefix + n))

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.20 - 2026-11-06
+- Level visits: several Level nodes of an episode may name the same level. A level joins its first visit not
+  finished, in tree order (`StateTreeContextHost.VisitToJoin`, `episodeVisit`, `CursorOfVisit`); where the run stood
+  is kept per visit; `CursorOf` / `RestoreCursor` still carry one cursor per level — the latest visit's — so a save
+  from before visits loads as the first visit. `LevelVisits.IsOver`: a visit that left, or rests at its end.
+- A visit's manifest: `LevelObjectRegistry.visitOf` and `hidden` — the visit's own rows on top of the level's, less
+  the hidden ones (`CollectRows`, `Row`, `OwnerOf`). `IStateTreeLevelVisit` carries it on a Level context.
+  `ManifestSpawner.Visit()` builds that set; `StateTreeContextHost.VisitManifest(level, restoring)` answers it.
+- Steps under a visit pick from its set; a visit with no manifest is the plain level; a step about a row its visit
+  hides is a problem. The Level Manifest picks the visit (beside the level's name, and the Scene view's Level Visit
+  overlay): the level's rows dimmed, the hidden crossed out, right-click hides or shows one (undo), the palette adds
+  to the visit, "+ New visit" makes its manifest and asks `ILevelSetup.AddVisit` for its Level node.
+
 ## 0.6.19 - 2026-11-06
 - The switch-off test compares the tree's problems before and after instead of asking for none (its unset walk is one).
 
