@@ -57,6 +57,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 window.m_Visits = null;
                 window.m_Selected = -1;
+                window.m_Picked.Clear();
                 window.Rebuild();
             }
         }
@@ -156,7 +157,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 string name = string.IsNullOrEmpty(row.name) ? "(unnamed)" : row.name;
                 var line = new Label((hidden ? "<s>" + name + "</s>" : name) + "   " + (hidden ? "hidden here" : "from " + from))
                 {
-                    tooltip = row.id + "\nRight-click: " + (hidden ? "show it" : "hide it") + " on this visit.",
+                    tooltip = row.id + "\nRight-click: " + (hidden ? "show it" : "hide it") + " on this visit, or copy it to paste "
+                        + "into the visit and change it there.",
                     userData = row.id
                 };
                 line.AddToClassList(hidden ? BaseHiddenClass : BaseRowClass);
@@ -165,12 +167,17 @@ namespace PowerOfFire.DrawToPlay.Editor
                 line.style.paddingTop = 2f;
                 line.style.paddingBottom = 2f;
                 string id = row.id;
+                LevelObjectDef copied = row;
                 line.AddManipulator(new ContextualMenuManipulator(menu =>
                 {
                     menu.menu.AppendAction("Hide in this visit", _ => SetHiddenInVisit(id, true),
                         hidden ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
                     menu.menu.AppendAction("Show in this visit", _ => SetHiddenInVisit(id, false),
                         hidden ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+                    menu.menu.AppendSeparator();
+                    menu.menu.AppendAction("Copy", _ => CopyBaseRow(copied));
+                    menu.menu.AppendAction("Paste", _ => Paste(),
+                        LevelManifestClipboard.HasRows() ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
                 }));
                 fold.Add(line);
                 m_BaseLines.Add((line, row));
