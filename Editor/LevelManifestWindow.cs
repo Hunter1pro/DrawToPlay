@@ -138,6 +138,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 viewDataKey = "PowerOfFire.DrawToPlay.LevelManifest.Split"
             };
             rootVisualElement.Add(split);
+            RegisterCommands(rootVisualElement);
 
             var paletteScroll = new ScrollView(ScrollViewMode.Vertical);
             paletteScroll.style.minWidth = 72f;
@@ -636,6 +637,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             var list = new VisualElement { style = { marginTop = 6f, marginBottom = 6f } };
             list.Add(StateTreeInspectorLook.Section("Placements"));
+            AddNote(list);
+            ListMenu(list);
+            SanitizePicked();
             List<LevelObjectDef> rows = Objects.entries;
             if (rows.Count == 0)
             {
@@ -681,7 +685,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 {
                     LevelObjectDef def = rows[index];
                     var line = new VisualElement { style = { flexDirection = FlexDirection.Row } };
-                    var select = new Button(() => Select(index))
+                    var select = new Button
                     {
                         text = string.IsNullOrEmpty(def.name) ? "(unnamed)" : def.name,
                         tooltip = def.id + (string.IsNullOrEmpty(def.entryName) ? "" : "\n" + def.entryName)
@@ -689,6 +693,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     select.style.flexGrow = 1f;
                     select.style.flexShrink = 1f;
                     select.style.unityTextAlign = TextAnchor.MiddleLeft;
+                    select.clickable.clickedWithEventInfo += clicked => Pick(index, ModifiersOf(clicked));
                     LevelObjectPresetDef linked = Objects.PresetOf(def);
                     if (linked != null)
                         select.tooltip += "\nMade from the preset " + linked.name;
@@ -699,6 +704,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                         select.style.unityFontStyleAndWeight = FontStyle.Bold;
                         m_SelectedLine = select;
                     }
+                    if (IsPicked(index))
+                        DressPicked(line);
+                    RowMenu(line, index);
                     line.Add(select);
 
                     var remove = new Button(() => RemoveRow(index)) { text = "✕", tooltip = "Remove this placement." };
@@ -833,6 +841,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             string prefix = LevelPresetEdits.NamePrefix(LevelKey(), kindName);
             bool prefixed = !string.IsNullOrEmpty(kindName) && (row.name ?? "").StartsWith(prefix, StringComparison.Ordinal)
                 && row.name.Length > prefix.Length;
+            if (PickedRows().Count > 1)
+                box.Add(Hint(PickedRows().Count + " objects picked; this is the last. Ctrl/Cmd+C copies them, "
+                    + "Ctrl/Cmd+D duplicates them."));
             box.Add(BuildActions(row));
             if (prefixed)
                 box.Add(BuildName(element, prefix));
@@ -1272,6 +1283,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 Debug.Log("[Level Manifest] " + m_Level.name + ": " + string.Join("; ", made));
             }
             m_Selected = Objects.entries.IndexOf(row);
+            ClearPicked();
             SetFolded(kindName, false);
             m_FocusName = !moved;
             Rebuild();
@@ -1280,6 +1292,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         private void RemoveRow(int index)
         {
+            ClearPicked();
             Undo.RecordObject(Objects, "Remove Level Object");
             Objects.entries.RemoveAt(index);
             EditorUtility.SetDirty(Objects);
@@ -1290,11 +1303,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             Rebuild();
         }
 
-        private void Select(int index)
+        private static EventModifiers ModifiersOf(EventBase clicked) => clicked switch
         {
-            m_Selected = index;
-            Rebuild();
-        }
+            IPointerEvent pointer => pointer.modifiers,
+            IMouseEvent mouse => mouse.modifiers,
+            _ => EventModifiers.None
+        };
 
         private void CreateObjectsRegistry()
         {
@@ -1483,6 +1497,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
 
             LevelObjectRegistry manifest = Objects;
+            SceneCommands();
             if (HandleKindDrop(view, manifest))
                 return;
             List<LevelObjectDef> rows = manifest.entries;
@@ -1490,6 +1505,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 ? GeometryUtility.CalculateFrustumPlanes(view.camera)
                 : null;
             DrawVisitBase(frustum);
+            DrawPicked(manifest);
             for (int i = 0; i < rows.Count; i++)
             {
                 LevelObjectDef def = rows[i];
@@ -1510,10 +1526,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     : new Color(0.45f, 0.8f, 1f, 0.85f)))
                 {
                     if (Handles.Button(world, Quaternion.identity, size, size, Handles.DotHandleCap))
-                    {
-                        m_Selected = i;
-                        Rebuild();
-                    }
+                        Pick(i, Event.current.modifiers);
                     Handles.Label(world + new Vector3(size * 1.4f, size * 1.2f, 0f), def.name);
                 }
 
@@ -1640,6 +1653,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_LevelKey = null;
             m_Links = null;
             m_Selected = -1;
+            ClearPicked();
             return true;
         }
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.22 - 2026-11-06
+- Level Manifest: Copy / Paste / Duplicate of rows. Several rows are picked (click, Shift-click a range, Ctrl/Cmd-click
+  one more; the Scene view's handles too), then Ctrl/Cmd+C, V, D — the Editor's own commands, in the window or the
+  Scene view while no GameObject is selected — or the row's right-click; a level's row shown on a visit copies from its
+  right-click. The copy is the rows' data on the system clipboard (`LevelManifestClipboard`), so it survives a scene
+  switch. A paste lands in the manifest or visit picked: a fresh id after the palette's numbering
+  (`hall.looks.pink-bed` → `hall.looks.pink-bed.1`, another level's key swapped in, never shadowing the level's row
+  on a visit), the name following it; kind, preset, entry, attributes, arguments, tags, height, facing and group
+  kept; offset a little in its own manifest, the exact pose elsewhere; one undo step; the new rows picked. A
+  one-per-level kind the target holds, or a kind its catalog does not know, is refused with an inline note. Duplicate
+  pastes the picked rows beside themselves without touching the clipboard.
+
 ## 0.6.21 - 2026-11-06
 - The State Tree window remembers, per user and per tree asset, which States rows are folded and which row is
   selected — through a domain reload, a reopened window and an Editor restart, in Mission and Dev mode alike. Kept in

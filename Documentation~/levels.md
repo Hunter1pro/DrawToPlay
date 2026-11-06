@@ -132,6 +132,10 @@ and one it never set follows the preset's.
   steps to the mission tools too — "Use in mission…", the fact picker, validation — while it still runs as its
   own row (`LevelObjectRegistry.OffersOf`). Rows placed before the preset (a portal's) get its steps without
   being linked. One per kind; **New preset from this…** does not copy it.
+- **Copy / Paste / Duplicate** rows: pick them (click, Shift-click a range, Ctrl/Cmd-click one more, in the list or
+  on the Scene view's handles), then Ctrl/Cmd+C, V, D or right-click. A paste is a copy into the manifest or visit picked
+  — a fresh id (`hall.looks.pink-bed.1`), everything else kept, offset a little in its own manifest, the same pose
+  elsewhere; one undo step; a one-per-level kind the target holds is refused inline (`LevelManifestClipboard`).
 
 ### A new level, and its connections
 
