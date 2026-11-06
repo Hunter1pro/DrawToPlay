@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using NUnit.Framework;
 using PowerOfFire.DrawToPlay.Editor;
 using UnityEditor;
@@ -156,19 +155,20 @@ namespace PowerOfFire.DrawToPlay.Tests
         // ---- what stands on a visit -------------------------------------------------------------
 
         [Test]
-        public void ASpawnedVisit_IsTheLevelLessTheHidden_ThenItsOwn()
+        public void AVisitsRows_AreTheLevelLessTheHidden_ThenItsOwn()
         {
-            var kinds = Make<LevelObjectKindRegistry>();
-            kinds.entries.Add(Kind("prop"));
             LevelObjectRegistry level = Manifest("bed", "find.18", "find.19", "lamp");
             LevelObjectRegistry visit = Visit(level, "bed.tidy", "find.new");
             visit.hidden.AddRange(new[] { "bed", "find.18", "find.19" });
-            var content = Make<LevelContent>();
-            content.objects = level;
 
-            CollectionAssert.AreEqual(new[] { "lamp", "bed.tidy", "find.new" }, Built(content, kinds, visit));
-            CollectionAssert.AreEqual(new[] { "bed", "find.18", "find.19", "lamp" }, Built(content, kinds, null),
+            CollectionAssert.AreEqual(new[] { "lamp", "bed.tidy", "find.new" }, Ids(level, visit),
+                "what the spawner builds on the visit");
+            CollectionAssert.AreEqual(new[] { "bed", "find.18", "find.19", "lamp" }, Ids(level, null),
                 "no visit: the level as it is");
+            var offered = new List<LevelObjectDef>();
+            StateTreeOffers.PlacementsFor(visit, offered);
+            CollectionAssert.AreEqual(new[] { "lamp", "bed.tidy", "find.new" }, offered.Select(r => r.id).ToArray(),
+                "and what a visit offers");
 
             Assert.AreEqual("lamp", visit.Row("lamp").name, "a level's row stands on the visit");
             Assert.IsNull(visit.Row("bed"), "a hidden one does not");
@@ -376,27 +376,11 @@ namespace PowerOfFire.DrawToPlay.Tests
             return kinds;
         }
 
-        private List<string> Built(LevelContent level, LevelObjectKindRegistry kinds, LevelObjectRegistry visit)
+        private static string[] Ids(LevelObjectRegistry level, LevelObjectRegistry visit)
         {
-            var go = Junk(new GameObject("Level"));
-            var spawner = go.AddComponent<LevelVisitStubSpawner>();
-            spawner.level = level;
-            spawner.kinds = kinds;
-            spawner.given = visit;
-            typeof(ManifestSpawner).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(spawner, null);
-            var built = new List<string>();
-            foreach (Transform body in go.transform)
-                built.Add(body.name);
-            return built;
-        }
-
-        private LevelObjectKindDef Kind(string name)
-        {
-            var body = Junk(new GameObject(name + " body"));
-            var def = Make<ServiceDef>();
-            def.serviceName = name;
-            def.body = new ServiceBody { prefab = body };
-            return new LevelObjectKindDef { id = "kind." + name, name = name, service = def };
+            var rows = new List<LevelObjectDef>();
+            LevelVisits.Rows(level, visit, rows);
+            return rows.Select(r => r.id).ToArray();
         }
 
         private LevelObjectRegistry Manifest(params string[] ids)
