@@ -321,6 +321,112 @@ namespace PowerOfFire.DrawToPlay.Tests
             }
         }
 
+        [Test]
+        public void ReplaceInThisVisit_CopiesThePickedRowsIntoTheVisitAtTheirPose_HidesTheOriginals_InOneUndoStep()
+        {
+            VisitStubSetup setup = Setup(out LevelContent level, out LevelObjectRegistry visit, out StateTreeNodeAsset second);
+            try
+            {
+                level.objects.entries[0].position = new Vector2(3f, -2f);
+                var window = Junk(ScriptableObject.CreateInstance<LevelManifestWindow>());
+                window.Edit(level, Kinds(), "hall");
+                LevelVisitsEditor.Pick(level, second.nodeId);
+
+                window.PickBase("hall.bed", EventModifiers.None);
+                window.PickBase("hall.phone.1", EventModifiers.Shift);
+                CollectionAssert.AreEqual(new[] { "hall.bed", "hall.phone.1" }, window.basePicked.ToArray());
+
+                List<LevelObjectDef> added = window.ReplaceInVisit(window.basePicked.ToList());
+                Assert.AreEqual(2, added.Count);
+                CollectionAssert.AreEqual(added, visit.entries, "the copies are the visit's own rows");
+                Assert.AreEqual(new Vector2(3f, -2f), added[0].position, "at the original's pose");
+                Assert.AreNotEqual("hall.bed", added[0].id);
+                Assert.IsNull(level.objects.FindById(added[0].id), "with a fresh id");
+                Assert.IsTrue(visit.Hides("hall.bed") && visit.Hides("hall.phone.1"), "the originals hidden here");
+                CollectionAssert.AreEqual(new[] { true, true }, window.ShownBaseRows().Select(r => r.hidden).ToArray());
+                Assert.AreEqual(2, level.objects.entries.Count, "the level keeps its own");
+                Assert.AreEqual(2, Ids(level.objects, visit).Length, "one bed stands on the visit, not two");
+                Assert.AreEqual(2, window.picked.Count, "the copies picked");
+                Assert.AreEqual(visit.entries.IndexOf(added[1]), window.selected);
+                Assert.AreEqual(0, window.basePicked.Count);
+
+                Undo.PerformUndo();
+                Assert.AreEqual(0, visit.entries.Count, "one undo step takes the copies");
+                Assert.IsFalse(visit.Hides("hall.bed") || visit.Hides("hall.phone.1"), "and shows the originals again");
+            }
+            finally
+            {
+                LevelSetups.Unregister(setup);
+            }
+        }
+
+        [Test]
+        public void ReplaceInThisVisit_OnAVisitWithNoManifest_ListsTheLevelsRows_AndChangesNothing()
+        {
+            VisitStubSetup setup = Setup(out LevelContent level, out _, out StateTreeNodeAsset second);
+            ((LevelVisitStubLevel)second.tasks[0]).manifest = null;
+            try
+            {
+                var window = Junk(ScriptableObject.CreateInstance<LevelManifestWindow>());
+                window.Edit(level, Kinds(), "hall");
+                LevelVisitsEditor.Pick(level, second.nodeId);
+                Assert.AreEqual(2, window.ShownBaseRows().Count, "what the visit stands as, under From Hall");
+                Assert.IsEmpty(window.ReplaceInVisit(new[] { "hall.bed" }));
+                Assert.AreEqual(2, level.objects.entries.Count);
+                Assert.IsEmpty(level.objects.hidden);
+            }
+            finally
+            {
+                LevelSetups.Unregister(setup);
+            }
+        }
+
+        [Test]
+        public void TheVisitOverlay_FollowsTheOpenScenesLevelAndThePick_AndNeverShowsAnotherLevelsVisit()
+        {
+            VisitStubSetup setup = Setup(out LevelContent level, out _, out StateTreeNodeAsset second);
+            var overlay = new LevelVisitOverlay();
+            try
+            {
+                level.scenePath = k_Folder + "/Hall.unity";
+                var third = Junk(ScriptableObject.CreateInstance<LevelContent>());
+                third.scenePath = k_Folder + "/ThirdFloor.unity";
+                AssetDatabase.CreateAsset(third, k_Folder + "/ThirdFloorContent.asset");
+                setup.levels.entries.Add(new LevelDef { id = "level.third", name = "third", content = third });
+                Level("mission.third", "third", setup.episode.root).displayName = "Third Floor";
+
+                string open = level.scenePath;
+                overlay.openScene = () => open;
+                overlay.OnCreated();
+                overlay.CreatePanelContent();
+                Assert.AreEqual("Visit: Hall", overlay.text);
+                CollectionAssert.AreEqual(new[] { "Hall", "Hall_2" }, overlay.offered);
+
+                LevelVisitsEditor.Pick(level, second.nodeId);
+                Assert.AreEqual("Visit: Hall_2", overlay.text, "the window's pick");
+
+                open = third.scenePath;
+                overlay.Follow();
+                Assert.AreSame(third, overlay.level, "a scene changed with no scene event is still followed");
+                Assert.AreEqual("Visit: Third Floor", overlay.text);
+                CollectionAssert.AreEqual(new[] { "Third Floor" }, overlay.offered, "only the open scene's level's visits");
+
+                open = level.scenePath;
+                LevelVisitOverlay.Refresh();
+                Assert.AreEqual("Visit: Hall_2", overlay.text, "back in the hall: the hall's pick, not the third floor");
+                CollectionAssert.DoesNotContain(overlay.offered, "Third Floor");
+
+                open = k_Folder + "/Nowhere.unity";
+                overlay.Follow();
+                Assert.AreEqual("Visit: —", overlay.text, "no level: no visit, never the last one's");
+            }
+            finally
+            {
+                overlay.OnWillBeDestroyed();
+                LevelSetups.Unregister(setup);
+            }
+        }
+
         // ---- helpers ----------------------------------------------------------------------------
 
         private sealed class VisitStubSetup : ILevelSetup

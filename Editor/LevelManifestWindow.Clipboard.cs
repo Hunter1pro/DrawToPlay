@@ -29,6 +29,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         internal void Pick(int index, EventModifiers modifiers)
         {
             m_Note = null;
+            m_BasePicked.Clear();
             bool add = (modifiers & (EventModifiers.Control | EventModifiers.Command)) != 0;
             bool range = (modifiers & EventModifiers.Shift) != 0;
             SanitizePicked();
@@ -73,6 +74,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private void ClearPicked()
         {
             m_Picked.Clear();
+            m_BasePicked.Clear();
             m_Note = null;
         }
 
@@ -121,14 +123,6 @@ namespace PowerOfFire.DrawToPlay.Editor
             return LevelManifestClipboard.Copy(Objects, LevelKey(), rows) != null ? rows.Count : 0;
         }
 
-        /// <summary>A row of the level, shown on a visit, onto the clipboard.</summary>
-        internal bool CopyBaseRow(LevelObjectDef row)
-        {
-            LevelObjectRegistry visit = Objects;
-            return visit != null && visit.isVisit
-                && LevelManifestClipboard.Copy(visit.visitOf, LevelKey(), new[] { row }) != null;
-        }
-
         /// <summary>The clipboard's rows into the manifest or visit picked, one undo step; the new rows picked.</summary>
         internal List<LevelObjectDef> Paste() => PasteClip(LevelManifestClipboard.Read());
 
@@ -154,7 +148,15 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return added;
             var refused = new List<string>();
             added = LevelManifestClipboard.Paste(Objects, Kinds(), LevelKey(), clip, refused);
+            PickAdded(added, refused);
+            return added;
+        }
+
+        /// <summary>Rows just added picked, the shown one the last; what was refused noted.</summary>
+        private void PickAdded(List<LevelObjectDef> added, List<string> refused)
+        {
             m_Note = refused.Count > 0 ? string.Join("\n", refused) : null;
+            m_BasePicked.Clear();
             if (added.Count > 0)
             {
                 m_Picked.Clear();
@@ -167,7 +169,6 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
             Rebuild();
             SceneView.RepaintAll();
-            return added;
         }
 
         /// <summary>Copy, Paste and Duplicate as the Editor sends them — from the keyboard or the Edit menu — to this

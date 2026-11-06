@@ -131,6 +131,40 @@ namespace PowerOfFire.DrawToPlay.Editor
             return added;
         }
 
+        /// <summary>
+        /// The level's <paramref name="rows"/> swapped on <paramref name="visit"/> for copies of their own: each hidden
+        /// there and pasted into the visit at its pose with a fresh id — one undo step. A row refused is left standing.
+        /// </summary>
+        internal static List<LevelObjectDef> Replace(LevelObjectRegistry visit, LevelObjectKindRegistry kinds,
+            string levelKey, IEnumerable<LevelObjectDef> rows, List<string> refused)
+        {
+            var added = new List<LevelObjectDef>();
+            if (visit == null || !visit.isVisit || rows == null)
+                return added;
+            Undo.IncrementCurrentGroup();
+            int undo = Undo.GetCurrentGroup();
+            Undo.RecordObject(visit, "Replace in this visit");
+            string source = SourceOf(visit.visitOf);
+            foreach (LevelObjectDef row in rows)
+            {
+                if (row == null || visit.Hides(row) || !visit.visitOf.entries.Contains(row))
+                    continue;
+                // Hidden before the paste: a one-per-level kind would otherwise meet itself.
+                visit.hidden.Add(row.id);
+                var clip = new Clip { source = source, levelKey = levelKey ?? "", rows = { row } };
+                List<LevelObjectDef> pasted = Paste(visit, kinds, levelKey, clip, refused);
+                if (pasted.Count == 0)
+                    visit.hidden.Remove(row.id);
+                added.AddRange(pasted);
+            }
+            EditorUtility.SetDirty(visit);
+            Undo.SetCurrentGroupName(added.Count == 1
+                ? "Replace " + added[0].name + " in this visit"
+                : "Replace " + added.Count + " Level Objects in this visit");
+            Undo.CollapseUndoOperations(undo);
+            return added;
+        }
+
         /// <summary>The first spot one <see cref="Offset"/> or more away from <paramref name="from"/> that no row
         /// stands on — a second paste does not land on the first.</summary>
         private static Vector2 FreeSpot(List<LevelObjectDef> standing, Vector2 from)
