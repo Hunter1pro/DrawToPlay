@@ -62,10 +62,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>The kinds a tile stands for, in the registry's order, each followed by its presets —
-        /// nothing is rebuilt when the same registry and the same presets are shown again.</summary>
-        public void Show(LevelObjectKindRegistry kinds, LevelObjectPresetRegistry presets = null)
+        /// nothing is rebuilt when the same registry and the same presets are shown again. With none, <paramref name="why"/>
+        /// is said in their place.</summary>
+        public void Show(LevelObjectKindRegistry kinds, LevelObjectPresetRegistry presets = null, string why = null)
         {
-            string shownPresets = Signature(presets);
+            string shownPresets = Signature(presets) + "|" + why;
             if (kinds == m_Shown && shownPresets == m_ShownPresets && m_Tiles.childCount > 0)
                 return;
             m_Shown = kinds;
@@ -88,7 +89,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
             if (count == 0)
                 m_Tiles.Add(StateTreeInspectorLook.Note(
-                    "No kinds: this level's catalog names no LevelObjectKindRegistry."));
+                    why ?? "No kinds: this level's catalog names no LevelObjectKindRegistry."));
             m_Search.style.display = m_Tiles.childCount >= k_SearchFrom ? DisplayStyle.Flex : DisplayStyle.None;
             Filter(m_Search.value);
         }

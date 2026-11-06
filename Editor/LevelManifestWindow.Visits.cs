@@ -21,6 +21,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         private readonly List<(VisualElement line, LevelObjectDef row)> m_BaseLines =
             new List<(VisualElement, LevelObjectDef)>();
 
+        /// <summary>The level's rows picked under "From Hall", by id — what Copy and Replace take.</summary>
+        private readonly List<string> m_BasePicked = new List<string>();
+
+        internal IReadOnlyList<string> basePicked => m_BasePicked;
+
         /// <summary>The level's visits, found once per level and again after a pick, an undo or a project change.</summary>
         internal List<LevelVisitsEditor.Visit> Visits()
         {
@@ -58,6 +63,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 window.m_Visits = null;
                 window.m_Selected = -1;
                 window.m_Picked.Clear();
+                window.m_BasePicked.Clear();
                 window.Rebuild();
             }
         }
@@ -137,28 +143,43 @@ namespace PowerOfFire.DrawToPlay.Editor
             return true;
         }
 
-        /// <summary>The level's rows under a fold "From Hall": dimmed, the hidden ones crossed out; right-click hides or
-        /// shows one on this visit.</summary>
+        /// <summary>The level's manifest whose rows stand on the picked visit: under its own manifest, or as the plain
+        /// level while it has none. Null on the first visit.</summary>
+        private LevelObjectRegistry VisitBase(out bool lacking)
+        {
+            LevelVisitsEditor.Visit picked = pickedVisit;
+            lacking = picked != null && picked.lacksManifest;
+            if (lacking)
+                return m_Level.objects;
+            LevelObjectRegistry visit = Objects;
+            return visit != null && visit.isVisit ? visit.visitOf : null;
+        }
+
+        /// <summary>The level's rows under a fold "From Hall": dimmed, the hidden ones crossed out; click, Shift and
+        /// Ctrl/Cmd pick them, right-click hides, shows, copies or replaces them on this visit.</summary>
         private void AddVisitBase(VisualElement list)
         {
             m_BaseLines.Clear();
-            LevelObjectRegistry visit = Objects;
-            if (visit == null || !visit.isVisit)
+            LevelObjectRegistry level = VisitBase(out bool lacking);
+            if (level == null)
                 return;
+            LevelObjectRegistry visit = lacking ? null : Objects;
             List<LevelVisitsEditor.Visit> visits = Visits();
-            string from = visits.Count > 0 ? visits[0].label : visit.visitOf.name;
-            var fold = new Foldout { text = "From " + from + "  (" + visit.visitOf.entries.Count + ")", value = true };
+            string from = visits.Count > 0 ? visits[0].label : level.name;
+            string label = pickedVisit != null ? pickedVisit.label : "";
+            m_BasePicked.RemoveAll(id => level.FindById(id) == null);
+            var fold = new Foldout { text = "From " + from + "  (" + level.entries.Count + ")", value = true };
             fold.style.marginTop = 6f;
-            foreach (LevelObjectDef row in visit.visitOf.entries)
+            foreach (LevelObjectDef row in level.entries)
             {
                 if (row == null)
                     continue;
-                bool hidden = visit.Hides(row);
+                bool hidden = visit != null && visit.Hides(row);
                 string name = string.IsNullOrEmpty(row.name) ? "(unnamed)" : row.name;
                 var line = new Label((hidden ? "<s>" + name + "</s>" : name) + "   " + (hidden ? "hidden here" : "from " + from))
                 {
-                    tooltip = row.id + "\nRight-click: " + (hidden ? "show it" : "hide it") + " on this visit, or copy it to paste "
-                        + "into the visit and change it there.",
+                    tooltip = row.id + "\nRight-click: " + (hidden ? "show it" : "hide it") + " on this visit, replace it with "
+                        + "a copy of the visit's own to change there, or copy it.",
                     userData = row.id
                 };
                 line.AddToClassList(hidden ? BaseHiddenClass : BaseRowClass);
@@ -167,22 +188,128 @@ namespace PowerOfFire.DrawToPlay.Editor
                 line.style.paddingTop = 2f;
                 line.style.paddingBottom = 2f;
                 string id = row.id;
-                LevelObjectDef copied = row;
+                if (m_BasePicked.Contains(id))
+                    DressPicked(line);
+                line.RegisterCallback<MouseDownEvent>(down =>
+                {
+                    if (down.button != 0)
+                        return;
+                    PickBase(id, down.modifiers);
+                    down.StopPropagation();
+                });
                 line.AddManipulator(new ContextualMenuManipulator(menu =>
                 {
+                    if (!m_BasePicked.Contains(id))
+                    {
+                        m_BasePicked.Clear();
+                        m_BasePicked.Add(id);
+                        rootVisualElement.schedule.Execute(Rebuild);
+                    }
+                    DropdownMenuAction.Status editable = lacking ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal;
                     menu.menu.AppendAction("Hide in this visit", _ => SetHiddenInVisit(id, true),
-                        hidden ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
+                        hidden ? DropdownMenuAction.Status.Disabled : editable);
                     menu.menu.AppendAction("Show in this visit", _ => SetHiddenInVisit(id, false),
-                        hidden ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+                        hidden ? editable : DropdownMenuAction.Status.Disabled);
                     menu.menu.AppendSeparator();
-                    menu.menu.AppendAction("Copy", _ => CopyBaseRow(copied));
+                    int count = BasePickedRows(false).Count;
+                    menu.menu.AppendAction(lacking
+                            ? "Replace in this visit (Make " + label + "'s manifest first)"
+                            : count > 1 ? "Replace " + count + " objects in this visit" : "Replace in this visit",
+                        _ => ReplaceInVisit(m_BasePicked),
+                        lacking || count == 0 ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
+                    menu.menu.AppendSeparator();
+                    int picked = BasePickedRows(true).Count;
+                    menu.menu.AppendAction(picked > 1 ? "Copy " + picked + " objects" : "Copy", _ => CopyBaseRows());
                     menu.menu.AppendAction("Paste", _ => Paste(),
-                        LevelManifestClipboard.HasRows() ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+                        !lacking && LevelManifestClipboard.HasRows() ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
                 }));
                 fold.Add(line);
                 m_BaseLines.Add((line, row));
             }
             list.Add(fold);
+        }
+
+        /// <summary>A click on one of the level's rows: alone, Shift for the range from the last picked, Ctrl/Cmd to add
+        /// or take one. The visit's own rows are let go.</summary>
+        internal void PickBase(string id, EventModifiers modifiers)
+        {
+            LevelObjectRegistry level = VisitBase(out _);
+            if (level == null || level.FindById(id) == null)
+                return;
+            m_Note = null;
+            m_Picked.Clear();
+            m_Selected = -1;
+            bool add = (modifiers & (EventModifiers.Control | EventModifiers.Command)) != 0;
+            bool range = (modifiers & EventModifiers.Shift) != 0;
+            var order = new List<string>();
+            foreach (LevelObjectDef row in level.entries)
+            {
+                if (row != null)
+                    order.Add(row.id);
+            }
+            int from = range && m_BasePicked.Count > 0 ? order.IndexOf(m_BasePicked[m_BasePicked.Count - 1]) : -1;
+            int to = order.IndexOf(id);
+            if (from >= 0)
+            {
+                if (!add)
+                    m_BasePicked.Clear();
+                for (int i = Mathf.Min(from, to); i <= Mathf.Max(from, to); i++)
+                {
+                    if (!m_BasePicked.Contains(order[i]))
+                        m_BasePicked.Add(order[i]);
+                }
+            }
+            else if (add)
+            {
+                if (!m_BasePicked.Remove(id))
+                    m_BasePicked.Add(id);
+            }
+            else
+            {
+                m_BasePicked.Clear();
+                m_BasePicked.Add(id);
+            }
+            Rebuild();
+        }
+
+        /// <summary>The level's rows picked, in its order; <paramref name="withHidden"/> false leaves out the ones the
+        /// visit hides already.</summary>
+        private List<LevelObjectDef> BasePickedRows(bool withHidden)
+        {
+            var rows = new List<LevelObjectDef>();
+            LevelObjectRegistry level = VisitBase(out bool lacking);
+            if (level == null)
+                return rows;
+            LevelObjectRegistry visit = lacking ? null : Objects;
+            foreach (LevelObjectDef row in level.entries)
+            {
+                if (row != null && m_BasePicked.Contains(row.id) && (withHidden || visit == null || !visit.Hides(row)))
+                    rows.Add(row);
+            }
+            return rows;
+        }
+
+        /// <summary>The level's rows picked onto the clipboard; how many.</summary>
+        internal int CopyBaseRows()
+        {
+            List<LevelObjectDef> rows = BasePickedRows(true);
+            return rows.Count > 0 && LevelManifestClipboard.Copy(VisitBase(out _), LevelKey(), rows) != null ? rows.Count : 0;
+        }
+
+        /// <summary>"Replace in this visit": the level's rows <paramref name="ids"/> hidden on the visit and pasted into
+        /// it as copies at their poses — one undo step, the copies picked. Nothing while the visit has no manifest.</summary>
+        internal List<LevelObjectDef> ReplaceInVisit(IEnumerable<string> ids)
+        {
+            var added = new List<LevelObjectDef>();
+            LevelObjectRegistry visit = Objects;
+            if (m_Level == null || visit == null || !visit.isVisit || VisitLacksManifest(out _) || ids == null)
+                return added;
+            var wanted = new HashSet<string>(ids);
+            var rows = visit.visitOf.entries.FindAll(row => row != null && wanted.Contains(row.id));
+            var refused = new List<string>();
+            added = LevelManifestClipboard.Replace(visit, Kinds(), LevelKey(), rows, refused);
+            PickAdded(added, refused);
+            return added;
         }
 
         /// <summary>The level's row hidden (or shown again) on the visit being edited — one undo step.</summary>

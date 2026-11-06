@@ -234,7 +234,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_SelectedLine = null;
 
             ResolveLevel();
-            m_Palette?.Show(m_Level != null && Objects != null && !VisitLacksManifest(out _) ? Kinds() : null, Presets());
+            bool lacks = VisitLacksManifest(out VisualElement lacking);
+            m_Palette?.Show(m_Level != null && Objects != null && !lacks ? Kinds() : null, Presets(),
+                lacks ? "Make " + pickedVisit.label + "'s manifest first." : null);
             if (m_Level == null)
             {
                 var top = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.FlexStart } };
@@ -272,9 +274,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             }
 
-            if (VisitLacksManifest(out VisualElement lacking))
+            if (lacks)
             {
                 m_Root.Add(lacking);
+                AddVisitBase(m_Root);
                 return;
             }
 

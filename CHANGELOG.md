@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.23 - 2026-11-06
+- Level Manifest, on a visit: "Replace in this visit" on a row under "From <level>" — the row is hidden on the visit
+  and a copy of it pasted into the visit's manifest at the same pose with a fresh id, in one undo step, the copy
+  picked to change there. The level's rows are picked like the visit's own (click, Shift-click a range, Ctrl/Cmd-click
+  one more), so Replace and Copy take several at once. A visit with no manifest of its own lists the level's rows it
+  stands as, with Replace offered disabled: "Make <visit>'s manifest first" — which the palette now says too, in place
+  of "No kinds".
+- Scene view "Level Visit" overlay: checks the open scene and its level's pick on each Scene view layout instead of
+  trusting the edit-mode scene events, which a scene loaded in Play mode, a scene restored after it and a new scene
+  saved under a level's path never raise — it could go on showing the level open before (another level's visit) until
+  something else rebuilt it.
+
 ## 0.6.22 - 2026-11-06
 - Level Manifest: Copy / Paste / Duplicate of rows. Several rows are picked (click, Shift-click a range, Ctrl/Cmd-click
   one more; the Scene view's handles too), then Ctrl/Cmd+C, V, D — the Editor's own commands, in the window or the
