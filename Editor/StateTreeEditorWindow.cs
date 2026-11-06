@@ -65,6 +65,13 @@ namespace PowerOfFire.DrawToPlay.Editor
         private readonly List<string> m_RowOrder = new List<string>();
         private int m_NextRowId = 1;
 
+        private StateTreeAsset m_FoldsTree;
+        private StateTreeAsset m_RecalledTree;
+        private string m_TreeGuid = string.Empty;
+        private HashSet<string> m_Folded = new HashSet<string>();
+        private readonly List<KeyValuePair<int, string>> m_FoldableRows = new List<KeyValuePair<int, string>>();
+        private bool m_ApplyingFolds;
+
         private ObjectField m_TreeField;
         private TreeView m_TreeView;
         private VisualElement m_EmptyHint;
@@ -233,6 +240,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (missionMode && !StateTreeSchemaRules.IsDomain(m_Schema, nodes[i]))
                     SetDevMode(true);
                 SetSelectedNode(nodes[i]);
+                Reveal(nodes[i]);
                 if (m_TreeView != null && m_RowIds.TryGetValue(nodes[i], out var rowId))
                     m_TreeView.SetSelectionByIdWithoutNotify(new List<int> { rowId });
                 return true;
@@ -454,6 +462,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_TreeView.bindItem = BindRow;
             m_TreeView.unbindItem = (element, index) => element.Clear();
             m_TreeView.selectionChanged += OnRowSelectionChanged;
+            m_TreeView.itemExpandedChanged += OnRowFoldChanged;
 
             m_TreeView.canStartDrag += _ => m_Tree != null;
             m_TreeView.setupDragAndDrop += args =>
@@ -575,8 +584,12 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_ViewNodes = nodes;
             RebuildRowIds(nodes);
             Revalidate();
+            EnsureFolds();
+            if (m_RecalledTree != m_Tree)
+                RecallSelection(nodes);
 
             m_RowOrder.Clear();
+            m_FoldableRows.Clear();
             var items = new List<TreeViewItemData<StateTreeNodeAsset>>();
             if (missionMode)
             {
@@ -615,7 +628,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             m_TreeView.SetRootItems(items);
             m_TreeView.Rebuild();
-            m_TreeView.ExpandAll();
+            ApplyFolds();
 
             var hasRows = items.Count > 0 || (missionMode && m_Tree != null && m_Tree.root != null);
             m_TreeView.style.display = hasRows ? DisplayStyle.Flex : DisplayStyle.None;
@@ -657,7 +670,124 @@ namespace PowerOfFire.DrawToPlay.Editor
                 }
             }
 
-            return new TreeViewItemData<StateTreeNodeAsset>(RowIdFor(node), node, children);
+            var id = RowIdFor(node);
+            if (children.Count > 0)
+                m_FoldableRows.Add(new KeyValuePair<int, string>(id, node.nodeId));
+            return new TreeViewItemData<StateTreeNodeAsset>(id, node, children);
+        }
+
+        // --- folds and selection, remembered per user per tree (StateTreeFolds) -------------
+
+        private void EnsureFolds()
+        {
+            if (m_FoldsTree == m_Tree)
+                return;
+            m_FoldsTree = m_Tree;
+            m_TreeGuid = StateTreeFolds.GuidOf(m_Tree);
+            m_Folded = StateTreeFolds.Folded(m_TreeGuid);
+        }
+
+        /// <summary>A tree newly shown (opened, or the window back after a domain reload or a restart) takes its
+        /// saved selection when the window holds none — only a row the current mode shows.</summary>
+        private void RecallSelection(List<StateTreeNodeAsset> nodes)
+        {
+            m_RecalledTree = m_Tree;
+            if (m_SelectedNode != null)
+                return;
+            var wanted = string.IsNullOrEmpty(m_SelectedNodeId) ? StateTreeFolds.Selected(m_TreeGuid) : m_SelectedNodeId;
+            if (string.IsNullOrEmpty(wanted))
+                return;
+            for (var i = 0; i < nodes.Count; ++i)
+            {
+                if (nodes[i].nodeId != wanted || (missionMode && !StateTreeSchemaRules.IsDomain(m_Schema, nodes[i])))
+                    continue;
+                m_SelectedNode = nodes[i];
+                m_SelectedNodeId = wanted;
+                return;
+            }
+        }
+
+        private void ApplyFolds()
+        {
+            m_ApplyingFolds = true;
+            try
+            {
+                m_TreeView.ExpandAll();
+                for (var i = 0; i < m_FoldableRows.Count; ++i)
+                {
+                    if (m_Folded.Contains(m_FoldableRows[i].Value))
+                        m_TreeView.CollapseItem(m_FoldableRows[i].Key);
+                }
+            }
+            finally
+            {
+                m_ApplyingFolds = false;
+            }
+        }
+
+        /// <summary>Re-read every shown parent row (an alt-click folds a whole branch at once); rows the current
+        /// mode hides keep what was saved for them.</summary>
+        private void OnRowFoldChanged(TreeViewExpansionChangedArgs args)
+        {
+            if (m_ApplyingFolds || m_TreeView == null)
+                return;
+            for (var i = 0; i < m_FoldableRows.Count; ++i)
+            {
+                if (m_TreeView.IsExpanded(m_FoldableRows[i].Key))
+                    m_Folded.Remove(m_FoldableRows[i].Value);
+                else
+                    m_Folded.Add(m_FoldableRows[i].Value);
+            }
+            StateTreeFolds.SetFolded(m_TreeGuid, m_Folded);
+        }
+
+        /// <summary>A row selected on purpose (added, opened from elsewhere) opens the rows holding it.</summary>
+        private void Reveal(StateTreeNodeAsset node)
+        {
+            EnsureFolds();
+            var opened = false;
+            var guard = 0;
+            for (var at = StateTreeEditorOps.FindParent(m_Tree, node);
+                 at != null && guard++ < StateTreeEditorOps.DepthGuard;
+                 at = StateTreeEditorOps.FindParent(m_Tree, at))
+            {
+                if (!m_Folded.Remove(at.nodeId))
+                    continue;
+                opened = true;
+                if (m_TreeView != null && m_RowIds.TryGetValue(at, out var rowId))
+                {
+                    m_ApplyingFolds = true;
+                    try { m_TreeView.ExpandItem(rowId); }
+                    finally { m_ApplyingFolds = false; }
+                }
+            }
+            if (opened)
+                StateTreeFolds.SetFolded(m_TreeGuid, m_Folded);
+        }
+
+        /// <summary>Fold or open a row as the designer's arrow does.</summary>
+        internal void SetFolded(string nodeId, bool folded)
+        {
+            for (var i = 0; i < m_FoldableRows.Count; ++i)
+            {
+                if (m_FoldableRows[i].Value != nodeId)
+                    continue;
+                if (folded)
+                    m_TreeView.CollapseItem(m_FoldableRows[i].Key);
+                else
+                    m_TreeView.ExpandItem(m_FoldableRows[i].Key);
+                return;
+            }
+        }
+
+        internal bool IsFolded(string nodeId)
+        {
+            for (var i = 0; i < m_FoldableRows.Count; ++i)
+            {
+                if (m_FoldableRows[i].Value == nodeId)
+                    return !m_TreeView.IsExpanded(m_FoldableRows[i].Key);
+            }
+            return false;
         }
 
         private int RowIdFor(StateTreeNodeAsset node)
@@ -838,6 +968,8 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             m_SelectedNode = node;
             m_SelectedNodeId = node != null ? node.nodeId : string.Empty;
+            EnsureFolds();
+            StateTreeFolds.SetSelected(m_TreeGuid, m_SelectedNodeId);
             RebuildInspector();
         }
 
