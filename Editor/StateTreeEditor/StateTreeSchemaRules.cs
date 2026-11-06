@@ -335,6 +335,10 @@ namespace PowerOfFire.DrawToPlay.Editor
                     && string.IsNullOrEmpty(parameter.stringValue))
                     problems.Add(new StateTreeSchemaProblem(node,
                         $"'{Pretty(parameter.declaration.name)}' is not set."));
+                if (parameter.isPlacement && HiddenHere(tree, schema, node, parameter.stringValue) is LevelObjectDef gone)
+                    problems.Add(new StateTreeSchemaProblem(node,
+                        $"'{Pretty(parameter.declaration.name)}' is {gone.name}, which this visit of the level hides: show it "
+                        + "in the visit (Level Manifest, right-click the row), or pick another."));
                 // A fact of an object whose preset says what it writes must be one of those.
                 if (parameter.isKey && !parameter.isDerived && !string.IsNullOrEmpty(parameter.stringValue))
                 {
@@ -346,6 +350,18 @@ namespace PowerOfFire.DrawToPlay.Editor
                             + $"({preset.name}) does not write — it writes {FactNames(facts)}."));
                 }
             }
+        }
+
+        /// <summary>The level's row <paramref name="id"/> names when the visit the node is under hides it; else null.</summary>
+        public static LevelObjectDef HiddenHere(StateTreeAsset tree, StateTreeSchema schema, StateTreeNodeAsset node,
+            string id)
+        {
+            if (string.IsNullOrEmpty(id)
+                || !(ContextRegistry(tree, schema, node, typeof(LevelObjectDef)) is LevelObjectRegistry visit) || !visit.isVisit
+                || visit.FindById(id) != null || visit.FindByName(id) != null)
+                return null;
+            var row = (visit.visitOf.FindById(id) ?? visit.visitOf.FindByName(id)) as LevelObjectDef;
+            return visit.Hides(row) ? row : null;
         }
 
         private static string FactNames(List<LevelObjectPresetFact> facts)
@@ -563,6 +579,11 @@ namespace PowerOfFire.DrawToPlay.Editor
                         && registry != null && entryType.IsAssignableFrom(registry.entryType))
                         return registry;
                 }
+                // A visit with no manifest of its own is the plain level.
+                if (context is IStateTreeLevelVisit visit && visit.visitManifest == null
+                    && entryType.IsAssignableFrom(typeof(LevelObjectDef))
+                    && LevelVisitsEditor.PlainManifest(visit.levelName) is LevelObjectRegistry plain)
+                    return plain;
             }
             if (tree != null)
             {
@@ -925,7 +946,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             manifest = ContextRegistry(tree, schema, node, typeof(LevelObjectDef)) as LevelObjectRegistry;
             if (manifest == null || string.IsNullOrEmpty(id))
                 return null;
-            return manifest.FindById(id) as LevelObjectDef ?? manifest.FindByName(id) as LevelObjectDef;
+            // A visit's set: the level's rows less the hidden, and the visit's own.
+            return manifest.Row(id);
         }
 
         /// <summary>What a step's row in the tree says after its name: its parameters' values,

@@ -258,11 +258,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 StateTreeSchemaRules.Placement(m_Tree, m_Schema, m_Node, "", out LevelObjectRegistry manifest);
                 var rows = new List<LevelObjectDef>();
-                for (int i = 0; manifest != null && i < manifest.Count; i++)
-                {
-                    if (manifest.EntryAt(i) is LevelObjectDef row)
-                        rows.Add(row);
-                }
+                manifest?.CollectRows(rows);
                 menu = StateTreePickItems.Placements(rows, m_Tree, manifest);
                 if (manifest == null)
                     menu.empty = "No level manifest — give the Level its manifest";

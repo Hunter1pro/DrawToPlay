@@ -118,7 +118,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             var shown = new List<Mark>();
             foreach (Mark mark in marks)
             {
-                if (mark.manifest == null || open.Contains(mark.manifest) || !closed.Contains(mark.manifest))
+                // A visit's marks show with its level's scene.
+                LevelObjectRegistry of = mark.manifest != null ? mark.manifest.levelManifest : null;
+                if (of == null || open.Contains(of) || !closed.Contains(of))
                     shown.Add(mark);
             }
             return shown;

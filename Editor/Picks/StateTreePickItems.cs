@@ -142,7 +142,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (row == null || string.IsNullOrEmpty(row.id))
                     continue;
                 owners.TryGetValue(row, out LevelObjectRegistry manifest);
-                bool fits = narrowTo == null || narrowTo.entries.Contains(row);
+                // On a visit, the level's rows standing on it fit too.
+                bool fits = narrowTo == null || narrowTo.entries.Contains(row) || narrowTo.Row(row.id) == row;
                 string where = narrowTo != null && !fits && manifest != null ? manifest.name + "/" : "";
                 menu.items.Add(new StateTreePickItem(row.id, row.name,
                     (row.kind != null && !string.IsNullOrEmpty(row.kind.entryName) ? row.kind.entryName : "placement") + " · " + row.id,

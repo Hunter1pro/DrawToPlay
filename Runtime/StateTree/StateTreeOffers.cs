@@ -368,10 +368,12 @@ namespace PowerOfFire.DrawToPlay
         {
             if (manifest == null)
                 return;
-            for (int i = 0; i < manifest.Count; i++)
+            // A visit offers what stands on it: the level's rows less the hidden, and its own.
+            var rows = new List<LevelObjectDef>();
+            manifest.CollectRows(rows);
+            foreach (LevelObjectDef row in rows)
             {
-                if (manifest.EntryAt(i) is LevelObjectDef row && !string.IsNullOrEmpty(row.id)
-                    && !into.Contains(row))
+                if (!string.IsNullOrEmpty(row.id) && !into.Contains(row))
                     into.Add(row);
             }
         }
