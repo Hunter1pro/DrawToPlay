@@ -194,6 +194,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             if (visit == null || !visit.isVisit || string.IsNullOrEmpty(id) || visit.Hides(id) == hide)
                 return false;
+            Undo.IncrementCurrentGroup();
             Undo.RecordObject(visit, (hide ? "Hide " : "Show ") + id + " in this visit");
             if (hide)
                 visit.hidden.Add(id);
