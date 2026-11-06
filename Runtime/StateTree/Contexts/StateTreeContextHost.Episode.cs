@@ -168,8 +168,8 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>
         /// The visit <paramref name="level"/> joins next: its first Level node not finished, in tree order — finished
-        /// when its part is over (<see cref="LevelVisits.IsOver"/>: it left, or rests at its end), or when a later visit
-        /// has begun. All finished: the last, resting. With
+        /// when its part is over (<see cref="LevelVisits.IsOver"/>: it left, or rests at its end), when a later visit
+        /// has begun, or, not begun, when nothing in it is switched on. All finished: the last, resting. With
         /// <paramref name="restoring"/>, as if that cursor were restored first — what a level's birth asks before its
         /// restore has run. Empty when the tree has no node for the level.
         /// </summary>
@@ -179,15 +179,25 @@ namespace PowerOfFire.DrawToPlay
             if (visits.Count == 0)
                 return "";
             string restored = restoring != null && !restoring.isEmpty ? VisitOfCursor(visits, restoring) : "";
+            int next = 0;
             for (int i = visits.Count - 1; i >= 0; i--)
             {
                 StateTreeEpisodeCursor at = visits[i] == restored ? restoring
                     : m_Cursors.TryGetValue(visits[i], out StateTreeEpisodeCursor kept) ? kept : null;
                 if (at == null)
                     continue;
-                return LevelVisits.IsOver(tree, visits[i], at) && i + 1 < visits.Count ? visits[i + 1] : visits[i];
+                if (!LevelVisits.IsOver(tree, visits[i], at))
+                    return visits[i];
+                next = i + 1;
+                break;
             }
-            return visits[0];
+            // A visit not begun with nothing switched on in it is passed, as the run would pass it.
+            for (int i = next; i < visits.Count; i++)
+            {
+                if (!LevelVisits.RunsNothing(tree, visits[i]))
+                    return visits[i];
+            }
+            return visits[visits.Count - 1];
         }
 
         /// <summary>What the visit <paramref name="level"/> joins next adds and hides (<see cref="VisitToJoin"/>), or null
