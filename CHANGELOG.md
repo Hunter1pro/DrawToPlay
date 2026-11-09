@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.25 - 2026-11-09
+- A game's own "+ New" for a registry's rows: `IStateTreeRowMaker` (registered with `StateTreeRowMakers.Register`).
+  Every picker that offers "+ New" in that registry offers the maker's line instead of the name prompt; the maker asks
+  what it needs and calls `StateTreeRowRequest.Make`, which makes the row and picks it in one undo step. A step's
+  parameter tells it the tree and the state (`StateTreeRowContext`). `StateTreePickMenu.Ask` is the menu item.
+- A game's own lines under a step's parameter: `IStateTreeStepParameterSection` (registered with
+  `StateTreeStepParameterSections.Register`), told the step, its template, the parameter and the row it names — drawn
+  under the picker in Mission mode and under the override row in Dev mode.
+- `StateTreeRowCreate.Add(registry, name, group, id)`: a new row with the game's own id; null when the id is taken.
+
 ## 0.6.24 - 2026-11-06
 - Level Manifest: a game's own section on a selected row (`ILevelRowSection`, registered with
   `LevelRowSections.Register`) — a plain choice in place of the raw arguments it stands for. The arguments it owns

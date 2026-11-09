@@ -301,6 +301,125 @@ namespace PowerOfFire.DrawToPlay.Tests
             }
         }
 
+        private sealed class StubMaker : IStateTreeRowMaker
+        {
+            public StateTreeRowRequest asked;
+
+            public bool Makes(StateTreeRegistryAsset registry) => registry is PickStubRegistry;
+
+            public string Label(StateTreeRegistryAsset registry) => "+ New choice…";
+
+            public void Ask(StateTreeRowRequest request) => asked = request;
+        }
+
+        [Test]
+        public void ARowMaker_ReplacesTheNamePrompt_IsToldTheStep_AndItsRowIsPickedInOneUndo()
+        {
+            Fixture fixture = Build();
+            var maker = new StubMaker();
+            StateTreeRowMakers.Register(maker);
+            StateTreePickMenu.headless = true;
+            try
+            {
+                var root = new ScrollView();
+                var inspector = new StateTreeMissionInspector(root, null, null, null, null);
+                inspector.Rebuild(fixture.host, fixture.schema, fixture.step,
+                    StateTreeSchemaRules.Validate(fixture.host, fixture.schema));
+                root.Query<StateTreePickField>().ToList().First(p => p.Q<Label>().text == "Choice").Open();
+                StateTreePickMenu menu = StateTreePickMenu.lastShown;
+                Assert.AreEqual(1, menu.creates.Count);
+                Assert.AreEqual("+ New choice…", menu.creates[0].label, "the maker's own line, not the name prompt");
+                Assert.IsNull(menu.creates[0].make);
+
+                menu.RunCreate(0, "");
+                Assert.IsNotNull(maker.asked, "the maker asks");
+                Assert.AreSame(fixture.rows, maker.asked.registry);
+                Assert.AreSame(fixture.host, maker.asked.context.tree);
+                Assert.AreSame(fixture.step, maker.asked.context.node);
+                int before = fixture.rows.entries.Count;
+
+                StateTreeRegistryEntry made = maker.asked.Make(() =>
+                {
+                    var row = (PickStubRow)StateTreeRowCreate.Add(fixture.rows, "maybe", "Episode/Tasks", "row.maybe");
+                    row.answer = new StateTreeKeyField("room.maybe");
+                    return row;
+                });
+                Assert.AreEqual("row.maybe", made.id, "the maker's id");
+                Assert.AreEqual("Episode/Tasks", made.group);
+                Assert.AreEqual(before + 1, fixture.rows.entries.Count);
+                Assert.AreEqual("maybe", StateTreeSchemaRules.Parameters(fixture.kind, fixture.step)
+                    .Single(p => p.declaration.name == "talk.choice").stringValue, "and picked for the step");
+
+                Undo.PerformUndo();
+                Assert.AreEqual(before, fixture.rows.entries.Count, "one undo takes the row away");
+                Assert.AreNotEqual("maybe", StateTreeSchemaRules.Parameters(fixture.kind, fixture.step)
+                    .Single(p => p.declaration.name == "talk.choice").stringValue, "and the pick with it");
+            }
+            finally
+            {
+                StateTreeRowMakers.Unregister(maker);
+                StateTreePickMenu.headless = false;
+            }
+        }
+
+        [Test]
+        public void ANewRowWithAnId_TakesIt_AndRefusesOneAlreadyTaken()
+        {
+            Fixture fixture = Build();
+            StateTreeRegistryEntry made = StateTreeRowCreate.Add(fixture.rows, "fresh", "G", "row.fresh");
+            Assert.AreEqual("row.fresh", made.id);
+            Assert.IsNull(StateTreeRowCreate.Add(fixture.rows, "other", "G", "row.fresh"), "an id is never twinned");
+            Assert.AreSame(made, StateTreeRowCreate.Add(fixture.rows, "fresh", "G", "row.else"), "a taken name is a pick");
+        }
+
+        private sealed class StubSection : IStateTreeStepParameterSection
+        {
+            public readonly List<StateTreeStepParameterContext> told = new List<StateTreeStepParameterContext>();
+
+            public bool Offers(StateTreeStepParameterContext at) => at.parameter.declaration.name == "talk.choice";
+
+            public VisualElement Build(StateTreeStepParameterContext at, Action changed)
+            {
+                told.Add(at);
+                var element = new VisualElement();
+                element.AddToClassList("stub-section");
+                return element;
+            }
+        }
+
+        [Test]
+        public void AStepParameterSection_IsDrawnUnderItsParameter_InBothModes_ToldTheRowItNames()
+        {
+            Fixture fixture = Build();
+            StateTreeSchemaRules.SetParameter((RunSubTreeTask)fixture.step.tasks[0], fixture.template.parameters[0],
+                "yes-no", 0f, "row.yes-no", "t");
+            var section = new StubSection();
+            StateTreeStepParameterSections.Register(section);
+            try
+            {
+                var root = new ScrollView();
+                new StateTreeMissionInspector(root, null, null, null, null).Rebuild(fixture.host, fixture.schema,
+                    fixture.step, StateTreeSchemaRules.Validate(fixture.host, fixture.schema));
+                Assert.AreEqual(1, root.Query(className: "stub-section").ToList().Count, "only under the parameter it offers on");
+                VisualElement under = root.Q(className: "stub-section").parent.parent;
+                Assert.IsNotNull(under.Query<StateTreePickField>().ToList().FirstOrDefault(p => p.Q<Label>().text == "Choice"),
+                    "beside the Choice picker");
+                StateTreeStepParameterContext told = section.told.Single();
+                Assert.AreSame(fixture.rows.entries[0], told.row, "the row the step names");
+                Assert.AreSame(fixture.rows, told.registry);
+                Assert.AreSame(fixture.step, told.node);
+                Assert.AreSame(fixture.template, told.template);
+
+                var dev = new ScrollView();
+                new StateTreeInspectorPane(dev, null, null).Rebuild(fixture.host, fixture.step);
+                Assert.AreEqual(1, dev.Query(className: "stub-section").ToList().Count, "and under its override row in Dev mode");
+            }
+            finally
+            {
+                StateTreeStepParameterSections.Unregister(section);
+            }
+        }
+
         [Test]
         public void AStepAddedWithPlus_TakesARowAndAKey_ChosenInTheDropdown_AndKeepsThemOnTheNextLook()
         {

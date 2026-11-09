@@ -66,6 +66,29 @@ namespace PowerOfFire.DrawToPlay.Editor
             return null;
         }
 
+        /// <summary>The game's sections under this parameter (<see cref="StateTreeStepParameterSections"/>), told the
+        /// row it names; null when none is offered.</summary>
+        internal VisualElement Sections(StateTreeStepParameter parameter, Action changed)
+        {
+            StateTreeRegistryEntry row = null;
+            StateTreeRegistryAsset registry = null;
+            if (parameter.entryType != null && !parameter.isPlacement)
+            {
+                List<StateTreeRegistryAsset> sources = Sources(parameter);
+                row = FindRow(sources, parameter.stringValue);
+                registry = row != null ? StateTreeRowOffers.CatalogOf(sources, row) : null;
+            }
+            List<VisualElement> built = StateTreeStepParameterSections.Build(
+                new StateTreeStepParameterContext(m_Tree, m_Node, m_Template, parameter, row, registry), changed);
+            if (built.Count == 0)
+                return null;
+            var box = new VisualElement();
+            box.AddToClassList("dtp-step-parameter-sections");
+            foreach (VisualElement element in built)
+                box.Add(element);
+            return box;
+        }
+
         /// <summary>Words a person reads (or a literal value) — the only text box a step may show.</summary>
         internal VisualElement Text(StateTreeStepParameter parameter, string label)
         {
@@ -273,7 +296,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                 menu = StateTreePickItems.Rows(sources, m_Tree, parameter.entryType, narrowTo);
                 if (sources.Count == 0)
                     menu.empty = $"No {parameter.entryType.Name} registry in the template's Data";
-                menu.OfferNew(NewRowTargets(parameter.entryType, narrowTo));
+                menu.OfferNew(NewRowTargets(parameter.entryType, narrowTo), context: new StateTreeRowContext(m_Tree, m_Node));
             }
             menu.Show(at, parameter.stringValue, picked =>
                 m_Write(parameter.declaration, picked.value, 0f,

@@ -44,13 +44,15 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// <summary>A "+ New …" at the top of a picker: a name is asked, <see cref="make"/> creates the row (or
     /// key) in its one target and hands back the item to pick; <see cref="reveal"/> is selected after, so
     /// the new row can be configured. No <see cref="make"/>: the target makes its own rows (a registry
-    /// with a creator panel) and is only revealed.</summary>
+    /// with a creator panel) and is only revealed. <see cref="ask"/>: the item asks what it needs itself (a
+    /// game's row maker) and hands the making back, which is then one undo step with the pick.</summary>
     public sealed class StateTreePickCreate
     {
         public string label;
         public string prompt;
         public Func<string, StateTreePickItem> make;
         public UnityEngine.Object reveal;
+        public Action<Rect, Func<Func<StateTreePickItem>, StateTreePickItem>> ask;
     }
 
     /// <summary>
@@ -107,22 +109,44 @@ namespace PowerOfFire.DrawToPlay.Editor
             return this;
         }
 
+        /// <summary>A "+ New …" item that asks what it needs itself, then hands back the making
+        /// (<see cref="StateTreePickCreate.ask"/>).</summary>
+        public StateTreePickMenu Ask(string label, Action<Rect, Func<Func<StateTreePickItem>, StateTreePickItem>> ask,
+            UnityEngine.Object reveal = null)
+        {
+            if (!string.IsNullOrEmpty(label) && ask != null)
+                creates.Add(new StateTreePickCreate { label = label, ask = ask, reveal = reveal });
+            return this;
+        }
+
         /// <summary>Make the <paramref name="index"/>th "+ New" with <paramref name="name"/>, pick what it
-        /// made, then reveal its target — one undo step. What the dropdown runs once the name is typed.</summary>
+        /// made, then reveal its target — one undo step. What the dropdown runs once the name is typed. An
+        /// asking item asks instead, and makes when it is answered.</summary>
         public StateTreePickItem RunCreate(int index, string name)
         {
             if (index < 0 || index >= creates.Count)
                 return null;
             StateTreePickCreate create = creates[index];
-            StateTreePickItem made = null;
+            if (create.ask != null)
+            {
+                create.ask(m_At, make => RunMade(index, make));
+                return null;
+            }
             if (create.make != null && string.IsNullOrWhiteSpace(name))
                 return null;
+            return RunMade(index, create.make != null ? () => create.make(name.Trim()) : (Func<StateTreePickItem>)null);
+        }
+
+        private StateTreePickItem RunMade(int index, Func<StateTreePickItem> make)
+        {
+            StateTreePickCreate create = creates[index];
+            StateTreePickItem made = null;
             Undo.IncrementCurrentGroup();
             int group = Undo.GetCurrentGroup();
             Undo.SetCurrentGroupName(create.label.TrimStart('+', ' ').TrimEnd('…'));
-            if (create.make != null)
+            if (make != null)
             {
-                made = create.make(name.Trim());
+                made = make();
                 if (made != null)
                     m_Picked?.Invoke(made);
             }
