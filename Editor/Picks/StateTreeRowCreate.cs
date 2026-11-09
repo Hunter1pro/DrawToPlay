@@ -20,6 +20,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <c>entries</c> list.</summary>
         public static StateTreeRegistryEntry Add(StateTreeRegistryAsset registry, string name, string group = "")
         {
+            return Add(registry, name, group, null);
+        }
+
+        /// <summary>As <see cref="Add(StateTreeRegistryAsset, string, string)"/>, with the row's id given — a
+        /// game's convention (<c>beat.</c> + name) rather than a fresh guid. Null when the id is taken by another
+        /// row.</summary>
+        public static StateTreeRegistryEntry Add(StateTreeRegistryAsset registry, string name, string group, string id)
+        {
             if (registry == null || string.IsNullOrWhiteSpace(name))
                 return null;
             name = name.Trim();
@@ -30,9 +38,18 @@ namespace PowerOfFire.DrawToPlay.Editor
                 || registry.entryType == null || registry.entryType.IsAbstract)
                 return null;
 
+            if (!string.IsNullOrEmpty(id))
+            {
+                foreach (object row in list)
+                {
+                    if (row is StateTreeRegistryEntry taken && taken.id == id)
+                        return null;
+                }
+            }
+
             Undo.RecordObject(registry, UndoName);
             var entry = (StateTreeRegistryEntry)Activator.CreateInstance(registry.entryType);
-            entry.id = Guid.NewGuid().ToString("N");
+            entry.id = string.IsNullOrEmpty(id) ? Guid.NewGuid().ToString("N") : id;
             entry.name = name;
             entry.group = group ?? "";
             if (entry is LevelObjectDef placement && registry is LevelObjectRegistry manifest)
@@ -51,9 +68,10 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>One "+ New … in X…" per target. <paramref name="byId"/>: the field keeps the row's id
         /// (a placement), else its name. A registry with its own creator panel (a level is a scene too) is
-        /// only revealed — its panel makes the row.</summary>
+        /// only revealed — its panel makes the row. A registry a game's <see cref="IStateTreeRowMaker"/> makes is
+        /// offered as the maker's own item, told <paramref name="context"/>.</summary>
         public static StateTreePickMenu OfferNew(this StateTreePickMenu menu, IEnumerable<StateTreeRegistryAsset> targets,
-            bool byId = false)
+            bool byId = false, StateTreeRowContext context = null)
         {
             if (menu == null || targets == null)
                 return menu;
@@ -63,6 +81,24 @@ namespace PowerOfFire.DrawToPlay.Editor
                 if (registry == null || !seen.Add(registry))
                     continue;
                 string kind = KindName(registry.entryType);
+                IStateTreeRowMaker maker = StateTreeRowMakers.For(registry);
+                if (maker != null)
+                {
+                    StateTreeRegistryAsset asked = registry;
+                    menu.Ask(maker.Label(registry), (at, run) => maker.Ask(new StateTreeRowRequest(asked, context, at,
+                        build =>
+                        {
+                            StateTreeRegistryEntry made = null;
+                            run(() =>
+                            {
+                                made = build?.Invoke();
+                                return made == null ? null
+                                    : new StateTreePickItem(byId ? made.id : made.name, made.name) { payload = made };
+                            });
+                            return made;
+                        })));
+                    continue;
+                }
                 if (RegistryCreators.Has(registry))
                 {
                     menu.Create("+ New " + kind + " in " + registry.name + "… (its creator)", null, null, registry);

@@ -334,7 +334,15 @@ namespace PowerOfFire.DrawToPlay.Editor
                 reset.style.width = 24f;
                 row.Add(reset);
             }
-            return row;
+            VisualElement sections = declaration.kind == GraphTaskParameterKind.String
+                ? Inputs(kind, run).Sections(parameter, Changed)
+                : null;
+            if (sections == null)
+                return row;
+            var column = new VisualElement();
+            column.Add(row);
+            column.Add(sections);
+            return column;
         }
 
         /// <summary>The shared pickers, writing into this step's run of its template.</summary>

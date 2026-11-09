@@ -4275,6 +4275,12 @@ namespace PowerOfFire.DrawToPlay.Editor
                 follows.style.fontSize = 10;
                 container.Add(follows);
             }
+            else if (step != null && surface.inputs != null && parameter.kind == GraphTaskParameterKind.String)
+            {
+                var sections = surface.inputs.Sections(step, RebuildPane);
+                if (sections != null)
+                    container.Add(sections);
+            }
 
             toggle.RegisterValueChangedCallback(evt =>
             {
