@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.26 - 2026-11-11
+- A placement picked in another level (`GraphTaskParameter.placementInLevelOf` — a portal's Arrival, any preset setting
+  or step parameter that names a place in a picked level) offers the rows of that level's visits too, each visit's own
+  rows grouped under its name ("Hall_2 ▸ find ▸ hall.find.3"). A visit's copy of a level row (its own start look) is the
+  same place and is offered once; a level row a visit hides still stands on the level, so it stays. A picked visit row
+  is no longer "missing", its tooltip names the visit and ◎ shows the visit's manifest.
+  `GraphTaskParameterPicks.Placements(level)` and `PlacementOf(level, id, out visit)` answer the same.
+
 ## 0.6.25 - 2026-11-09
 - A game's own "+ New" for a registry's rows: `IStateTreeRowMaker` (registered with `StateTreeRowMakers.Register`).
   Every picker that offers "+ New" in that registry offers the maker's line instead of the name prompt; the maker asks
