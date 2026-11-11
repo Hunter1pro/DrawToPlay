@@ -10,7 +10,8 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// text box. A row-typed parameter offers its catalog from every asset that may declare it: the tree that
     /// declares the parameter (its Data is where the type came from), then whatever else the caller passes (the
     /// kind's def, the asset being edited). A placement-in-level parameter
-    /// (<see cref="GraphTaskParameter.placementInLevelOf"/>) offers the placements of the level its sibling names.
+    /// (<see cref="GraphTaskParameter.placementInLevelOf"/>) offers the placements of the level its sibling names, and
+    /// those of its visits, each under the visit's name.
     /// </summary>
     public static class GraphTaskParameterPicks
     {
@@ -176,22 +177,108 @@ namespace PowerOfFire.DrawToPlay.Editor
             return row as LevelDef;
         }
 
-        /// <summary>The placement of that id in the level's manifest, or null.</summary>
-        public static LevelObjectDef PlacementOf(LevelDef level, string id)
+        /// <summary>The visit manifests of a level's manifest (<see cref="LevelObjectRegistry.visitOf"/>): the project's,
+        /// found once and dropped on a project change. A test hands its own.</summary>
+        internal static Func<LevelObjectRegistry, IReadOnlyList<LevelObjectRegistry>> visitsOf = ProjectVisitsOf;
+
+        private static List<LevelObjectRegistry> s_Manifests;
+
+        private static IReadOnlyList<LevelObjectRegistry> ProjectVisitsOf(LevelObjectRegistry level)
         {
+            var visits = new List<LevelObjectRegistry>();
+            if (level == null)
+                return visits;
+            if (s_Manifests == null)
+            {
+                s_Manifests = new List<LevelObjectRegistry>();
+                foreach (string guid in AssetDatabase.FindAssets("t:" + nameof(LevelObjectRegistry)))
+                {
+                    var manifest = AssetDatabase.LoadAssetAtPath<LevelObjectRegistry>(AssetDatabase.GUIDToAssetPath(guid));
+                    if (manifest != null)
+                        s_Manifests.Add(manifest);
+                }
+            }
+            foreach (LevelObjectRegistry manifest in s_Manifests)
+            {
+                if (manifest != null && manifest.isVisit && manifest.visitOf == level)
+                    visits.Add(manifest);
+            }
+            visits.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
+            return visits;
+        }
+
+        [InitializeOnLoadMethod]
+        private static void Hook()
+        {
+            EditorApplication.projectChanged -= Invalidate;
+            EditorApplication.projectChanged += Invalidate;
+        }
+
+        private static void Invalidate() => s_Manifests = null;
+
+        /// <summary>A visit as a picker groups it: its manifest's name without the trailing "Objects" (Hall_2).</summary>
+        public static string VisitName(LevelObjectRegistry visit)
+        {
+            string name = visit != null ? visit.name ?? "" : "";
+            return name.EndsWith("Objects", StringComparison.Ordinal) && name.Length > "Objects".Length
+                ? name.Substring(0, name.Length - "Objects".Length)
+                : name;
+        }
+
+        /// <summary>
+        /// Every placement a level-scoped pick may name, with the visit it belongs to (null for the level's own): the
+        /// level's rows, then each visit's own rows. A visit's copy of a level row (its own start look) carries the
+        /// level row's id and is the same place, so it is not offered twice; the level's rows a visit hides stand on
+        /// the level and on its other visits, so they stay.
+        /// </summary>
+        public static List<(LevelObjectDef row, LevelObjectRegistry visit)> Placements(LevelDef level)
+        {
+            var placements = new List<(LevelObjectDef, LevelObjectRegistry)>();
             LevelObjectRegistry manifest = level?.objects;
-            if (manifest == null || string.IsNullOrEmpty(id))
-                return null;
+            if (manifest == null)
+                return placements;
+            var ids = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < manifest.Count; i++)
             {
-                if (manifest.EntryAt(i) is LevelObjectDef row && row.id == id)
-                    return row;
+                if (manifest.EntryAt(i) is LevelObjectDef row && !string.IsNullOrEmpty(row.id) && ids.Add(row.id))
+                    placements.Add((row, null));
+            }
+            foreach (LevelObjectRegistry visit in visitsOf?.Invoke(manifest) ?? Array.Empty<LevelObjectRegistry>())
+            {
+                for (int i = 0; visit != null && i < visit.Count; i++)
+                {
+                    if (visit.EntryAt(i) is LevelObjectDef row && !string.IsNullOrEmpty(row.id) && ids.Add(row.id))
+                        placements.Add((row, visit));
+                }
+            }
+            return placements;
+        }
+
+        /// <summary>The placement of that id in the level's manifest or one of its visits', or null.</summary>
+        public static LevelObjectDef PlacementOf(LevelDef level, string id)
+        {
+            return PlacementOf(level, id, out _);
+        }
+
+        /// <summary>The same, and the visit it is in (null for the level's own).</summary>
+        public static LevelObjectDef PlacementOf(LevelDef level, string id, out LevelObjectRegistry visit)
+        {
+            visit = null;
+            if (level?.objects == null || string.IsNullOrEmpty(id))
+                return null;
+            foreach ((LevelObjectDef row, LevelObjectRegistry on) in Placements(level))
+            {
+                if (row.id != id)
+                    continue;
+                visit = on;
+                return row;
             }
             return null;
         }
 
-        /// <summary>The level's placements, written by id: those of <paramref name="preferKind"/> first, the
-        /// rest under "Other placements". Without a level, it says to pick the level first.</summary>
+        /// <summary>The level's placements and its visits', written by id: the level's grouped by kind, each visit's
+        /// under its name ("Hall_2/find"); those of <paramref name="preferKind"/> first, the rest under "Other
+        /// placements". Without a level, it says to pick the level first.</summary>
         public static StateTreePickMenu PlacementMenu(LevelDef level, string sourceLabel, string preferKind)
         {
             LevelObjectRegistry manifest = level?.objects;
@@ -203,13 +290,13 @@ namespace PowerOfFire.DrawToPlay.Editor
                     : manifest == null ? "'" + level.name + "' has no manifest yet"
                     : "'" + manifest.name + "' has no placements yet"
             };
-            for (int i = 0; manifest != null && i < manifest.Count; i++)
+            foreach ((LevelObjectDef row, LevelObjectRegistry visit) in Placements(level))
             {
-                if (!(manifest.EntryAt(i) is LevelObjectDef row) || string.IsNullOrEmpty(row.id))
-                    continue;
                 string kind = row.kind != null ? row.kind.entryName ?? "" : "";
+                string where = visit != null ? VisitName(visit).Replace("/", "∕") : "";
                 menu.items.Add(new StateTreePickItem(row.id, string.IsNullOrEmpty(row.name) ? row.id : row.name,
-                    (string.IsNullOrEmpty(kind) ? "placement" : kind) + " · " + row.id, kind)
+                    (string.IsNullOrEmpty(kind) ? "placement" : kind) + " · " + row.id + (visit != null ? " · on " + where : ""),
+                    string.IsNullOrEmpty(where) ? kind : string.IsNullOrEmpty(kind) ? where : where + "/" + kind)
                 {
                     fits = string.IsNullOrEmpty(preferKind) || kind == preferKind,
                     payload = row
@@ -223,18 +310,21 @@ namespace PowerOfFire.DrawToPlay.Editor
         {
             LevelDef level = LevelOf(source, levelName, levelEntryId);
             string sourceLabel = source != null ? ObjectNames.NicifyVariableName(source.name).ToLowerInvariant() : "level";
-            LevelObjectDef row = PlacementOf(level, current);
+            LevelObjectDef row = PlacementOf(level, current, out LevelObjectRegistry visit);
             bool missing = row == null && !string.IsNullOrEmpty(current);
             string tooltip = source == null ? "The parameter that names its level is not declared any more."
                 : level == null ? (string.IsNullOrEmpty(levelName) ? "Pick the " + sourceLabel + " first: this is a place in its level."
                     : "'" + levelName + "' names no level, so there is nothing to pick from.")
-                : row != null ? "A placement of " + level.Label + " (" + row.id + ")."
+                : row != null ? "A placement of " + level.Label + (visit != null ? " on its visit " + VisitName(visit) : "")
+                    + " (" + row.id + ")."
                 : missing ? "'" + current + "' is no placement of " + level.Label + "."
                 : "A placement in " + level.Label + ".";
             var field = new StateTreePickField(label, row != null ? row.name : current, missing, tooltip,
                 at => PlacementMenu(level, sourceLabel, preferKind).Show(at, current, picked => write(picked.value ?? "")));
-            LevelObjectRegistry manifest = level?.objects;
-            field.WithPing(manifest, manifest != null ? "the manifest of " + level.Label : null);
+            LevelObjectRegistry manifest = visit != null ? visit : level?.objects;
+            field.WithPing(manifest, manifest == null ? null
+                : visit != null ? "the manifest of " + level.Label + "'s visit " + VisitName(visit)
+                : "the manifest of " + level.Label);
             return field;
         }
     }

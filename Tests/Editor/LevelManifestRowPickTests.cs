@@ -29,10 +29,15 @@ namespace PowerOfFire.DrawToPlay.Tests
         private StateTreeAsset m_Tree;
         private LevelObjectRegistry m_Hall;
 
+        private Func<LevelObjectRegistry, IReadOnlyList<LevelObjectRegistry>> m_VisitsOf;
+
         [SetUp]
         public void SetUp()
         {
             StateTreePickMenu.headless = true;
+            m_VisitsOf = GraphTaskParameterPicks.visitsOf;
+            // In-memory manifests: no visits unless a test says.
+            GraphTaskParameterPicks.visitsOf = _ => new LevelObjectRegistry[0];
             m_Interactions = Junk(ScriptableObject.CreateInstance<PickStubRegistry>());
             m_Interactions.name = "Interactions";
             m_Interactions.entries.Add(new PickStubRow { id = "interaction.down", name = "down" });
@@ -81,6 +86,7 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void TearDown()
         {
             StateTreePickMenu.headless = false;
+            GraphTaskParameterPicks.visitsOf = m_VisitsOf;
             foreach (Object junk in m_Junk)
             {
                 if (junk != null)
@@ -159,6 +165,43 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreEqual("hall.portal.back", m_Hall.entries[0].parameters.values.Single(v => v.id == k_Arrival).stringValue,
                 "the placement's id is what is written");
             Assert.IsFalse(Field(root, "Arrival").missing);
+        }
+
+        [Test]
+        public void TheArrival_ListsTheDestinationsVisitsToo_UnderEachVisit_AndResolvesTheirRows()
+        {
+            LevelObjectRegistry lobby = m_Levels.entries[1].objects;
+            LevelObjectRegistry visit = Manifest("Lobby_2Objects",
+                Placement("lobby_2.find.photo", "The photo", "find"),
+                // The visit's own copy of a level row (its own start look) is the same place: offered once.
+                Placement("lobby.anchor", "The desk, made", "anchor"));
+            visit.visitOf = lobby;
+            visit.hidden.Add("lobby.anchor");
+            GraphTaskParameterPicks.visitsOf = level => level == lobby ? new[] { visit } : new LevelObjectRegistry[0];
+            try
+            {
+                VisualElement root = DrawPortal();
+                Field(root, "Arrival").Open();
+                StateTreePickMenu menu = StateTreePickMenu.lastShown;
+                CollectionAssert.AreEquivalent(new[] { "lobby.portal.stairs", "lobby.anchor", "lobby_2.find.photo" },
+                    menu.items.Select(i => i.value), "the level's rows, then the visit's own, each once");
+                StateTreePickItem photo = menu.items.Single(i => i.value == "lobby_2.find.photo");
+                Assert.AreEqual("Lobby_2/find", photo.group, "grouped under its visit");
+                Assert.AreEqual("anchor", menu.items.Single(i => i.value == "lobby.anchor").group, "the level's own, as before");
+                Assert.IsFalse(menu.items.Any(i => i.value.StartsWith("hall.")), "not another level's");
+
+                Choose(menu, "lobby_2.find.photo");
+                Assert.AreEqual("lobby_2.find.photo", m_Hall.entries[0].parameters.values.Single(v => v.id == k_Arrival).stringValue);
+                StateTreePickField arrival = Field(DrawPortal(), "Arrival");
+                Assert.IsFalse(arrival.missing, "a visit's row is a place in the level");
+                StringAssert.StartsWith("The photo", arrival.button.text);
+                Assert.IsNotNull(GraphTaskParameterPicks.PlacementOf(m_Levels.entries[1], "lobby_2.find.photo", out LevelObjectRegistry on));
+                Assert.AreSame(visit, on, "and says which visit it stands on");
+            }
+            finally
+            {
+                GraphTaskParameterPicks.visitsOf = m_VisitsOf;
+            }
         }
 
         [Test]
