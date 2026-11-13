@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -6,6 +7,7 @@ using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Object = UnityEngine.Object;
 
 namespace PowerOfFire.DrawToPlay.Tests
 {
@@ -298,6 +300,48 @@ namespace PowerOfFire.DrawToPlay.Tests
             CollectionAssert.Contains(buttons, "Use in mission…");
             CollectionAssert.Contains(buttons, "New preset from this…");
             Assert.IsNotNull(root.Q(className: LevelManifestWindow.ForkClass));
+        }
+
+        [Test]
+        public void ASectionsOwnedSettings_AreDrawnOnlyByTheSection_NotInThePresetArea()
+        {
+            var section = new ReachSection();
+            LevelRowSections.Register(section);
+            try
+            {
+                m_Window = Open();
+                m_Window.PlaceAtCentre("door", m_Door.id);
+
+                VisualElement root = m_Window.rootVisualElement;
+                VisualElement preset = root.Q(className: LevelManifestWindow.PresetClass);
+                List<string> labels = preset.Query<Label>().ToList().Select(label => label.text).ToList();
+                CollectionAssert.DoesNotContain(labels, "Reach", "an owned setting leaves the preset area");
+                CollectionAssert.Contains(labels, "Auto", "a setting no section owns stays");
+                Assert.IsFalse(preset.Query<TextField>().ToList().Any(field => field.label == "speed"),
+                    "an owned core value leaves it too");
+
+                List<FloatField> reach = root.Query<FloatField>().ToList().Where(field => field.label == "Reach").ToList();
+                Assert.AreEqual(1, reach.Count, "drawn once");
+                Assert.IsTrue(root.Q(className: LevelManifestWindow.RowSectionClass).Contains(reach[0]), "by the section");
+            }
+            finally
+            {
+                LevelRowSections.Unregister(section);
+            }
+        }
+
+        private sealed class ReachSection : ILevelRowSection
+        {
+            public bool Offers(LevelObjectRegistry manifest, LevelObjectDef row) => row.kind.entryName == "door";
+
+            public IReadOnlyCollection<string> Owns(LevelObjectDef row) => new[] { "reach", "speed" };
+
+            public VisualElement Build(LevelObjectRegistry manifest, LevelObjectDef row, Action changed)
+            {
+                var box = new VisualElement();
+                box.Add(new FloatField("Reach"));
+                return box;
+            }
         }
 
         // ---- helpers ----------------------------------------------------------------------

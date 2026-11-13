@@ -1122,9 +1122,11 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>The preset's core, read-only (edited in the catalogue, where it reaches every object made
-        /// from it), and its settings with this object's values — a reset puts one back on the preset's.</summary>
+        /// from it), and its settings with this object's values — a reset puts one back on the preset's. What a
+        /// game's section owns on the row is drawn by that section, not here.</summary>
         private VisualElement BuildPreset(LevelObjectDef row, LevelObjectPresetDef preset)
         {
+            HashSet<string> owned = LevelRowSections.Owned(Objects, row);
             var box = new VisualElement { style = { marginTop = 6f } };
             box.AddToClassList(PresetClass);
             var head = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
@@ -1146,8 +1148,9 @@ namespace PowerOfFire.DrawToPlay.Editor
                 GraphTaskParameter declaration = declared.Find(p => p != null && p.id == id && !string.IsNullOrEmpty(p.name));
                 if (declaration == null)
                     continue;
-                box.Add(SettingField(row, preset, declaration));
                 settings++;
+                if (!owned.Contains(id))
+                    box.Add(SettingField(row, preset, declaration));
             }
             if (settings == 0)
                 box.Add(Hint("No settings: every object of " + preset.name + " is the same."));
@@ -1158,7 +1161,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             core.Add(new ObjectField("Tree") { objectType = typeof(StateTreeAsset), value = preset.tree });
             foreach (GraphTaskParameterOverride value in preset.parameters.values)
             {
-                if (value != null && value.enabled && !preset.IsSetting(value.id))
+                if (value != null && value.enabled && !preset.IsSetting(value.id) && !owned.Contains(value.id))
                     core.Add(new TextField(value.name) { value = Shown(value, declared) });
             }
             var tags = new List<string>();
