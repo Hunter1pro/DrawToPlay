@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.27 - 2026-11-13
+- A preset row's settings and core values that a game's section owns (`ILevelRowSection.Owns`) are no longer drawn
+  under "Preset: <name>" in the Level Manifest — the section draws them, so each appears once. Before, only the
+  Parameters list of a row without a preset left them out.
+
 ## 0.6.26 - 2026-11-11
 - A placement picked in another level (`GraphTaskParameter.placementInLevelOf` — a portal's Arrival, any preset setting
   or step parameter that names a place in a picked level) offers the rows of that level's visits too, each visit's own
