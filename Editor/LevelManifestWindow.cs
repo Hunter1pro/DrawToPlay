@@ -1439,7 +1439,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (frustum != null
                 && !GeometryUtility.TestPlanesAABB(frustum, new Bounds(world, Vector3.one * 4f)))
                 return;
-            GameObject prefab = PreviewOf(def, out Matrix4x4 local, out GameObject kindPrefab);
+            GameObject prefab = PreviewOf(def, out Matrix4x4 local, out GameObject kindPrefab, out string variant);
 
             if (s_Hologram == null)
             {
@@ -1475,7 +1475,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             Quaternion facing = manifest.Facing(def.facing);
 
             IReadOnlyList<LevelGhostMeshes.Part> parts = style == LevelGhostStyle.Mesh
-                ? LevelGhostMeshes.Of(prefab)
+                ? LevelGhostMeshes.Of(prefab, variant)
                 : null;
             // A row's own model that draws nothing (a broken table row) still shows its kind's body, if it has one.
             if (style == LevelGhostStyle.Mesh && (parts == null || parts.Count == 0) && prefab != kindPrefab && kindPrefab != null)
@@ -1618,15 +1618,16 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>The prefab a row looks like — the game's answer for the row (<see cref="LevelRowGhosts"/>), else
         /// its kind's — where it sits on the placement, and the kind's own prefab; null without a kind.</summary>
-        private GameObject PreviewOf(LevelObjectDef def, out Matrix4x4 local, out GameObject kindPrefab)
+        private GameObject PreviewOf(LevelObjectDef def, out Matrix4x4 local, out GameObject kindPrefab, out string variant)
         {
             local = Matrix4x4.identity;
             kindPrefab = null;
+            variant = null;
             LevelObjectKindRegistry kinds = Kinds();
             if (kinds == null || !(kinds.FindByName(def.kind.entryName) is LevelObjectKindDef kind))
                 return null;
             kindPrefab = kind.prefab;
-            return LevelRowGhosts.Of(kind, def, out local);
+            return LevelRowGhosts.Of(kind, def, out local, out variant);
         }
 
         /// <summary>The ghost material, made once and shared by every placement.</summary>

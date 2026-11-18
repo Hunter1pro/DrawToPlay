@@ -15,6 +15,9 @@ namespace PowerOfFire.DrawToPlay.Tests
         {
             public GameObject model;
             public Matrix4x4 at = Matrix4x4.Translate(new Vector3(0f, 0.5f, 0f));
+            public string variant;
+
+            public string VariantOf(LevelObjectKindDef kind, LevelObjectDef row) => variant;
 
             public GameObject GhostOf(LevelObjectKindDef kind, LevelObjectDef row, out Matrix4x4 local)
             {
@@ -90,6 +93,29 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.AreSame(own, parts[0].MaterialOf(0), "drawn in its own material");
             Assert.AreSame(own, parts[0].MaterialOf(3), "the last material repeats, as Unity draws it");
             Assert.IsNull(new LevelGhostMeshes.Part(parts[0].mesh, Matrix4x4.identity).MaterialOf(0), "none: the hologram");
+        }
+
+        [Test]
+        public void ASwitchedOffVariant_IsLeftOut_UnlessTheRowNamesIt()
+        {
+            foreach (string name in new[] { "Made", "Folded" })
+            {
+                var variant = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                variant.name = name;
+                variant.transform.SetParent(m_Model.transform, false);
+                variant.SetActive(false);
+            }
+            LevelGhostMeshes.Clear();
+
+            Assert.AreEqual(1, LevelGhostMeshes.Of(m_Model).Count, "only what the model has on");
+            Assert.AreEqual(2, LevelGhostMeshes.Of(m_Model, "Folded").Count, "and the variant the row picks");
+            Assert.AreEqual(1, LevelGhostMeshes.Of(m_Model, "Burnt").Count, "a name it lacks adds nothing");
+
+            m_Ghost.variant = "Folded";
+            LevelRowGhosts.Of(m_Prop, Row("m"), out _, out string named);
+            Assert.AreEqual("Folded", named, "the game names the variant");
+            LevelRowGhosts.Of(m_Prop, Row("other"), out _, out string none);
+            Assert.IsNull(none, "the kind's own prefab names none");
         }
 
         [Test]

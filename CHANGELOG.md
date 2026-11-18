@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.32 - 2026-11-18
+- A Mesh ghost draws only what its prefab has switched on, as the game does; a row may name one switched-off variant
+  to draw all the same (`ILevelRowGhost.VariantOf`, `LevelGhostMeshes.Of(prefab, shown)`) — an object with several
+  looks ghosts the one its row picks, not all of them at once.
+
 ## 0.6.31 - 2026-11-18
 - The Level Manifest's Mesh ghost looks like the thing itself: each part in its own materials, lit by the Scene view,
   with a rim in the kind's colour around it (wider on the selected row) instead of the whole object tinted. A part

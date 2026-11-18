@@ -14,6 +14,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>The prefab to ghost for <paramref name="row"/>, and where it sits relative to the placement (the
         /// kind prefab's socket). Null: not this game's row — the next one is asked, then the kind's prefab.</summary>
         GameObject GhostOf(LevelObjectKindDef kind, LevelObjectDef row, out Matrix4x4 local);
+
+        /// <summary>The switched-off child of the ghost to draw for this row — the variant it picks; null: none.</summary>
+        string VariantOf(LevelObjectKindDef kind, LevelObjectDef row) => null;
     }
 
     /// <summary>The ghosts a game registered; a domain reload clears them, and the game's class registers again.</summary>
@@ -30,9 +33,14 @@ namespace PowerOfFire.DrawToPlay.Editor
         public static void Unregister(ILevelRowGhost ghost) => s_Ghosts.Remove(ghost);
 
         /// <summary>The first registered answer for <paramref name="row"/>, else its kind's prefab where it stands.</summary>
-        public static GameObject Of(LevelObjectKindDef kind, LevelObjectDef row, out Matrix4x4 local)
+        public static GameObject Of(LevelObjectKindDef kind, LevelObjectDef row, out Matrix4x4 local) =>
+            Of(kind, row, out local, out _);
+
+        /// <summary>The same, and the variant the answer names (null for the kind's own prefab).</summary>
+        public static GameObject Of(LevelObjectKindDef kind, LevelObjectDef row, out Matrix4x4 local, out string variant)
         {
             local = Matrix4x4.identity;
+            variant = null;
             if (kind == null)
                 return null;
             if (row != null)
@@ -43,6 +51,7 @@ namespace PowerOfFire.DrawToPlay.Editor
                     if (own != null)
                     {
                         local = at;
+                        variant = ghost.VariantOf(kind, row);
                         return own;
                     }
                 }

@@ -74,17 +74,32 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <param name="prefab">The prefab a kind names, or null.</param>
         /// <returns>Never null; empty when the prefab has no geometry at all (a look that is all
         /// particles, sprites or code), which is the caller's cue to draw a stand-in.</returns>
-        public static IReadOnlyList<Part> Of(GameObject prefab)
+        /// <param name="shown">A switched-off child of that name drawn all the same — the variant a row picks (a bed
+        /// made, unmade or folded); null draws only what the prefab has on.</param>
+        public static IReadOnlyList<Part> Of(GameObject prefab, string shown = null)
         {
             if (prefab == null)
                 return s_None;
-            if (s_Cache.TryGetValue(prefab, out List<Part> cached))
+            var key = (prefab, shown ?? "");
+            if (s_Cache.TryGetValue(key, out List<Part> cached))
                 return cached;
 
             var parts = new List<Part>();
-            Collect(prefab, parts);
-            s_Cache[prefab] = parts;
+            Collect(prefab, shown, parts);
+            s_Cache[key] = parts;
             return parts;
+        }
+
+        /// <summary>Whether <paramref name="part"/> is drawn: it and every parent up to <paramref name="root"/> on, but
+        /// for switched-off ones named <paramref name="shown"/>.</summary>
+        internal static bool IsOn(Transform part, Transform root, string shown)
+        {
+            for (Transform at = part; at != null; at = at == root ? null : at.parent)
+            {
+                if (!at.gameObject.activeSelf && (string.IsNullOrEmpty(shown) || at.name != shown))
+                    return false;
+            }
+            return true;
         }
 
         /// <summary>Forget everything, so a prefab edited while the overlay is open shows its new
@@ -100,7 +115,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             s_Cache.Clear();
         }
 
-        private static void Collect(GameObject prefab, List<Part> into)
+        private static void Collect(GameObject prefab, string shown, List<Part> into)
         {
             Matrix4x4 rootInverse = prefab.transform.worldToLocalMatrix;
 
@@ -109,9 +124,10 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 if (filters[i].sharedMesh == null)
                     continue;
-                // A renderer switched off in the prefab (an outline hull lit only when told) is not part of its look.
+                // A renderer switched off in the prefab (an outline hull lit only when told), or a part switched off (a
+                // variant the row does not pick), is not part of its look.
                 var renderer = filters[i].GetComponent<MeshRenderer>();
-                if (renderer != null && !renderer.enabled)
+                if (renderer != null && !renderer.enabled || !IsOn(filters[i].transform, prefab.transform, shown))
                     continue;
                 into.Add(new Part(filters[i].sharedMesh,
                     rootInverse * filters[i].transform.localToWorldMatrix,
@@ -177,8 +193,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
         }
 
-        private static readonly Dictionary<GameObject, List<Part>> s_Cache =
-            new Dictionary<GameObject, List<Part>>();
+        private static readonly Dictionary<(GameObject, string), List<Part>> s_Cache =
+            new Dictionary<(GameObject, string), List<Part>>();
 
         /// <summary>Meshes this made, so they can be destroyed rather than leaked — a baked mesh
         /// is a real object and nothing else owns it.</summary>
