@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.28 - 2026-11-18
+- Level Manifest palette: one tile per kind. The preset that speaks for its kind (`forItsKind`) no longer draws a second
+  tile under it: the kind's tile places from that preset (its tree, core values, settings and tags), its tooltip is the
+  preset's description, and searching the preset's name finds the kind. A kind's other presets (variants, a designer's
+  copies) keep their own tiles. A kind with no such preset places bare, as before.
+
 ## 0.6.27 - 2026-11-13
 - A preset row's settings and core values that a game's section owns (`ILevelRowSection.Owns`) are no longer drawn
   under "Preset: <name>" in the Level Manifest — the section draws them, so each appears once. Before, only the

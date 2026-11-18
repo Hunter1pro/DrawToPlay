@@ -250,6 +250,36 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void APresetThatSpeaksForItsKind_IsTheKindsTile_NotASecondOne()
+        {
+            m_Door.forItsKind = true;
+            m_Door.name = "Entrance";
+            m_Door.description = "A door she opens.";
+            var heavy = new LevelObjectPresetDef { id = "preset.door.heavy", name = "Heavy door", tree = m_Tree };
+            heavy.kind.entryId = "kind.door";
+            heavy.kind.entryName = "door";
+            m_Presets.entries.Add(heavy);
+            m_Window = Open();
+
+            CollectionAssert.AreEqual(new[] { "door", "npc" }, m_Window.palette.Offered());
+            CollectionAssert.AreEqual(new[] { "door/Heavy door" }, m_Window.palette.OfferedPresets(), "a variant keeps its tile");
+            Assert.AreEqual(m_Door.id, m_Window.palette.PlacesFrom("door"), "the door's tile places from the door's own preset");
+            Assert.IsNull(m_Window.palette.PlacesFrom("npc"), "a kind with no such preset places bare");
+            VisualElement doorTile = m_Window.palette.Query<VisualElement>(className: LevelKindPalette.TileClass).ToList()
+                .Single(e => (e.userData as string) == "door");
+            StringAssert.StartsWith(m_Door.description, doorTile.tooltip, "the tile says what its preset is");
+
+            m_Window.palette.Q<ToolbarSearchField>().value = "Entrance";
+            List<VisualElement> shown = m_Window.palette.Query<VisualElement>(className: LevelKindPalette.TileClass).ToList()
+                .Where(e => e.resolvedStyle.display != DisplayStyle.None && e.style.display != DisplayStyle.None).ToList();
+            CollectionAssert.AreEqual(new object[] { "door" }, shown.Select(e => e.userData).ToArray(),
+                "searching the hidden preset's name finds its kind");
+
+            LevelObjectDef row = m_Window.PlaceAtCentre("door", m_Window.palette.PlacesFrom("door"));
+            Assert.AreSame(m_Door, m_Manifest.PresetOf(row));
+        }
+
+        [Test]
         public void ANewObjectsName_KeepsLevelAndKindFixed_OnlyTheLastPartTyped()
         {
             Assert.AreEqual("hall.door.", LevelPresetEdits.NamePrefix("hall", "door"));

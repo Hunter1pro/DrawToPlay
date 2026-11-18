@@ -25,6 +25,18 @@ namespace PowerOfFire.DrawToPlay.Editor
             return under;
         }
 
+        /// <summary>The preset that speaks for <paramref name="kindName"/> — the kind's own definition, placed from the
+        /// kind's tile — or null.</summary>
+        internal static LevelObjectPresetDef SpeaksFor(LevelObjectPresetRegistry presets, string kindName)
+        {
+            foreach (LevelObjectPresetDef preset in Under(presets, kindName))
+            {
+                if (preset.forItsKind)
+                    return preset;
+            }
+            return null;
+        }
+
         /// <summary>The fixed start of a new object's name: <c>level.kind.</c>.</summary>
         internal static string NamePrefix(string levelKey, string kindName)
         {

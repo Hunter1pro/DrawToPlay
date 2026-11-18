@@ -12,8 +12,9 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// prefab's preview (or its initial on the kind's colour) and its name — and under it a tile per preset of
     /// that kind from the catalogue the level lists. Drag a tile into the Scene view or onto the list to place
     /// one; double-click it to place one at the view's centre (a single click places nothing: tapping tiles made
-    /// duplicates). A preset's tile places an object made from the preset. A one-per-level kind's tile moves the
-    /// level's one when it has it.
+    /// duplicates). A preset's tile places an object made from the preset. The preset that speaks for its kind
+    /// (<see cref="LevelObjectPresetDef.forItsKind"/>) has no tile of its own: it is the kind's definition, so the
+    /// kind's tile places from it and says what it is. A one-per-level kind's tile moves the level's one when it has it.
     /// </summary>
     internal sealed class LevelKindPalette : VisualElement
     {
@@ -41,6 +42,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         private readonly Action<string, string> m_Clicked;
         private readonly VisualElement m_Tiles = new VisualElement();
         private readonly ToolbarSearchField m_Search = new ToolbarSearchField();
+        private readonly Dictionary<string, LevelObjectPresetDef> m_Own = new Dictionary<string, LevelObjectPresetDef>();
         private LevelObjectKindRegistry m_Shown;
         private string m_ShownPresets;
 
@@ -72,6 +74,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Shown = kinds;
             m_ShownPresets = shownPresets;
             m_Tiles.Clear();
+            m_Own.Clear();
 
             var count = 0;
             if (kinds != null)
@@ -81,9 +84,15 @@ namespace PowerOfFire.DrawToPlay.Editor
                     if (kind == null || string.IsNullOrEmpty(kind.name))
                         continue;
                     Color colour = LevelManifestEdits.KindColour(kinds, kind.name);
-                    m_Tiles.Add(Tile(kind, colour, null));
+                    LevelObjectPresetDef own = LevelPresetEdits.SpeaksFor(presets, kind.name);
+                    if (own != null)
+                        m_Own[kind.name] = own;
+                    m_Tiles.Add(Tile(kind, colour, null, own));
                     foreach (LevelObjectPresetDef preset in LevelPresetEdits.Under(presets, kind.name))
-                        m_Tiles.Add(Tile(kind, colour, preset));
+                    {
+                        if (preset != own)
+                            m_Tiles.Add(Tile(kind, colour, preset));
+                    }
                     count++;
                 }
             }
@@ -101,9 +110,11 @@ namespace PowerOfFire.DrawToPlay.Editor
             m_Shown = null;
             m_ShownPresets = null;
             m_Tiles.Clear();
+            m_Own.Clear();
         }
 
-        /// <summary>The presets' ids, names and kinds in order — what decides whether the tiles are stale.</summary>
+        /// <summary>The presets' ids, names, kinds and who speaks for a kind, in order — what decides whether the tiles
+        /// are stale.</summary>
         private static string Signature(LevelObjectPresetRegistry presets)
         {
             if (presets == null)
@@ -112,13 +123,14 @@ namespace PowerOfFire.DrawToPlay.Editor
             foreach (LevelObjectPresetDef preset in presets.entries)
             {
                 if (preset != null)
-                    text.Append(preset.id).Append('|').Append(preset.name).Append('|').Append(preset.kind.entryName).Append(';');
+                    text.Append(preset.id).Append('|').Append(preset.name).Append('|').Append(preset.kind.entryName)
+                        .Append(preset.forItsKind ? "|own" : "").Append(';');
             }
             return text.ToString();
         }
 
-        /// <summary>A kind's tile shows when its name or any of its presets' matches; a preset's when its own
-        /// name or its kind's does.</summary>
+        /// <summary>A kind's tile shows when its name, the name of the preset that speaks for it, or any of its
+        /// presets' matches; a preset's when its own name or its kind's does.</summary>
         private void Filter(string filter)
         {
             bool all = string.IsNullOrWhiteSpace(filter);
@@ -134,7 +146,8 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 bool shown;
                 if (tile.userData is string kind)
-                    shown = Has(kind) || kindsShown.Contains(kind);
+                    shown = Has(kind) || kindsShown.Contains(kind)
+                        || (m_Own.TryGetValue(kind, out LevelObjectPresetDef own) && Has(own.name));
                 else if (tile.userData is PresetTile preset)
                     shown = Has(preset.name) || Has(preset.kind);
                 else
@@ -143,7 +156,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             }
         }
 
-        private VisualElement Tile(LevelObjectKindDef kind, Color colour, LevelObjectPresetDef preset)
+        /// <param name="own">For a kind's tile: the preset that speaks for the kind, which the tile places from.</param>
+        private VisualElement Tile(LevelObjectKindDef kind, Color colour, LevelObjectPresetDef preset,
+            LevelObjectPresetDef own = null)
         {
             VisualElement tile = StateTreeInspectorLook.Card(StateTreeInspectorLook.CardBackground, colour);
             tile.AddToClassList(preset != null ? PresetTileClass : TileClass);
@@ -156,6 +171,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             tile.style.paddingBottom = 3f;
             string what = preset != null
                 ? (string.IsNullOrEmpty(preset.description) ? "A " + kind.name + " preset." : preset.description)
+                : own != null && !string.IsNullOrEmpty(own.description) ? own.description
                 : string.IsNullOrEmpty(kind.description) ? kind.name : kind.description;
             tile.tooltip = what + (kind.onePerLevel
                 ? "\n\nOne per level: drag into the Scene view to put the level's " + kind.name + " there (the one it has "
@@ -173,7 +189,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             tile.Add(label);
 
             string name = kind.name;
-            string presetId = preset != null ? preset.id : null;
+            string presetId = preset != null ? preset.id : own != null ? own.id : null;
             Vector2 pressedAt = default;
             var pressed = false;
             var clicks = 0;
@@ -303,6 +319,12 @@ namespace PowerOfFire.DrawToPlay.Editor
         }
 
         /// <summary>The kind tiles' names in order — what the column offers.</summary>
+        /// <summary>The preset a kind's tile places from: the one that speaks for the kind, or null.</summary>
+        internal string PlacesFrom(string kind)
+        {
+            return kind != null && m_Own.TryGetValue(kind, out LevelObjectPresetDef own) ? own.id : null;
+        }
+
         internal List<string> Offered()
         {
             var names = new List<string>();
