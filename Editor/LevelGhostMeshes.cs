@@ -29,6 +29,9 @@ namespace PowerOfFire.DrawToPlay.Editor
     /// own transform on this asset carries a ×100 import scale. Applying that scale gives a
     /// 180-unit giant; dropping it gives 1.80 units standing on the origin, which matches the
     /// posed renderer's own bounds and the rig's 1.66-unit bone spread.
+    ///
+    /// EACH PART KEEPS ITS RENDERER'S MATERIALS, so the ghost can look like the thing itself; a renderer the prefab
+    /// switches off (an outline hull) is left out.
     /// </summary>
     [InitializeOnLoad]
     public static class LevelGhostMeshes
@@ -42,19 +45,28 @@ namespace PowerOfFire.DrawToPlay.Editor
             AssemblyReloadEvents.beforeAssemblyReload += Clear;
         }
 
-        /// <summary>One drawable piece of a prefab: a mesh and where it sits relative to the
-        /// prefab's root.</summary>
+        /// <summary>One drawable piece of a prefab: a mesh, where it sits relative to the prefab's root, and the
+        /// materials its renderer draws it with (one per sub-mesh; empty when it has none).</summary>
         public readonly struct Part
         {
             public readonly Mesh mesh;
             public readonly Matrix4x4 local;
+            public readonly Material[] materials;
 
-            public Part(Mesh mesh, Matrix4x4 local)
+            public Part(Mesh mesh, Matrix4x4 local, Material[] materials = null)
             {
                 this.mesh = mesh;
                 this.local = local;
+                this.materials = materials ?? s_NoMaterials;
             }
+
+            /// <summary>The material sub-mesh <paramref name="sub"/> is drawn with: the last one repeats, as Unity
+            /// draws it; null without any.</summary>
+            public Material MaterialOf(int sub) =>
+                materials.Length == 0 ? null : materials[Mathf.Min(sub, materials.Length - 1)];
         }
+
+        private static readonly Material[] s_NoMaterials = new Material[0];
 
         /// <summary>
         /// The prefab's drawable parts, built on first ask and kept.
@@ -97,8 +109,13 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 if (filters[i].sharedMesh == null)
                     continue;
+                // A renderer switched off in the prefab (an outline hull lit only when told) is not part of its look.
+                var renderer = filters[i].GetComponent<MeshRenderer>();
+                if (renderer != null && !renderer.enabled)
+                    continue;
                 into.Add(new Part(filters[i].sharedMesh,
-                    rootInverse * filters[i].transform.localToWorldMatrix));
+                    rootInverse * filters[i].transform.localToWorldMatrix,
+                    renderer != null ? renderer.sharedMaterials : null));
             }
 
             SkinnedMeshRenderer[] skins = prefab.GetComponentsInChildren<SkinnedMeshRenderer>(true);
@@ -141,7 +158,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
                     Matrix4x4 place = rootInverse * skins[i].transform.localToWorldMatrix;
                     into.Add(new Part(baked, Matrix4x4.TRS(place.GetColumn(3), place.rotation,
-                        Vector3.one)));
+                        Vector3.one), skins[i].sharedMaterials));
                 }
             }
             catch (System.Exception error)

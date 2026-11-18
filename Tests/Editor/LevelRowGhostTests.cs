@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 using PowerOfFire.DrawToPlay.Editor;
 using UnityEngine;
@@ -73,6 +74,22 @@ namespace PowerOfFire.DrawToPlay.Tests
             LevelRowGhosts.Unregister(m_Ghost);
             Assert.AreSame(m_Body, LevelRowGhosts.Of(m_Prop, Row("m"), out _), "unregistered, twice harmlessly");
             Assert.IsNull(LevelRowGhosts.Of(null, Row("m"), out _), "no kind, nothing");
+        }
+
+        [Test]
+        public void AGhostsParts_KeepTheirMaterials_AndASwitchedOffRendererIsNotPartOfTheLook()
+        {
+            var hull = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            hull.transform.SetParent(m_Model.transform, false);
+            hull.GetComponent<MeshRenderer>().enabled = false;
+            LevelGhostMeshes.Clear();
+
+            IReadOnlyList<LevelGhostMeshes.Part> parts = LevelGhostMeshes.Of(m_Model);
+            Assert.AreEqual(1, parts.Count, "the hull, off until lit, is left out");
+            Material own = m_Model.GetComponent<MeshRenderer>().sharedMaterial;
+            Assert.AreSame(own, parts[0].MaterialOf(0), "drawn in its own material");
+            Assert.AreSame(own, parts[0].MaterialOf(3), "the last material repeats, as Unity draws it");
+            Assert.IsNull(new LevelGhostMeshes.Part(parts[0].mesh, Matrix4x4.identity).MaterialOf(0), "none: the hologram");
         }
 
         [Test]

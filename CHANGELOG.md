@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.31 - 2026-11-18
+- The Level Manifest's Mesh ghost looks like the thing itself: each part in its own materials, lit by the Scene view,
+  with a rim in the kind's colour around it (wider on the selected row) instead of the whole object tinted. A part
+  with no material keeps the tinted hologram; a renderer the prefab switches off (an outline hull) is left out.
+
 ## 0.6.30 - 2026-11-18
 - A row's own ghost: `ILevelRowGhost` (registered with `LevelRowGhosts.Register`) answers what a manifest row looks
   like when its kind's prefab is not the whole answer — a row that picks its model from its kind's definitions table.

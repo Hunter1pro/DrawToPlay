@@ -1418,7 +1418,7 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// stays a ghost so it can never be mistaken for something selectable.
         ///
         /// TWO SHAPES, THE AUTHOR'S CHOICE (<see cref="LevelGhostStyle"/>): the prefab's real
-        /// geometry at 1:1, or a capsule coloured by kind. Nothing is instantiated into the open
+        /// geometry at 1:1 in its own materials with a rim in the kind's colour, or a capsule coloured by kind. Nothing is instantiated into the open
         /// scene either way — a scene that spawns preview objects has objects in it, which is the
         /// one thing a manifest-driven level is supposed not to have (rigged characters are posed
         /// in a preview scene instead, see <see cref="LevelGhostMeshes"/>).
@@ -1495,15 +1495,70 @@ namespace PowerOfFire.DrawToPlay.Editor
 
             Matrix4x4 place = Matrix4x4.TRS(world, facing, Vector3.one) * local
                 * Matrix4x4.Rotate(prefab.transform.rotation);
+            // THE THING ITSELF, in its own materials, queued for the Scene camera so the scene's lights light it; a
+            // part with no material keeps the kind-coloured hologram.
+            Camera eye = SceneView.currentDrawingSceneView != null ? SceneView.currentDrawingSceneView.camera : null;
             for (int i = 0; i < parts.Count; i++)
             {
                 Mesh mesh = parts[i].mesh;
                 if (mesh == null)
                     continue;
                 for (int sub = 0; sub < mesh.subMeshCount; sub++)
-                    Graphics.DrawMeshNow(mesh, place * parts[i].local, sub);
+                {
+                    Material own = parts[i].MaterialOf(sub);
+                    if (eye != null && own != null)
+                        Graphics.DrawMesh(mesh, place * parts[i].local, own, 0, eye, sub, null, false, true);
+                    else
+                        Graphics.DrawMeshNow(mesh, place * parts[i].local, sub);
+                }
+            }
+            DrawOutline(parts, place, tint, selected);
+        }
+
+        /// <summary>World metres of the rim around a mesh ghost; the selected one's is wider.</summary>
+        private const float k_Rim = 0.012f;
+        private const float k_SelectedRim = 0.025f;
+
+        /// <summary>
+        /// THE KIND, AS AN OUTLINE: each part drawn again a rim larger about its own centre, back faces only, in the
+        /// kind's colour — the object keeps its look and the rim says what kind it is (and, wider, which is selected).
+        /// </summary>
+        private static void DrawOutline(IReadOnlyList<LevelGhostMeshes.Part> parts, Matrix4x4 place, Color tint, bool selected)
+        {
+            if (s_Outline == null)
+            {
+                Shader shader = Shader.Find("Hidden/Internal-Colored");
+                if (shader == null)
+                    return;
+                s_Outline = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
+                s_Outline.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                s_Outline.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                s_Outline.SetInt("_ZWrite", 0);
+                s_Outline.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.LessEqual);
+                s_Outline.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Front);
+            }
+            s_Outline.color = new Color(tint.r, tint.g, tint.b, selected ? 1f : 0.85f);
+            s_Outline.SetPass(0);
+            float rim = selected ? k_SelectedRim : k_Rim;
+            for (int i = 0; i < parts.Count; i++)
+            {
+                Mesh mesh = parts[i].mesh;
+                if (mesh == null)
+                    continue;
+                Matrix4x4 at = place * parts[i].local;
+                Vector3 size = Vector3.Scale(mesh.bounds.extents, at.lossyScale);
+                Vector3 grow = new Vector3(Grow(size.x, rim), Grow(size.y, rim), Grow(size.z, rim));
+                Vector3 centre = mesh.bounds.center;
+                Matrix4x4 hull = at * Matrix4x4.Translate(centre) * Matrix4x4.Scale(grow) * Matrix4x4.Translate(-centre);
+                for (int sub = 0; sub < mesh.subMeshCount; sub++)
+                    Graphics.DrawMeshNow(mesh, hull, sub);
             }
         }
+
+        private static float Grow(float extent, float rim) => 1f + rim / Mathf.Max(Mathf.Abs(extent), 0.01f);
+
+        /// <summary>The outline material, made once and shared.</summary>
+        private static Material s_Outline;
 
         /// <summary>The colour a kind is drawn in — see <see cref="LevelManifestEdits.KindColour"/>;
         /// the palette tile and the group wear the same one.</summary>
