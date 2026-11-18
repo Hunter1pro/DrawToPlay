@@ -131,7 +131,7 @@ namespace PowerOfFire.DrawToPlay.Editor
 
         /// <summary>A kind's tile shows when its name, the name of the preset that speaks for it, or any of its
         /// presets' matches; a preset's when its own name or its kind's does.</summary>
-        private void Filter(string filter)
+        internal void Filter(string filter)
         {
             bool all = string.IsNullOrWhiteSpace(filter);
             string trimmed = all ? "" : filter.Trim();

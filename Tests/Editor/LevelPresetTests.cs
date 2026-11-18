@@ -269,7 +269,7 @@ namespace PowerOfFire.DrawToPlay.Tests
                 .Single(e => (e.userData as string) == "door");
             StringAssert.StartsWith(m_Door.description, doorTile.tooltip, "the tile says what its preset is");
 
-            m_Window.palette.Q<ToolbarSearchField>().value = "Entrance";
+            m_Window.palette.Filter("Entrance");
             List<VisualElement> shown = m_Window.palette.Query<VisualElement>(className: LevelKindPalette.TileClass).ToList()
                 .Where(e => e.resolvedStyle.display != DisplayStyle.None && e.style.display != DisplayStyle.None).ToList();
             CollectionAssert.AreEqual(new object[] { "door" }, shown.Select(e => e.userData).ToArray(),

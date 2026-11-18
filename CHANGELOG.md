@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.29 - 2026-11-18
+- The one-tile-per-kind test filters the palette directly; a search field's change event does not reach an unshown window.
+
 ## 0.6.28 - 2026-11-18
 - Level Manifest palette: one tile per kind. The preset that speaks for its kind (`forItsKind`) no longer draws a second
   tile under it: the kind's tile places from that preset (its tree, core values, settings and tags), its tooltip is the
