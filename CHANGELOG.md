@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.30 - 2026-11-18
+- A row's own ghost: `ILevelRowGhost` (registered with `LevelRowGhosts.Register`) answers what a manifest row looks
+  like when its kind's prefab is not the whole answer — a row that picks its model from its kind's definitions table.
+  The Level Manifest's Mesh ghost draws that model in the kind's colour; a row nobody answers keeps its kind's prefab,
+  and a model that draws nothing falls back to the kind's body before the capsule.
+- A visit's dimmed rows from the first visit stand at their own height, as the first visit draws them.
+
 ## 0.6.29 - 2026-11-18
 - The one-tile-per-kind test filters the palette directly; a search field's change event does not reach an unshown window.
 

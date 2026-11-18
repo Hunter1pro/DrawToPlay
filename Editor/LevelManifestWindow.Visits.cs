@@ -352,7 +352,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             {
                 if (row == null || visit.Hides(row))
                     continue;
-                Vector3 world = visit.visitOf.ToWorld(row.position);
+                Vector3 world = visit.visitOf.ToWorld(row.position, row.HeightOr(KindHeightOf(row)));
                 DrawHologram(visit.visitOf, row, world, false, frustum);
                 if (Event.current.type != EventType.Repaint)
                     continue;

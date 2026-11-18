@@ -1439,7 +1439,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (frustum != null
                 && !GeometryUtility.TestPlanesAABB(frustum, new Bounds(world, Vector3.one * 4f)))
                 return;
-            GameObject prefab = PreviewOf(def);
+            GameObject prefab = PreviewOf(def, out Matrix4x4 local, out GameObject kindPrefab);
 
             if (s_Hologram == null)
             {
@@ -1477,6 +1477,13 @@ namespace PowerOfFire.DrawToPlay.Editor
             IReadOnlyList<LevelGhostMeshes.Part> parts = style == LevelGhostStyle.Mesh
                 ? LevelGhostMeshes.Of(prefab)
                 : null;
+            // A row's own model that draws nothing (a broken table row) still shows its kind's body, if it has one.
+            if (style == LevelGhostStyle.Mesh && (parts == null || parts.Count == 0) && prefab != kindPrefab && kindPrefab != null)
+            {
+                prefab = kindPrefab;
+                local = Matrix4x4.identity;
+                parts = LevelGhostMeshes.Of(prefab);
+            }
 
             // Capsule mode, and mesh mode for a prefab with no geometry at all (a look that is all
             // particles, sprites or code) — an object standing somewhere still has to show.
@@ -1486,7 +1493,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return;
             }
 
-            Matrix4x4 place = Matrix4x4.TRS(world, facing * prefab.transform.rotation, Vector3.one);
+            Matrix4x4 place = Matrix4x4.TRS(world, facing, Vector3.one) * local
+                * Matrix4x4.Rotate(prefab.transform.rotation);
             for (int i = 0; i < parts.Count; i++)
             {
                 Mesh mesh = parts[i].mesh;
@@ -1553,13 +1561,17 @@ namespace PowerOfFire.DrawToPlay.Editor
         /// <summary>The primitive capsule's mesh, borrowed once and shared.</summary>
         private static Mesh s_StandIn;
 
-        /// <summary>The prefab a row's KIND says it looks like, or null.</summary>
-        private GameObject PreviewOf(LevelObjectDef def)
+        /// <summary>The prefab a row looks like — the game's answer for the row (<see cref="LevelRowGhosts"/>), else
+        /// its kind's — where it sits on the placement, and the kind's own prefab; null without a kind.</summary>
+        private GameObject PreviewOf(LevelObjectDef def, out Matrix4x4 local, out GameObject kindPrefab)
         {
+            local = Matrix4x4.identity;
+            kindPrefab = null;
             LevelObjectKindRegistry kinds = Kinds();
-            return kinds != null && kinds.FindByName(def.kind.entryName) is LevelObjectKindDef kind
-                ? kind.prefab
-                : null;
+            if (kinds == null || !(kinds.FindByName(def.kind.entryName) is LevelObjectKindDef kind))
+                return null;
+            kindPrefab = kind.prefab;
+            return LevelRowGhosts.Of(kind, def, out local);
         }
 
         /// <summary>The ghost material, made once and shared by every placement.</summary>
