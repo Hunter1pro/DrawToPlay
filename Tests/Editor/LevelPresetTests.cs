@@ -207,6 +207,21 @@ namespace PowerOfFire.DrawToPlay.Tests
         }
 
         [Test]
+        public void ARowsOwnTags_RunBesideItsPresets_EachOnce()
+        {
+            LevelObjectDef row = Linked("hall.door.1");
+            row.tags.Add(new LevelObjectTagRef { tag = "wardrobe-items", tagId = "tag.wardrobe-items" });
+            row.tags.Add(new LevelObjectTagRef { tag = "outline" });
+
+            LevelObjectDef runs = m_Manifest.Resolve(row);
+
+            CollectionAssert.AreEqual(new[] { "outline", "wardrobe-items" }, runs.tags.Select(t => t.tag).ToArray(),
+                "the preset's, then the row's own; never twice");
+            Assert.AreEqual("tag.wardrobe-items", runs.tags[1].tagId);
+            Assert.AreEqual(2, row.tags.Count, "the row is never written");
+        }
+
+        [Test]
         public void ANewPresetFromARowWithoutOne_TakesItsKindTreeArgumentsAndTags_RunsTheSame()
         {
             var row = new LevelObjectDef { id = "hall.door.9", name = "hall.door.9", tree = m_Tree };

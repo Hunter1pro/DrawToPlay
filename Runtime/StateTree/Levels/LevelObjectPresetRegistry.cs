@@ -78,7 +78,8 @@ namespace PowerOfFire.DrawToPlay
 
         /// <summary>
         /// The row as it runs: a copy wearing this preset's kind, tree and tags, with the tree's arguments the
-        /// core's — then the row's own value for each setting it set. The row itself is never changed.
+        /// core's — then the row's own value for each setting it set, and its own tags beside the preset's (what this
+        /// one is: an item of a set, a place among places). The row itself is never changed.
         /// </summary>
         public LevelObjectDef Apply(LevelObjectDef row)
         {
@@ -91,11 +92,17 @@ namespace PowerOfFire.DrawToPlay
             made.parameters = Arguments(row);
             made.tags = new List<LevelObjectTagRef>();
             for (int i = 0; tags != null && i < tags.Count; i++)
-            {
-                if (tags[i] != null)
-                    made.tags.Add(new LevelObjectTagRef { tag = tags[i].tag, tagId = tags[i].tagId });
-            }
+                AddTag(made.tags, tags[i]);
+            for (int i = 0; row.tags != null && i < row.tags.Count; i++)
+                AddTag(made.tags, row.tags[i]);
             return made;
+        }
+
+        private static void AddTag(List<LevelObjectTagRef> into, LevelObjectTagRef tag)
+        {
+            if (tag == null || string.IsNullOrEmpty(tag.tag) || into.Exists(t => t.tag == tag.tag))
+                return;
+            into.Add(new LevelObjectTagRef { tag = tag.tag, tagId = tag.tagId });
         }
 
         /// <summary>The core's arguments, then each setting the row set — copied, never aliased.</summary>
