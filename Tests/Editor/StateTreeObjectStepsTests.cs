@@ -296,9 +296,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             var shown = new StateTreeStepParameterInputs(m_Use, null, null, m_Use, (_, _, _, _, _) => { }, m_Manifest);
             var field = (StateTreePickField)shown.Picker(parameter, "Target");
             Assert.IsFalse(field.missing, "the row is in the manifest the window shows");
-            StateTreePickMenu.lastShown = null;
-            field.Open();
-            CollectionAssert.Contains(StateTreePickMenu.lastShown.items.Select(i => i.value).ToArray(), "p.mark", "its rows offered");
+            StringAssert.Contains("hall.door.front", field.button.text, "shown by its row's name");
         }
 
         // ---- helpers ----------------------------------------------------------------------
