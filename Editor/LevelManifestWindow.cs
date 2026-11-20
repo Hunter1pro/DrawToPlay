@@ -1238,7 +1238,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                         overrideRow = value
                     };
                     var inputs = new StateTreeStepParameterInputs(preset.tree, null, null, preset.tree,
-                        (_, text, numberValue, entryId, keyId) => SetSetting(row, declaration, text, numberValue, entryId, keyId));
+                        (_, text, numberValue, entryId, keyId) => SetSetting(row, declaration, text, numberValue, entryId, keyId),
+                        Objects);
                     field = (declaration.IsPlacementInLevel ? declared : null)
                         ?? inputs.Picker(parameter, label)
                         ?? declared

@@ -22,19 +22,32 @@ namespace PowerOfFire.DrawToPlay.Editor
         private readonly StateTreeNodeAsset m_Node;
         private readonly StateTreeAsset m_Template;
         private readonly Writer m_Write;
+        private readonly LevelObjectRegistry m_Placements;
 
         /// <param name="tree">The tree the calling state lives in — its keys, tags and context.</param>
         /// <param name="schema">Its schema, or null: only a group's context (a level's manifest) needs it.</param>
         /// <param name="node">The calling state.</param>
         /// <param name="template">The sub-tree it runs — its Data is where rows resolve.</param>
+        /// <param name="placements">Where a placement is found when the host already holds it (a row's settings in
+        /// its own manifest); null: the calling state's Level.</param>
         internal StateTreeStepParameterInputs(StateTreeAsset tree, StateTreeSchema schema, StateTreeNodeAsset node,
-            StateTreeAsset template, Writer write)
+            StateTreeAsset template, Writer write, LevelObjectRegistry placements = null)
         {
+            m_Placements = placements;
             m_Tree = tree;
             m_Schema = schema;
             m_Node = node;
             m_Template = template;
             m_Write = write;
+        }
+
+        /// <summary>The placement of that id, in the host's manifest when it gave one, else the calling state's Level's.</summary>
+        private LevelObjectDef Placement(string id, out LevelObjectRegistry manifest)
+        {
+            if (m_Placements == null)
+                return StateTreeSchemaRules.Placement(m_Tree, m_Schema, m_Node, id, out manifest);
+            manifest = m_Placements;
+            return string.IsNullOrEmpty(id) ? null : m_Placements.Row(id);
         }
 
         /// <summary>True when the bound field names something with a catalog to pick from.</summary>
@@ -232,8 +245,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreePickField field;
             if (parameter.isPlacement)
             {
-                LevelObjectDef placement = StateTreeSchemaRules.Placement(m_Tree, m_Schema, m_Node, shown,
-                    out LevelObjectRegistry manifest);
+                LevelObjectDef placement = Placement(shown, out LevelObjectRegistry manifest);
                 bool missing = placement == null && !string.IsNullOrEmpty(shown);
                 if (placement != null)
                     shown = placement.name;
@@ -279,7 +291,7 @@ namespace PowerOfFire.DrawToPlay.Editor
             StateTreePickMenu menu;
             if (parameter.isPlacement)
             {
-                StateTreeSchemaRules.Placement(m_Tree, m_Schema, m_Node, "", out LevelObjectRegistry manifest);
+                Placement("", out LevelObjectRegistry manifest);
                 var rows = new List<LevelObjectDef>();
                 manifest?.CollectRows(rows);
                 menu = StateTreePickItems.Placements(rows, m_Tree, manifest);

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.34 - 2026-11-20
+- A row's placement setting in the Level Manifest (a close look's bag, the object it opens) is found in the manifest the
+  window shows, not in the preset's shared tree, which holds none: it no longer reads "✕ not found" when the row is
+  there, and its picker offers that manifest's rows (`StateTreeStepParameterInputs`, its `placements`).
+
 ## 0.6.32 - 2026-11-18
 - A Mesh ghost draws only what its prefab has switched on, as the game does; a row may name one switched-off variant
   to draw all the same (`ILevelRowGhost.VariantOf`, `LevelGhostMeshes.Of(prefab, shown)`) — an object with several

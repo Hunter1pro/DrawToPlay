@@ -279,6 +279,28 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.IsFalse(portal.Copy("preset.portal.2", "Portal 2").forItsKind, "a copy does not speak for the kind too");
         }
 
+        [Test]
+        public void ARowsPlacementSetting_IsFoundInTheManifestItIsShownIn_NotInItsSharedTree()
+        {
+            // A row's settings in Level Manifest: the preset's tree is shared by every level, so it holds no manifest.
+            GraphTaskParameter declaration = m_Use.parameters.Single(p => p.id == "target");
+            var parameter = new StateTreeStepParameter
+            {
+                declaration = declaration,
+                field = StateTreeSchemaRules.BoundField(m_Use, declaration.id),
+                overrideRow = new GraphTaskParameterOverride { id = declaration.id, name = declaration.name, enabled = true, stringValue = "p.door" }
+            };
+            var alone = new StateTreeStepParameterInputs(m_Use, null, null, m_Use, (_, _, _, _, _) => { });
+            Assert.IsTrue(((StateTreePickField)alone.Picker(parameter, "Target")).missing, "nothing to look in: not found");
+
+            var shown = new StateTreeStepParameterInputs(m_Use, null, null, m_Use, (_, _, _, _, _) => { }, m_Manifest);
+            var field = (StateTreePickField)shown.Picker(parameter, "Target");
+            Assert.IsFalse(field.missing, "the row is in the manifest the window shows");
+            StateTreePickMenu.lastShown = null;
+            field.Open();
+            CollectionAssert.Contains(StateTreePickMenu.lastShown.items.Select(i => i.value).ToArray(), "p.mark", "its rows offered");
+        }
+
         // ---- helpers ----------------------------------------------------------------------
 
         private StateTreePickMenu OpenFactPicker(StateTreeNodeAsset step)
