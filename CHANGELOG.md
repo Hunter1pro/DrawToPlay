@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.37 - 2026-11-24
+- Tests: the folds' reload stand-in clears only the window's own fields; the row guard's test uses rows no project has.
+
 ## 0.6.36 - 2026-11-24
 - Removing a row asks about its uses as they stand, unsaved edits included: a step given another task and not saved yet
   no longer reads "Still in use" (`StateTreeRowGuard.Uses` scans again; the cache moved only on a file change). Deleting a

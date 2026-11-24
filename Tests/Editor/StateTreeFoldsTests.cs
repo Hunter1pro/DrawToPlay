@@ -93,7 +93,7 @@ namespace PowerOfFire.DrawToPlay.Tests
             StateTreeEditorWindow window = StateTreeEditorWindow.Open(a);
             window.SetFolded("chapter", true);
 
-            const BindingFlags fields = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+            const BindingFlags fields = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly;
             foreach (FieldInfo field in typeof(StateTreeEditorWindow).GetFields(fields))
             {
                 if (field.IsDefined(typeof(NonSerializedAttribute), false))

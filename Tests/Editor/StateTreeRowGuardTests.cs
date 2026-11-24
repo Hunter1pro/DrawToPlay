@@ -28,12 +28,12 @@ namespace PowerOfFire.DrawToPlay.Tests
         public void AUseTakenAwayBeforeASave_NoLongerHoldsTheRow()
         {
             var cues = ScriptableObject.CreateInstance<CueRegistry>();
-            var impact = new CueDef { id = "cue.impact", name = "impact" };
+            var impact = new CueDef { id = "cue.row-guard-test", name = "row-guard-test" };
             cues.entries.Add(impact);
             AssetDatabase.CreateAsset(cues, k_Folder + "/Cues.asset");
 
             var effects = ScriptableObject.CreateInstance<EffectRegistry>();
-            var hit = new EffectDef { id = "effect.hit", name = "strike-hit" };
+            var hit = new EffectDef { id = "effect.row-guard-test", name = "row-guard-test-hit" };
             hit.cue.entryId = impact.id;
             hit.cue.entryName = impact.name;
             effects.entries.Add(hit);
