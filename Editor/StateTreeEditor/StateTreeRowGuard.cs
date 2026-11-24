@@ -31,6 +31,9 @@ namespace PowerOfFire.DrawToPlay.Editor
             if (row == null)
                 return uses;
 
+            // Scanned again each time: an edit not yet saved (a step given another task) changes no file, so the
+            // cache would still name the old use. A remove is rare; the scan is the price of the right answer.
+            AssetWireScan.Invalidate();
             AssetWireScan.Index index = AssetWireScan.Get();
             uses.AddRange(AssetWireScan.UsersOfRow(index, row));
             if (row is WorldTagDef)

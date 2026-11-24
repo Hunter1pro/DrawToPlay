@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.36 - 2026-11-24
+- Removing a row asks about its uses as they stand, unsaved edits included: a step given another task and not saved yet
+  no longer reads "Still in use" (`StateTreeRowGuard.Uses` scans again; the cache moved only on a file change). Deleting a
+  file asks the same way (`StateTreeAssetDeleteGuard`).
+
 ## 0.6.35 - 2026-11-24
 - The State Tree window keeps its folded rows through a recompile: it reloads them after a domain reload instead of
   showing every row open and saving that open state on the next arrow (`StateTreeEditorWindow.m_FoldsTree` not kept).

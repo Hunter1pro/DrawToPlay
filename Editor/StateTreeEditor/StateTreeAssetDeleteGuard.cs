@@ -69,6 +69,8 @@ namespace PowerOfFire.DrawToPlay.Editor
                 return AssetDeleteResult.DidNotDelete;
 
             var breakers = new List<AssetWireScan.WireUse>();
+            // Scanned again: an unsaved edit that let go of this file's rows changed no file, so the cache missed it.
+            AssetWireScan.Invalidate();
             StateTreeRowGuard.Breakers(AssetWireScan.Get(), contents, path, breakers);
             if (breakers.Count == 0)
                 return AssetDeleteResult.DidNotDelete;
