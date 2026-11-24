@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
 using NUnit.Framework;
 using PowerOfFire.DrawToPlay.Editor;
 using UnityEditor;
@@ -78,6 +81,32 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             Assert.IsFalse(window.IsFolded("chapter"));
             CollectionAssert.IsEmpty(StateTreeFolds.Folded(m_GuidA));
+        }
+
+        /// <summary>A recompile keeps the window's fields Unity can serialize, private ones too, and drops the rest:
+        /// done here by hand, then the tree rebuilt as the reloaded window does.</summary>
+        [Test]
+        public void Folds_OutliveADomainReload_AndTheNextArrowKeepsThem()
+        {
+            StateTreeAsset a = Tree(k_Folder + "/A.asset");
+            m_GuidA = StateTreeFolds.GuidOf(a);
+            StateTreeEditorWindow window = StateTreeEditorWindow.Open(a);
+            window.SetFolded("chapter", true);
+
+            const BindingFlags fields = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+            foreach (FieldInfo field in typeof(StateTreeEditorWindow).GetFields(fields))
+            {
+                if (field.IsDefined(typeof(NonSerializedAttribute), false))
+                    field.SetValue(window, null);
+                else if (field.FieldType == typeof(HashSet<string>) && !field.IsInitOnly)
+                    field.SetValue(window, new HashSet<string>());
+            }
+            typeof(StateTreeEditorWindow).GetMethod("RebuildTree", fields).Invoke(window, null);
+
+            Assert.IsTrue(window.IsFolded("chapter"), "the fold comes back after the reload");
+            window.SetFolded("other", true);
+            CollectionAssert.AreEquivalent(new[] { "chapter", "other" }, StateTreeFolds.Folded(m_GuidA),
+                "an arrow after the reload adds to the saved folds, not over them");
         }
 
         private static StateTreeAsset Tree(string path)

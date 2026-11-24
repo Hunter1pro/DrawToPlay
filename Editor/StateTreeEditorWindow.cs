@@ -65,7 +65,9 @@ namespace PowerOfFire.DrawToPlay.Editor
         private readonly List<string> m_RowOrder = new List<string>();
         private int m_NextRowId = 1;
 
-        private StateTreeAsset m_FoldsTree;
+        // A domain reload keeps an EditorWindow's private fields but not the HashSet: kept, this would skip the reload
+        // of the folds and the next arrow would save every row open.
+        [NonSerialized] private StateTreeAsset m_FoldsTree;
         private StateTreeAsset m_RecalledTree;
         private string m_TreeGuid = string.Empty;
         private HashSet<string> m_Folded = new HashSet<string>();

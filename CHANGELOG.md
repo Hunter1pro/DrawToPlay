@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.35 - 2026-11-24
+- The State Tree window keeps its folded rows through a recompile: it reloads them after a domain reload instead of
+  showing every row open and saving that open state on the next arrow (`StateTreeEditorWindow.m_FoldsTree` not kept).
+
 ## 0.6.34 - 2026-11-20
 - A row's placement setting in the Level Manifest (a close look's bag, the object it opens) is found in the manifest the
   window shows, not in the preset's shared tree, which holds none: it no longer reads "✕ not found" when the row is
