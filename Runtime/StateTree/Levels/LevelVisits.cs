@@ -64,6 +64,33 @@ namespace PowerOfFire.DrawToPlay
             return episode != null && !string.IsNullOrEmpty(visitNode) ? ManifestOf(Find(episode.root, visitNode, 0)) : null;
         }
 
+        /// <summary>The node <paramref name="id"/> of <paramref name="episode"/>, or null.</summary>
+        public static StateTreeNodeAsset Node(StateTreeAsset episode, string id)
+        {
+            return episode != null && !string.IsNullOrEmpty(id) ? Find(episode.root, id, 0) : null;
+        }
+
+        /// <summary>The Level node just before <paramref name="visitNode"/> in tree order — any level's — or empty for the
+        /// first.</summary>
+        public static string LevelBefore(StateTreeAsset episode, string visitNode)
+        {
+            var levels = new List<string>();
+            if (episode != null)
+                Levels(episode.root, levels, 0);
+            int at = levels.IndexOf(visitNode);
+            return at > 0 ? levels[at - 1] : "";
+        }
+
+        private static void Levels(StateTreeNodeAsset node, List<string> into, int depth)
+        {
+            if (node == null || depth > 64)
+                return;
+            if (LevelNameOf(node) != null)
+                into.Add(node.nodeId);
+            for (int i = 0; i < node.children.Count; i++)
+                Levels(node.children[i], into, depth + 1);
+        }
+
         private static StateTreeNodeAsset Find(StateTreeNodeAsset node, string id, int depth)
         {
             if (node == null || depth > 64)

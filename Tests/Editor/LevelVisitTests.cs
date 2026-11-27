@@ -71,12 +71,17 @@ namespace PowerOfFire.DrawToPlay.Tests
             Assert.IsTrue(episode.JoinEpisode("Hall", hall));
             Assert.AreEqual("hall", episode.episodeVisit, "the first visit first");
             Finish(episode, hall, "s1");
-            Assert.AreEqual("hall2", episode.VisitToJoin("Hall"), "its part done: the next visit is the one to join");
+            Assert.AreEqual("hall", episode.VisitToJoin("Hall"),
+                "its part done, but the story is not at the second visit yet: the lobby comes before it");
+            Assert.IsFalse(episode.Reached("hall2"));
             Unload(hall);
 
             StateTreeContextHost lobby = Host("Lobby", StateTreeContextKind.Level);
             Assert.IsTrue(episode.JoinEpisode("Lobby", lobby));
+            Assert.AreEqual("hall", episode.VisitToJoin("Hall"), "the lobby still going");
             Finish(episode, lobby, "l1");
+            Assert.IsTrue(episode.Reached("hall2"), "the lobby's part over: the story is at the hall's second visit");
+            Assert.AreEqual("hall2", episode.VisitToJoin("Hall"));
             Unload(lobby);
 
             StateTreeContextHost again = Host("Hall again", StateTreeContextKind.Level);
@@ -106,7 +111,8 @@ namespace PowerOfFire.DrawToPlay.Tests
                 "a switched-off step after it is passed through");
 
             episode.RestoreCursor("Hall", new StateTreeEpisodeCursor { node = "s1", complete = true });
-            Assert.AreEqual("hall2", episode.VisitToJoin("Hall"), "a visit resting at its end: the next is joined");
+            episode.RestoreCursor("Lobby", new StateTreeEpisodeCursor { node = "l1", complete = true });
+            Assert.AreEqual("hall2", episode.VisitToJoin("Hall"), "a visit resting at its end, the lobby's done: the next is joined");
         }
 
         [Test]
@@ -116,7 +122,9 @@ namespace PowerOfFire.DrawToPlay.Tests
             StateTreeContextHost episode = Host("Episode", StateTreeContextKind.Episode, tree);
             Assert.AreEqual("hall", episode.VisitToJoin("Hall"));
             tree.root.children[0].children[0].disabled = true;
-            Assert.AreEqual("hall2", episode.VisitToJoin("Hall"), "nothing on in the first visit: the story is at the second");
+            Assert.AreEqual("hall", episode.VisitToJoin("Hall"), "nothing on in the first visit, but the lobby is before the second");
+            tree.root.children[1].children[0].disabled = true;
+            Assert.AreEqual("hall2", episode.VisitToJoin("Hall"), "nothing on before it either: the story is at the second");
             tree.root.children[2].children[0].disabled = true;
             Assert.AreEqual("hall2", episode.VisitToJoin("Hall"), "nothing on anywhere: the last");
         }
@@ -135,6 +143,12 @@ namespace PowerOfFire.DrawToPlay.Tests
 
             StateTreeContextHost later = Host("Episode", StateTreeContextKind.Episode, Story());
             later.RestoreCursor("Hall", new StateTreeEpisodeCursor { node = "hall", complete = true });
+            StateTreeContextHost early = Host("Hall early", StateTreeContextKind.Level);
+            Assert.IsTrue(later.JoinEpisode("Hall", early));
+            Assert.AreEqual("hall", later.episodeVisit, "the lobby not known to be done: the hall rests on its first part");
+            Assert.AreEqual(0, Entered("t1"), "the second visit's step does not start early");
+            Unload(early);
+            later.RestoreCursor("Lobby", new StateTreeEpisodeCursor { node = "lobby", complete = true });
             StateTreeContextHost back = Host("Hall", StateTreeContextKind.Level);
             Assert.IsTrue(later.JoinEpisode("Hall", back));
             Assert.AreEqual("hall2", later.episodeVisit, "the hall's part was over: its next visit");

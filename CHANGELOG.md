@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.38 - 2026-11-27
+- A level's later visit begins only once the story has reached it: the Level node before it in the tree is finished
+  (`StateTreeContextHost.Reached`, `LevelVisits.LevelBefore`). Back in the hall before the third floor — a relaunch, or
+  walking up from the lobby — the hall rests on its first part over instead of starting its second visit's steps early.
+  A game puts every level's saved cursor back before its first level is born, so the rule knows where the story is.
+
 ## 0.6.37 - 2026-11-24
 - Tests: the folds' reload stand-in clears only the window's own fields; the row guard's test uses rows no project has.
 

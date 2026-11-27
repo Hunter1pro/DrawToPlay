@@ -169,7 +169,10 @@ namespace PowerOfFire.DrawToPlay
         /// <summary>
         /// The visit <paramref name="level"/> joins next: its first Level node not finished, in tree order — finished
         /// when its part is over (<see cref="LevelVisits.IsOver"/>: it left, or rests at its end), when a later visit
-        /// has begun, or, not begun, when nothing in it is switched on. All finished: the last, resting. With
+        /// has begun, or, not begun, when nothing in it is switched on. A later visit not begun yet is joined only once
+        /// the story has reached it (<see cref="Reached"/>); until then the level stays on the visit it had, resting
+        /// there — back in the hall before the third floor is the hall's first part over, not its second. All
+        /// finished: the last, resting. With
         /// <paramref name="restoring"/>, as if that cursor were restored first — what a level's birth asks before its
         /// restore has run. Empty when the tree has no node for the level.
         /// </summary>
@@ -194,10 +197,45 @@ namespace PowerOfFire.DrawToPlay
             // A visit not begun with nothing switched on in it is passed, as the run would pass it.
             for (int i = next; i < visits.Count; i++)
             {
-                if (!LevelVisits.RunsNothing(tree, visits[i]))
-                    return visits[i];
+                if (LevelVisits.RunsNothing(tree, visits[i]))
+                    continue;
+                if (i > 0 && !Reached(visits[i]))
+                    return visits[Math.Max(0, next - 1)];
+                return visits[i];
             }
             return visits[visits.Count - 1];
+        }
+
+        /// <summary>Whether the story has reached the visit <paramref name="visit"/>: the Level node before it in the
+        /// tree is finished — over, or a later visit of its level begun — one never begun with nothing switched on is
+        /// passed to the one before it. Only what this session knows of the other levels counts: a game puts every
+        /// level's saved cursor back (<see cref="RestoreCursor"/>) before its first level is born.</summary>
+        public bool Reached(string visit)
+        {
+            string before = LevelVisits.LevelBefore(tree, visit);
+            for (int guard = 0; !string.IsNullOrEmpty(before) && guard < 64; guard++)
+            {
+                StateTreeEpisodeCursor at = CursorOfVisit(before);
+                if (!at.isEmpty)
+                    return LevelVisits.IsOver(tree, before, at) || LaterVisitBegun(before);
+                if (LaterVisitBegun(before))
+                    return true;
+                if (!LevelVisits.RunsNothing(tree, before))
+                    return false;
+                before = LevelVisits.LevelBefore(tree, before);
+            }
+            return true;
+        }
+
+        private bool LaterVisitBegun(string visit)
+        {
+            List<string> visits = LevelVisits.NodesOf(tree, LevelVisits.LevelNameOf(LevelVisits.Node(tree, visit)));
+            for (int i = visits.IndexOf(visit) + 1; i > 0 && i < visits.Count; i++)
+            {
+                if (!CursorOfVisit(visits[i]).isEmpty)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>What the visit <paramref name="level"/> joins next adds and hides (<see cref="VisitToJoin"/>), or null
